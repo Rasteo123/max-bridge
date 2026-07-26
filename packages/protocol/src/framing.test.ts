@@ -77,6 +77,18 @@ describe("worker protocol validation", () => {
     expect(parseWorkerMessage(request)).toEqual(request);
   });
 
+  it("accepts bounded MAX login operations without identity fields", () => {
+    expect(parseWorkerMessage({
+      ...request,
+      operation: "login.code",
+      payload: { code: "123456" }
+    })).toEqual({
+      ...request,
+      operation: "login.code",
+      payload: { code: "123456" }
+    });
+  });
+
   it("rejects client identity fields", () => {
     expect(() => parseWorkerMessage({
       ...request,

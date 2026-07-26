@@ -1,0 +1,275 @@
+import { zeroBuffer } from "@maxbridge/core";
+import type {
+  BridgeEvent,
+  ChatSummary,
+  Message
+} from "@maxbridge/core";
+import type { MaxLoginResult } from "@maxbridge/max-adapter";
+import type {
+  WorkerRequest,
+  WorkerResponse
+} from "@maxbridge/protocol";
+
+export interface RuntimeMaxSession {
+  submitPhone(phone: string): Promise<MaxLoginResult>;
+  submitCode(code: string): Promise<Readonly<{
+    result: MaxLoginResult;
+    storageStateBase64?: string;
+  }>>;
+  getQrPng(): Promise<Buffer>;
+  status(): Promise<MaxLoginResult>;
+  listChats(): Promise<readonly ChatSummary[]>;
+  history(chatId: string): Promise<readonly Message[] | null>;
+  sendText(chatId: string, text: string): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>>;
+  close(): Promise<void>;
+}
+
+export interface RuntimeSessionFactory {
+  open(
+    handle: string,
+    storageState: Uint8Array | undefined,
+    onEvents: (events: readonly BridgeEvent[]) => void
+  ): Promise<RuntimeMaxSession>;
+  close(handle: string, session: RuntimeMaxSession): Promise<void>;
+}
+
+export class WorkerRuntimeRequestHandler {
+  private readonly sessions = new Map<string, RuntimeMaxSession>();
+
+  constructor(private readonly options: Readonly<{
+    factory: RuntimeSessionFactory;
+    healthy: () => boolean;
+    emitEvents?: (
+      sessionHandle: string,
+      events: readonly BridgeEvent[]
+    ) => void;
+  }>) {}
+
+  readonly handle = async (
+    request: WorkerRequest
+  ): Promise<WorkerResponse> => {
+    try {
+      if (request.operation === "health.check") {
+        return success(request, { healthy: this.options.healthy() });
+      }
+      if (request.operation === "session.open") {
+        return await this.open(request);
+      }
+      if (request.operation === "session.close") {
+        await this.closeSession(request.sessionHandle);
+        return success(request);
+      }
+      const session = this.sessions.get(request.sessionHandle);
+      if (session === undefined) {
+        return failure(request, "session_not_found");
+      }
+      switch (request.operation) {
+        case "login.phone":
+          return success(
+            request,
+            await session.submitPhone(readPhone(request.payload))
+          );
+        case "login.code":
+          return success(
+            request,
+            await session.submitCode(readCode(request.payload))
+          );
+        case "login.qr":
+          return success(request, {
+            pngBase64: (await session.getQrPng()).toString("base64")
+          });
+        case "login.status":
+          return success(request, await session.status());
+        case "chats.list":
+          return success(request, { chats: await session.listChats() });
+        case "messages.history":
+          return success(request, {
+            messages: await session.history(readChatId(request.payload))
+          });
+        case "message.send": {
+          const input = readSendText(request.payload);
+          return success(
+            request,
+            await session.sendText(input.chatId, input.text)
+          );
+        }
+        default:
+          return failure(request, "invalid_request");
+      }
+    } catch {
+      return failure(request, "worker_failure");
+    }
+  };
+
+  async close(): Promise<void> {
+    await Promise.allSettled([...this.sessions].map(
+      async ([handle, session]) => {
+        await this.options.factory.close(handle, session);
+      }
+    ));
+    this.sessions.clear();
+  }
+
+  private async open(request: WorkerRequest): Promise<WorkerResponse> {
+    if (this.sessions.has(request.sessionHandle)) {
+      return success(request, { opened: true });
+    }
+    const storageState = readStorageState(request.payload);
+    try {
+      const session = await this.options.factory.open(
+        request.sessionHandle,
+        storageState,
+        (events) => {
+          this.options.emitEvents?.(request.sessionHandle, events);
+        }
+      );
+      this.sessions.set(request.sessionHandle, session);
+      return success(request, { opened: true });
+    } finally {
+      if (storageState !== undefined) {
+        zeroBuffer(storageState);
+      }
+    }
+  }
+
+  private async closeSession(handle: string): Promise<void> {
+    const session = this.sessions.get(handle);
+    this.sessions.delete(handle);
+    if (session !== undefined) {
+      await this.options.factory.close(handle, session);
+    }
+  }
+}
+
+function success(
+  request: WorkerRequest,
+  payload?: unknown
+): WorkerResponse {
+  return {
+    kind: "response",
+    requestId: request.requestId,
+    ok: true,
+    ...(payload === undefined ? {} : { payload })
+  };
+}
+
+function failure(
+  request: WorkerRequest,
+  errorCode: "invalid_request" | "session_not_found" | "worker_failure"
+): WorkerResponse {
+  return {
+    kind: "response",
+    requestId: request.requestId,
+    ok: false,
+    errorCode
+  };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  if (
+    value === null
+    || typeof value !== "object"
+    || Array.isArray(value)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return value as Record<string, unknown>;
+}
+
+function exact(
+  value: unknown,
+  keys: readonly string[]
+): Record<string, unknown> {
+  const parsed = record(value);
+  if (Object.keys(parsed).some((key) => !keys.includes(key))) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return parsed;
+}
+
+function readStorageState(value: unknown): Uint8Array | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const input = exact(value, ["storageStateBase64"]);
+  const encoded = input["storageStateBase64"];
+  if (
+    typeof encoded !== "string"
+    || encoded.length < 4
+    || encoded.length > 2 * 1024 * 1024
+    || !/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return Buffer.from(encoded, "base64");
+}
+
+function readPhone(value: unknown): string {
+  const phone = exact(value, ["phone"])["phone"];
+  if (typeof phone !== "string" || !/^\+[1-9]\d{7,14}$/u.test(phone)) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return phone;
+}
+
+function readCode(value: unknown): string {
+  const code = exact(value, ["code"])["code"];
+  if (typeof code !== "string" || !/^\d{4,8}$/u.test(code)) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return code;
+}
+
+function readChatId(value: unknown): string {
+  const chatId = exact(value, ["chatId", "cursor"])["chatId"];
+  if (
+    typeof chatId !== "string"
+    || chatId.length < 1
+    || chatId.length > 512
+    || hasControlCharacter(chatId)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return chatId;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function readSendText(value: unknown): Readonly<{
+  chatId: string;
+  text: string;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "clientRequestId",
+    "text",
+    "retryOf",
+    "confirmedByUser"
+  ]);
+  const chatId = readChatId({ chatId: input["chatId"] });
+  const text = input["text"];
+  const clientRequestId = input["clientRequestId"];
+  if (
+    typeof text !== "string"
+    || text.length < 1
+    || text.length > 65_536
+    || typeof clientRequestId !== "string"
+    || clientRequestId.length < 1
+    || clientRequestId.length > 128
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return { chatId, text };
+}

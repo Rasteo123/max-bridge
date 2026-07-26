@@ -14,6 +14,9 @@ Environment=MAXBRIDGE_HOST=127.0.0.1
 Environment=MAXBRIDGE_PORT=3100
 Environment=MAXBRIDGE_DATABASE=/var/lib/maxbridge/maxbridge.sqlite
 Environment=MAXBRIDGE_WORKER_SOCKET=/run/maxbridge/worker.sock
+Environment=MAXBRIDGE_PUBLIC_ORIGIN=https://max-users.online
+Environment=MAXBRIDGE_BOT_ENABLED=false
+EnvironmentFile=-/etc/maxbridge/config.env
 ExecStart=/usr/bin/node /opt/maxbridge/current/apps/api/dist/entrypoint.js
 Restart=on-failure
 RestartSec=5s

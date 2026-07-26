@@ -81,7 +81,7 @@ describe("UsersRepository", () => {
   });
 
   it("stores and decrypts MAX storage state", async () => {
-    await repository.createPending({ telegramId: "123456789" });
+    const user = await repository.createPending({ telegramId: "123456789" });
     const storageState = new TextEncoder().encode(
       '{"cookies":[{"name":"CANARY_COOKIE_SECRET"}]}'
     );
@@ -93,6 +93,16 @@ describe("UsersRepository", () => {
     expect(new TextDecoder().decode(restored ?? undefined)).toBe(
       '{"cookies":[{"name":"CANARY_COOKIE_SECRET"}]}'
     );
+
+    await expect(repository.loadMaxSessionByLookup(user.lookupId))
+      .resolves.toEqual(restored);
+    repository.transitionByLookup(user.lookupId, "approved_unbound");
+    repository.transitionByLookup(user.lookupId, "authenticating");
+    expect(repository.transitionByLookup(user.lookupId, "active").state)
+      .toBe("active");
+    repository.clearMaxSessionByLookup(user.lookupId);
+    await expect(repository.loadMaxSessionByLookup(user.lookupId))
+      .resolves.toBeNull();
   });
 
   it("does not expose identity or MAX state in raw SQLite files", async () => {

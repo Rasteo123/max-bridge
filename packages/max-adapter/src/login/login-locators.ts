@@ -38,14 +38,17 @@ export function qrVisual(page: Page): Locator {
   const explicitlyLabelled = page
     .locator('img[alt*="qr" i], canvas')
     .first();
+  const currentQr = page
+    .locator('div[class~="qr"]')
+    .first();
   const semanticQrForm = page
     .locator("form")
     .filter({
-      hasText: /sign in to max with (?:a )?qr code|log in to max with (?:a )?qr code|войдите в max по qr-коду/iu
+      hasText: /sign in to max (?:with (?:a )?|via )qr code|log in to max (?:with (?:a )?|via )qr code|войдите в max по qr-коду/iu
     })
     .locator("svg")
     .last();
-  return explicitlyLabelled.or(semanticQrForm).first();
+  return explicitlyLabelled.or(currentQr).or(semanticQrForm).first();
 }
 
 export function captchaElement(page: Page): Locator {

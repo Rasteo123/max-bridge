@@ -10,7 +10,8 @@ import {
   encodeFrame,
   parseWorkerMessage,
   type WorkerRequest,
-  type WorkerResponse
+  type WorkerResponse,
+  type WorkerEvent
 } from "@maxbridge/protocol";
 
 export type WorkerRequestHandler = (
@@ -77,6 +78,15 @@ export class WorkerProtocolServer {
       });
     }
     await rm(this.options.socketPath, { force: true });
+  }
+
+  broadcast(event: WorkerEvent): void {
+    const frame = encodeFrame(parseWorkerMessage(event));
+    for (const socket of this.sockets) {
+      if (!socket.destroyed) {
+        socket.write(frame);
+      }
+    }
   }
 
   private async handleChunk(

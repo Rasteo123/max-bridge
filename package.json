@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b && npm run build --workspace @maxbridge/web",
+    "build": "tsc -b && node scripts/copy-runtime-assets.mjs && npm run build --workspace @maxbridge/web",
     "clean": "tsc -b --clean",
     "lint": "eslint .",
     "test": "vitest run --config vitest.workspace.ts",

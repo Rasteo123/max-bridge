@@ -2,6 +2,10 @@ export const WORKER_OPERATIONS = [
   "health.check",
   "session.open",
   "session.close",
+  "login.phone",
+  "login.code",
+  "login.qr",
+  "login.status",
   "chats.list",
   "messages.history",
   "message.send"

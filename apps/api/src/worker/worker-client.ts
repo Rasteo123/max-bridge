@@ -6,6 +6,7 @@ import {
   encodeFrame,
   parseWorkerMessage,
   type WorkerOperation,
+  type WorkerEvent,
   type WorkerResponse
 } from "@maxbridge/protocol";
 
@@ -56,6 +57,7 @@ export class WorkerClient {
   private readonly decoder = new FrameDecoder();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly requestTimeoutMs: number;
+  private readonly listeners = new Set<(event: WorkerEvent) => void>();
 
   constructor(private readonly options: WorkerClientOptions) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
@@ -115,6 +117,13 @@ export class WorkerClient {
     });
   }
 
+  subscribe(listener: (event: WorkerEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   close(): void {
     this.socket?.destroy();
     this.handleDisconnect();
@@ -126,6 +135,10 @@ export class WorkerClient {
         const message = parseWorkerMessage(value);
         if (message.kind === "response") {
           this.resolveResponse(message);
+        } else if (message.kind === "event") {
+          for (const listener of this.listeners) {
+            listener(message);
+          }
         }
       }
     } catch {

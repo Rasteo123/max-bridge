@@ -195,10 +195,19 @@ export class UsersRepository {
     telegramId: string,
     nextState: UserState
   ): UserRecord {
+    return this.transitionByLookup(
+      createUserLookup(this.keys.lookupKey, telegramId),
+      nextState
+    );
+  }
+
+  transitionByLookup(
+    lookupId: string,
+    nextState: UserState
+  ): UserRecord {
     if (!USER_STATES.includes(nextState)) {
       throw new InvalidUserTransitionError();
     }
-    const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
     const row = this.requireRow(lookupId);
     const currentState = parseUserState(row.state);
     if (!allowedTransitions[currentState].includes(nextState)) {
@@ -217,7 +226,16 @@ export class UsersRepository {
     telegramId: string,
     storageState: Uint8Array
   ): Promise<void> {
-    const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
+    await this.saveMaxSessionByLookup(
+      createUserLookup(this.keys.lookupKey, telegramId),
+      storageState
+    );
+  }
+
+  async saveMaxSessionByLookup(
+    lookupId: string,
+    storageState: Uint8Array
+  ): Promise<void> {
     const row = this.requireRow(lookupId);
     const dataKey = await this.loadDataKey(row);
     try {
@@ -245,7 +263,14 @@ export class UsersRepository {
   async loadMaxSession(
     telegramId: string
   ): Promise<Uint8Array | null> {
-    const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
+    return this.loadMaxSessionByLookup(
+      createUserLookup(this.keys.lookupKey, telegramId)
+    );
+  }
+
+  async loadMaxSessionByLookup(
+    lookupId: string
+  ): Promise<Uint8Array | null> {
     const row = this.requireRow(lookupId);
     if (row.max_session_cipher === null) {
       return null;
@@ -261,6 +286,15 @@ export class UsersRepository {
     } finally {
       zeroBuffer(dataKey);
     }
+  }
+
+  clearMaxSessionByLookup(lookupId: string): void {
+    this.requireRow(lookupId);
+    this.database.prepare(`
+      UPDATE users
+      SET max_session_cipher = NULL, updated_at = ?
+      WHERE lookup_id = ?
+    `).run(this.now().toISOString(), lookupId);
   }
 
   async saveNotificationPreferencesByLookup(

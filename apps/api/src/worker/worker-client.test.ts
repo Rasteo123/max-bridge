@@ -11,6 +11,7 @@ import {
   FrameDecoder,
   encodeFrame,
   parseWorkerMessage,
+  type WorkerEvent,
   type WorkerRequest,
   type WorkerResponse
 } from "@maxbridge/protocol";
@@ -64,6 +65,27 @@ describe("WorkerClient", () => {
     client.close();
     await closeServer(server);
   });
+
+  it("delivers worker events without mixing session handles", async () => {
+    const socketPath = createSocketPath();
+    const event: WorkerEvent = {
+      kind: "event",
+      event: "session.event",
+      sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+      payload: { sequence: 1 }
+    };
+    const server = await startTestServer(socketPath, () => null, event);
+    const client = new WorkerClient({ socketPath, requestTimeoutMs: 500 });
+    const received = new Promise<WorkerEvent>((resolve) => {
+      client.subscribe(resolve);
+    });
+
+    await client.connect();
+
+    await expect(received).resolves.toEqual(event);
+    client.close();
+    await closeServer(server);
+  });
 });
 
 function createSocketPath(): string {
@@ -79,9 +101,13 @@ async function startTestServer(
   socketPath: string,
   handler: (
     request: WorkerRequest
-  ) => Promise<WorkerResponse> | null
+  ) => Promise<WorkerResponse> | null,
+  initialEvent?: WorkerEvent
 ): Promise<Server> {
   const server = createServer((socket) => {
+    if (initialEvent !== undefined) {
+      socket.write(encodeFrame(initialEvent));
+    }
     const decoder = new FrameDecoder();
     socket.on("data", (chunk) => {
       if (typeof chunk === "string") {
