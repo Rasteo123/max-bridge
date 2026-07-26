@@ -44,7 +44,11 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
-  constructor(private readonly fetcher: typeof fetch = globalThis.fetch) {}
+  private readonly fetcher: typeof fetch;
+
+  constructor(fetcher: typeof fetch = globalThis.fetch) {
+    this.fetcher = fetcher.bind(globalThis);
+  }
 
   async authenticateTelegram(initData: string): Promise<void> {
     await this.request("/api/auth/telegram", {

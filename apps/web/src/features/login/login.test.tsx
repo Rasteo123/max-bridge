@@ -59,6 +59,7 @@ describe("Telegram onboarding", () => {
       "/api/me",
       expect.objectContaining({ credentials: "include" })
     );
+    expect(fetcher.mock.contexts).toEqual([globalThis, globalThis]);
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
   });
