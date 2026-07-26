@@ -125,7 +125,14 @@ export function Conversation({
           <>
             <div className="day-divider"><span>Сегодня</span></div>
             {visibleMessages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                showSender={
+                  chat.kind !== "direct" &&
+                  message.direction === "incoming"
+                }
+              />
             ))}
           </>
         )}

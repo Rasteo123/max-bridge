@@ -3,15 +3,21 @@ import type { MessengerMessage } from "./types.js";
 
 type MessageBubbleProps = Readonly<{
   message: MessengerMessage;
+  showSender?: boolean;
 }>;
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  showSender = false
+}: MessageBubbleProps) {
   const kind = message.kind ?? "text";
   const isMedia = kind === "image" || kind === "video" ||
     kind === "voice" || kind === "file";
   return (
     <article className={`message message--${message.direction}`}>
-      {message.senderName !== undefined && <strong>{message.senderName}</strong>}
+      {showSender && message.senderName !== undefined && (
+        <strong>{message.senderName}</strong>
+      )}
       {isMedia && message.media !== undefined && (
         <MediaMessage kind={kind} media={message.media} />
       )}
