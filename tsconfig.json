@@ -2,28 +2,28 @@
   "files": [],
   "references": [
     {
-      "path": "./packages/core"
+      "path": "./packages/core/tsconfig.json"
     },
     {
-      "path": "./packages/protocol"
+      "path": "./packages/protocol/tsconfig.json"
     },
     {
-      "path": "./packages/max-adapter"
+      "path": "./packages/max-adapter/tsconfig.json"
     },
     {
-      "path": "./apps/api"
+      "path": "./apps/api/tsconfig.json"
     },
     {
-      "path": "./apps/worker"
+      "path": "./apps/worker/tsconfig.json"
     },
     {
-      "path": "./apps/web"
+      "path": "./apps/web/tsconfig.json"
     },
     {
-      "path": "./scripts"
+      "path": "./scripts/tsconfig.json"
     },
     {
-      "path": "./tests"
+      "path": "./tests/tsconfig.json"
     }
   ]
 }

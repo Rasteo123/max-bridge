@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "test": "vitest run --config vitest.workspace.ts",
     "test:watch": "vitest --config vitest.workspace.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --config playwright.config.mjs",
     "typecheck": "tsc -b --pretty false",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build"
   },

@@ -10,7 +10,7 @@
   ],
   "references": [
     {
-      "path": "../apps/api"
+      "path": "../apps/api/tsconfig.json"
     }
   ]
 }

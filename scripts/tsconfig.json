@@ -10,7 +10,7 @@
   ],
   "references": [
     {
-      "path": "../packages/max-adapter"
+      "path": "../packages/max-adapter/tsconfig.json"
     }
   ]
 }

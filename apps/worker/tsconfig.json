@@ -10,13 +10,13 @@
   ],
   "references": [
     {
-      "path": "../../packages/core"
+      "path": "../../packages/core/tsconfig.json"
     },
     {
-      "path": "../../packages/protocol"
+      "path": "../../packages/protocol/tsconfig.json"
     },
     {
-      "path": "../../packages/max-adapter"
+      "path": "../../packages/max-adapter/tsconfig.json"
     }
   ]
 }
