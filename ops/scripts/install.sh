@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
 
 if [[ "$#" -ne 2 ]]; then
   echo "usage: install.sh <release-id> <verified-archive.tar.gz>" >&2
@@ -51,6 +52,9 @@ install -d -o root -g root -m 0700 /etc/maxbridge/credentials
 install -d -o root -g root -m 0755 "$release_dir"
 tar --extract --gzip --file "$archive" --directory "$release_dir" \
   --no-same-owner --no-same-permissions
+find "$release_dir" -type d -exec chmod 0755 {} +
+find "$release_dir" -type f -exec chmod 0644 {} +
+find "$release_dir/ops/scripts" -type f -exec chmod 0755 {} +
 (
   cd "$release_dir"
   npm ci --omit=dev --no-audit --no-fund
