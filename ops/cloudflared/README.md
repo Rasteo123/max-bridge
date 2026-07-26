@@ -20,6 +20,10 @@ Install the tunnel token as a root-only systemd credential or with the official
 remotely-managed-tunnel installer. Never place the token in this repository,
 deployment archives, command history, screenshots, or logs.
 
+The production units use `/etc/maxbridge/credentials/cloudflared-token` through
+systemd `LoadCredential`. Do not run `cloudflared service install <token>`:
+that form can leave the token visible in a unit file or process command line.
+
 The Cloudflare configuration must keep WebSockets enabled and TLS mode at
 `Full (strict)`. Do not proxy or modify the existing VPN listeners on TCP/UDP
 443.

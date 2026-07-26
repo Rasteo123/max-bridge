@@ -7,6 +7,10 @@ const workerUnit = new URL(
   "./systemd/maxbridge-workers.service",
   import.meta.url
 );
+const cloudflaredUnit = new URL(
+  "./systemd/maxbridge-cloudflared.service",
+  import.meta.url
+);
 const tmpfiles = new URL("./tmpfiles/maxbridge.conf", import.meta.url);
 const installScript = new URL("./scripts/install.sh", import.meta.url);
 const healthScript = new URL("./scripts/health-check.sh", import.meta.url);
@@ -17,7 +21,7 @@ const backupScript = new URL(
 
 describe("hardened deployment artifacts", () => {
   it("runs both services as the restricted maxbridge user", async () => {
-    for (const unit of [apiUnit, workerUnit]) {
+    for (const unit of [apiUnit, workerUnit, cloudflaredUnit]) {
       const text = await readFile(unit, "utf8");
       expect(text).toContain("User=maxbridge");
       expect(text).toContain("NoNewPrivileges=true");
@@ -32,6 +36,14 @@ describe("hardened deployment artifacts", () => {
       );
       expect(text).not.toContain("/var/tmp");
     }
+  });
+
+  it("passes the Cloudflare token only through a systemd credential", async () => {
+    const text = await readFile(cloudflaredUnit, "utf8");
+    expect(text).toContain("User=maxbridge");
+    expect(text).toContain("LoadCredential=tunnel-token:");
+    expect(text).toContain("run-cloudflared.sh");
+    expect(text).not.toContain("--token=");
   });
 
   it("binds the API to loopback and uses systemd credentials", async () => {

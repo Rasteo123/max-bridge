@@ -9,6 +9,7 @@ curl --fail --silent --show-error \
   --max-time 5 http://127.0.0.1:3100/health/ready >/dev/null
 systemctl is-active --quiet maxbridge-api.service
 systemctl is-active --quiet maxbridge-workers.service
+systemctl is-active --quiet maxbridge-cloudflared.service
 
 if ss -ltnH 'sport = :3100' | awk '{print $4}' | \
   grep -Ev '^(127\.0\.0\.1|\[::1\]):3100$' >/dev/null; then

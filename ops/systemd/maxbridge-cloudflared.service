@@ -1,0 +1,43 @@
+[Unit]
+Description=MAX Telegram Bridge Cloudflare Tunnel
+After=network-online.target maxbridge-api.service
+Wants=network-online.target
+PartOf=maxbridge.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=maxbridge
+Group=maxbridge
+WorkingDirectory=/var/lib/maxbridge
+Environment=HOME=/var/lib/maxbridge
+ExecStart=/opt/maxbridge/current/ops/scripts/run-cloudflared.sh
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30
+LoadCredential=tunnel-token:/etc/maxbridge/credentials/cloudflared-token
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/maxbridge /run/maxbridge
+UMask=0077
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=maxbridge.target

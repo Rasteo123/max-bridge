@@ -77,6 +77,8 @@ install -o root -g root -m 0644 \
 install -o root -g root -m 0644 \
   "$release_dir/ops/systemd/maxbridge-workers.service" /etc/systemd/system/
 install -o root -g root -m 0644 \
+  "$release_dir/ops/systemd/maxbridge-cloudflared.service" /etc/systemd/system/
+install -o root -g root -m 0644 \
   "$release_dir/ops/systemd/maxbridge.target" /etc/systemd/system/
 install -o root -g root -m 0644 \
   "$release_dir/ops/tmpfiles/maxbridge.conf" /etc/tmpfiles.d/
