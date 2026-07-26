@@ -8,5 +8,6 @@ export * from "./discovery/schema-observer.js";
 export * from "./login/login-controller.js";
 export * from "./login/login-state.js";
 export * from "./max-session.js";
+export * from "./send/send-controller.js";
 export * from "./wire/max-frame-decoder.js";
 export * from "./wire/wire-classifier.js";
