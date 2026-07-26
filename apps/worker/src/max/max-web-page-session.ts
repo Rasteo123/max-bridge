@@ -20,6 +20,10 @@ import type {
   Response,
   WebSocket
 } from "playwright";
+import {
+  installMaxSessionCapture,
+  MAX_SESSION_ACCESSOR_KEY
+} from "./max-session-capture.js";
 import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 
 const MAX_WEB_URL = "https://web.max.ru/";
@@ -54,6 +58,7 @@ export class MaxWebPageSession {
   }
 
   async start(): Promise<MaxLoginResult> {
+    await installMaxSessionCapture(this.options.page);
     await this.options.page.goto(MAX_WEB_URL, {
       waitUntil: "domcontentloaded"
     });
@@ -208,11 +213,11 @@ export class MaxWebPageSession {
 
   async listChats(): Promise<readonly ChatSummary[]> {
     const adapter = await this.ensureAdapter();
-    const bindings = await this.ensureBindings();
     const snapshot = await this.options.page.evaluate(
-      async (input) => {
-        const module = await import(input.moduleUrl) as Record<string, unknown>;
-        const accessorValue = module[input.sessionExport];
+      (accessorKey) => {
+        const accessorValue = (
+          globalThis as Record<PropertyKey, unknown>
+        )[Symbol.for(accessorKey)];
         if (typeof accessorValue !== "function") {
           throw new Error("binding");
         }
@@ -310,7 +315,7 @@ export class MaxWebPageSession {
           return Array.isArray(source) ? source.slice(0, 8) : [];
         }
       },
-      bindings
+      MAX_SESSION_ACCESSOR_KEY
     );
     if (snapshot.viewerId !== "0") {
       this.ensureViewer(snapshot.viewerId);
@@ -340,7 +345,7 @@ export class MaxWebPageSession {
     const deadline = Date.now() + MAX_HISTORY_WAIT_MS;
     let messages: unknown[] = [];
     while (Date.now() <= deadline) {
-      messages = await this.readMessages(bindings, chatId);
+      messages = await this.readMessages(chatId);
       if (messages.length > 1) {
         break;
       }
@@ -429,10 +434,10 @@ export class MaxWebPageSession {
 
   private async isAuthenticated(): Promise<boolean> {
     try {
-      const bindings = await this.ensureBindings();
-      return await this.options.page.evaluate(async (input) => {
-        const module = await import(input.moduleUrl) as Record<string, unknown>;
-        const accessorValue = module[input.sessionExport];
+      return await this.options.page.evaluate((accessorKey) => {
+        const accessorValue = (
+          globalThis as Record<PropertyKey, unknown>
+        )[Symbol.for(accessorKey)];
         if (typeof accessorValue !== "function") {
           return false;
         }
@@ -440,7 +445,7 @@ export class MaxWebPageSession {
           { viewer?: { id?: unknown } } | undefined;
         const session = accessor();
         return session?.viewer?.id !== undefined;
-      }, bindings);
+      }, MAX_SESSION_ACCESSOR_KEY);
     } catch {
       return false;
     }
@@ -450,10 +455,10 @@ export class MaxWebPageSession {
     if (this.adapter !== undefined) {
       return this.adapter;
     }
-    const bindings = await this.ensureBindings();
-    const viewerId = await this.options.page.evaluate(async (input) => {
-      const module = await import(input.moduleUrl) as Record<string, unknown>;
-      const accessorValue = module[input.sessionExport];
+    const viewerId = await this.options.page.evaluate((accessorKey) => {
+      const accessorValue = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(accessorKey)];
       if (typeof accessorValue !== "function") {
         return "0";
       }
@@ -464,7 +469,7 @@ export class MaxWebPageSession {
       return typeof id === "bigint" || typeof id === "number"
         ? String(id)
         : typeof id === "string" ? id : "0";
-    }, bindings);
+    }, MAX_SESSION_ACCESSOR_KEY);
     if (viewerId === "0") {
       throw new Error("MAX session is not authenticated");
     }
@@ -477,12 +482,12 @@ export class MaxWebPageSession {
   }
 
   private async readMessages(
-    bindings: MaxClientBindings,
     chatId: string
   ): Promise<unknown[]> {
-    return this.options.page.evaluate(async (input) => {
-      const module = await import(input.moduleUrl) as Record<string, unknown>;
-      const accessorValue = module[input.sessionExport];
+    return this.options.page.evaluate((input) => {
+      const accessorValue = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(input.accessorKey)];
       if (typeof accessorValue !== "function") {
         throw new Error("binding");
       }
@@ -540,7 +545,7 @@ export class MaxWebPageSession {
           || typeof value === "bigint"
         ) ? String(value) : "0";
       }
-    }, { ...bindings, chatId });
+    }, { accessorKey: MAX_SESSION_ACCESSOR_KEY, chatId });
   }
 
   private observeSocket(socket: WebSocket): void {
