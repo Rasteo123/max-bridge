@@ -1,0 +1,7 @@
+[Unit]
+Description=MAX Telegram Bridge
+Requires=maxbridge-workers.service maxbridge-api.service
+After=maxbridge-workers.service maxbridge-api.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+[Unit]
+Description=MAX Telegram Bridge API
+After=network-online.target maxbridge-workers.service
+Wants=network-online.target
+PartOf=maxbridge.target
+
+[Service]
+Type=simple
+User=maxbridge
+Group=maxbridge
+WorkingDirectory=/opt/maxbridge/current
+Environment=NODE_ENV=production
+Environment=MAXBRIDGE_HOST=127.0.0.1
+Environment=MAXBRIDGE_PORT=3100
+Environment=MAXBRIDGE_DATABASE=/var/lib/maxbridge/maxbridge.sqlite
+Environment=MAXBRIDGE_WORKER_SOCKET=/run/maxbridge/worker.sock
+ExecStart=/usr/bin/node /opt/maxbridge/current/apps/api/dist/entrypoint.js
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStopSec=30
+LoadCredential=master-key:/etc/maxbridge/credentials/master-key
+LoadCredential=lookup-key:/etc/maxbridge/credentials/lookup-key
+LoadCredential=bot-token:/etc/maxbridge/credentials/bot-token
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/maxbridge /run/maxbridge
+UMask=0077
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=maxbridge.target

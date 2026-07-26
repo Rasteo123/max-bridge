@@ -1,0 +1,44 @@
+[Unit]
+Description=MAX Telegram Bridge Chromium workers
+After=network-online.target
+Wants=network-online.target
+PartOf=maxbridge.target
+
+[Service]
+Type=simple
+User=maxbridge
+Group=maxbridge
+WorkingDirectory=/opt/maxbridge/current
+Environment=NODE_ENV=production
+Environment=MAXBRIDGE_WORKER_SOCKET=/run/maxbridge/worker.sock
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/maxbridge/browsers
+ExecStart=/usr/bin/node /opt/maxbridge/current/apps/worker/dist/entrypoint.js
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/maxbridge /run/maxbridge
+UMask=0077
+MemoryHigh=2200M
+MemoryMax=2600M
+TasksMax=1024
+
+[Install]
+WantedBy=maxbridge.target
