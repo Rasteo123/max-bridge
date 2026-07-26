@@ -1,0 +1,181 @@
+{
+  "secrets": [
+    "ALICE_CANARY",
+    "PRIVATE_MESSAGE_CANARY",
+    "+79991234567",
+    "TOKEN_CANARY_0123456789",
+    "https://private.example/photo/canary.jpg",
+    "BINARY_CANARY"
+  ],
+  "httpRequest": {
+    "url": "https://web.max.ru/api/v1/chats/349082734?token=TOKEN_CANARY_0123456789&cursor=PRIVATE_MESSAGE_CANARY",
+    "method": "POST",
+    "contentType": "application/json",
+    "body": {
+      "profile": {
+        "name": "ALICE_CANARY",
+        "phone": "+79991234567"
+      },
+      "message": {
+        "text": "PRIVATE_MESSAGE_CANARY",
+        "mediaUrl": "https://private.example/photo/canary.jpg"
+      },
+      "items": [
+        {
+          "token": "TOKEN_CANARY_0123456789"
+        },
+        {
+          "binary": "BINARY_CANARY"
+        }
+      ]
+    }
+  },
+  "httpResponse": {
+    "url": "https://web.max.ru/api/v1/chats/349082734/messages?cursor=TOKEN_CANARY_0123456789",
+    "method": "GET",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "messages": [
+        {
+          "sender": "ALICE_CANARY",
+          "text": "PRIVATE_MESSAGE_CANARY"
+        }
+      ],
+      "nextCursor": "TOKEN_CANARY_0123456789"
+    }
+  },
+  "webSocket": {
+    "url": "wss://web.max.ru/socket?access_token=TOKEN_CANARY_0123456789",
+    "direction": "received",
+    "payload": {
+      "event": "message",
+      "message": {
+        "sender": "ALICE_CANARY",
+        "text": "PRIVATE_MESSAGE_CANARY",
+        "phone": "+79991234567",
+        "attachment": "BINARY_CANARY"
+      }
+    }
+  },
+  "classifiers": {
+    "chatList": {
+      "chats": [
+        {
+          "id": "chat-1",
+          "title": "ALICE_CANARY"
+        }
+      ]
+    },
+    "history": {
+      "messages": [
+        {
+          "id": "message-1",
+          "text": "PRIVATE_MESSAGE_CANARY"
+        }
+      ],
+      "cursor": "TOKEN_CANARY_0123456789"
+    },
+    "liveEvent": {
+      "event": "message",
+      "message": {
+        "id": "message-2",
+        "text": "PRIVATE_MESSAGE_CANARY"
+      }
+    },
+    "sendAck": {
+      "operationId": "TOKEN_CANARY_0123456789",
+      "ack": true
+    },
+    "unknown": {
+      "weather": "sunny"
+    }
+  },
+  "maxFrames": {
+    "sessionSyncRequest": {
+      "command": 0,
+      "opcode": 19,
+      "payload": {
+        "token": "TOKEN_CANARY_0123456789",
+        "chatsCount": 15,
+        "chatsSync": 0,
+        "contactsSync": 0,
+        "draftsSync": 0
+      }
+    },
+    "historyRequest": {
+      "command": 0,
+      "opcode": 49,
+      "payload": {
+        "chatId": 1001,
+        "from": 0,
+        "forward": 0,
+        "backward": 30,
+        "getMessages": true
+      }
+    },
+    "historyResponse": {
+      "command": 1,
+      "opcode": 49,
+      "payload": {
+        "messages": [
+          {
+            "id": 2001,
+            "time": 3001,
+            "type": "USER",
+            "sender": 4001,
+            "text": "PRIVATE_MESSAGE_CANARY",
+            "attaches": []
+          }
+        ]
+      }
+    },
+    "incomingMessage": {
+      "command": 0,
+      "opcode": 128,
+      "payload": {
+        "chatId": 1001,
+        "message": {
+          "id": 2002,
+          "time": 3002,
+          "type": "USER",
+          "sender": 4001,
+          "text": "PRIVATE_MESSAGE_CANARY",
+          "attaches": []
+        },
+        "unread": 1
+      }
+    },
+    "sendRequest": {
+      "command": 0,
+      "opcode": 64,
+      "payload": {
+        "chatId": 1001,
+        "message": {
+          "text": "PRIVATE_MESSAGE_CANARY",
+          "cid": 5001,
+          "elements": [],
+          "attaches": []
+        },
+        "notify": true
+      }
+    },
+    "sendResponse": {
+      "command": 1,
+      "opcode": 64,
+      "payload": {
+        "chatId": 1001,
+        "message": {
+          "id": 2003,
+          "time": 3003,
+          "sender": 4001,
+          "cid": 5001,
+          "text": "PRIVATE_MESSAGE_CANARY",
+          "attaches": []
+        },
+        "unread": 0,
+        "mark": 2003
+      }
+    }
+  }
+}
