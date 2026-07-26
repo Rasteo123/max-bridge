@@ -48,24 +48,44 @@ export function ConnectedMessenger({
   useEffect(() => {
     const controller = new AbortController();
     void client.listChats()
-      .then(async ({ chats }) => {
+      .then(({ chats }) => {
         if (isAborted(controller.signal)) {
           return;
         }
         store.replaceChats(chats);
         const first = chats[0];
-        if (first !== undefined) {
-          store.selectChat(first.id);
-          const history = await client.getHistory(first.id);
-          if (!isAborted(controller.signal)) {
+        if (first === undefined) {
+          setLoaded(true);
+          return;
+        }
+
+        const requestId = ++historyRequest.current;
+        store.selectChat(first.id);
+        setHistoryLoading(true);
+        setLoaded(true);
+        return client.getHistory(first.id)
+          .then((history) => {
             const messages = history.messages.map(toMessengerMessage);
             historyCache.current.set(first.id, messages);
-            store.mergeHistory(messages);
-          }
-        }
-        if (!isAborted(controller.signal)) {
-          setLoaded(true);
-        }
+            if (
+              !isAborted(controller.signal)
+              && requestId === historyRequest.current
+              && store.getSnapshot().selectedChatId === first.id
+            ) {
+              store.mergeHistory(messages);
+            }
+          })
+          .catch(() => {
+            // A single history timeout must not hide the available chat list.
+          })
+          .finally(() => {
+            if (
+              !isAborted(controller.signal)
+              && requestId === historyRequest.current
+            ) {
+              setHistoryLoading(false);
+            }
+          });
       })
       .catch(() => {
         if (!isAborted(controller.signal)) {

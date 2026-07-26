@@ -408,7 +408,6 @@ export class MaxWebPageSession {
     if (!chats.some((chat) => chat.id === chatId)) {
       return null;
     }
-    const bindings = await this.ensureBindings();
     const before = await this.readMessages(chatId);
     const currentChatId = chatIdFromPageUrl(this.options.page.url());
     const alternate = chats.find((chat) => chat.id !== chatId);
@@ -417,11 +416,9 @@ export class MaxWebPageSession {
       && before.length <= 1
       && alternate !== undefined
     ) {
-      await this.openChat(bindings, alternate.id);
-      await this.options.page.waitForTimeout(200);
+      await this.activateChat(alternate.id);
     }
-    await this.openChat(bindings, chatId);
-    await this.waitForChatReady(chatId);
+    await this.activateChat(chatId);
 
     const startedAt = Date.now();
     const deadline = Date.now() + MAX_HISTORY_WAIT_MS;
@@ -909,6 +906,29 @@ export class MaxWebPageSession {
       }
       await router.openChat(BigInt(input.chatId));
     }, { ...bindings, chatId });
+  }
+
+  private async activateChat(chatId: string): Promise<void> {
+    const bindings = await this.ensureBindings();
+    await this.openChat(bindings, chatId);
+    try {
+      await this.waitForChatReady(chatId);
+      return;
+    } catch {
+      // The MAX SPA occasionally resolves openChat before its router commits
+      // the route. A direct same-origin navigation is a safe recovery path.
+      process.stderr.write(`${JSON.stringify({
+        event: "max_chat_route_fallback"
+      })}\n`);
+    }
+
+    this.bindings = undefined;
+    await this.options.page.goto(
+      new URL(encodeURIComponent(chatId), MAX_WEB_URL).href,
+      { waitUntil: "domcontentloaded" }
+    );
+    await this.ensureBindings();
+    await this.waitForChatReady(chatId);
   }
 
   private async waitForChatReady(chatId: string): Promise<void> {
