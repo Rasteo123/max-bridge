@@ -64,6 +64,7 @@ find "$release_dir/ops/scripts" -type f -exec chmod 0755 {} +
 chown -R root:root "$release_dir"
 chmod -R go-w "$release_dir"
 chown -R root:root /opt/maxbridge/browsers
+chmod -R a+rX /opt/maxbridge/browsers
 chmod -R go-w /opt/maxbridge/browsers
 
 link_tmp="/opt/maxbridge/.current-${release_id}"

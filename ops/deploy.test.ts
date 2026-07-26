@@ -9,6 +9,7 @@ const workerUnit = new URL(
 );
 const tmpfiles = new URL("./tmpfiles/maxbridge.conf", import.meta.url);
 const installScript = new URL("./scripts/install.sh", import.meta.url);
+const healthScript = new URL("./scripts/health-check.sh", import.meta.url);
 const backupScript = new URL(
   "./scripts/backup-encrypted-db.sh",
   import.meta.url
@@ -59,6 +60,7 @@ describe("hardened deployment artifacts", () => {
 
   it("rejects archive traversal and unsafe SQLite backup paths", async () => {
     const install = await readFile(installScript, "utf8");
+    const health = await readFile(healthScript, "utf8");
     const backup = await readFile(backupScript, "utf8");
 
     expect(install).toContain('entry" == /*');
@@ -68,6 +70,8 @@ describe("hardened deployment artifacts", () => {
     expect(install).toContain("cleanup_incomplete_release");
     expect(install).toContain('find "$release_dir" -type d -exec chmod 0755');
     expect(install).toContain('find "$release_dir" -type f -exec chmod 0644');
+    expect(install).toContain("chmod -R a+rX /opt/maxbridge/browsers");
+    expect(health).toContain("Host: max-users.online");
     expect(backup).toContain("^/[A-Za-z0-9._/-]+$");
   });
 });

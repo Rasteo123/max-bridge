@@ -2,8 +2,10 @@
 set -euo pipefail
 
 curl --fail --silent --show-error \
+  --header 'Host: max-users.online' \
   --max-time 5 http://127.0.0.1:3100/health/live >/dev/null
 curl --fail --silent --show-error \
+  --header 'Host: max-users.online' \
   --max-time 5 http://127.0.0.1:3100/health/ready >/dev/null
 systemctl is-active --quiet maxbridge-api.service
 systemctl is-active --quiet maxbridge-workers.service

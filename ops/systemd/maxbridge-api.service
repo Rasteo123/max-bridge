@@ -3,6 +3,8 @@ Description=MAX Telegram Bridge API
 After=network-online.target maxbridge-workers.service
 Wants=network-online.target
 PartOf=maxbridge.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -20,8 +22,6 @@ EnvironmentFile=-/etc/maxbridge/config.env
 ExecStart=/usr/bin/node /opt/maxbridge/current/apps/api/dist/entrypoint.js
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=300
-StartLimitBurst=5
 TimeoutStopSec=30
 LoadCredential=master-key:/etc/maxbridge/credentials/master-key
 LoadCredential=lookup-key:/etc/maxbridge/credentials/lookup-key
