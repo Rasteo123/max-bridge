@@ -37,6 +37,10 @@ const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
 const MAX_SESSION_READY_WAIT_MS = 15_000;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
+const MAX_COMPOSER_SELECTOR = [
+  '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
+  "textarea"
+].join(", ");
 
 type PendingSend = {
   resolve: (messageId?: string) => void;
@@ -470,7 +474,7 @@ export class MaxWebPageSession {
 
     try {
       const editor = this.options.page
-        .locator('[contenteditable="true"][role="textbox"], textarea')
+        .locator(MAX_COMPOSER_SELECTOR)
         .last();
       await editor.waitFor({ state: "visible", timeout: 5_000 });
       await editor.fill(textValue);
@@ -936,9 +940,7 @@ export class MaxWebPageSession {
       chatIdFromPageUrl(url.href) === chatId,
     { timeout: 7_500 });
     await this.options.page
-      .locator(
-        'main [contenteditable="true"][role="textbox"], main textarea'
-      )
+      .locator(MAX_COMPOSER_SELECTOR)
       .last()
       .waitFor({ state: "visible", timeout: 7_500 });
   }

@@ -9,6 +9,33 @@ afterEach(() => {
 });
 
 describe("MaxWebPageSession history navigation", () => {
+  it("accepts MAX textboxes with an empty contenteditable attribute", async () => {
+    const waitFor = vi.fn(() => Promise.resolve());
+    const locator = vi.fn(() => ({
+      last: () => ({ waitFor })
+    }));
+    const page = {
+      on: vi.fn(),
+      waitForURL: vi.fn(() => Promise.resolve()),
+      locator
+    };
+    const session = new MaxWebPageSession({
+      page: page as unknown as Page,
+      context: {} as BrowserContext
+    });
+    const internals = session as unknown as SessionInternals;
+
+    await internals.waitForChatReady("target");
+
+    expect(locator).toHaveBeenCalledWith(
+      '[contenteditable]:not([contenteditable="false"])[role="textbox"], textarea'
+    );
+    expect(waitFor).toHaveBeenCalledWith({
+      state: "visible",
+      timeout: 7_500
+    });
+  });
+
   it("finishes alternate-chat recovery before returning to the target", async () => {
     vi.useFakeTimers();
     const page = {
