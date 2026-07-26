@@ -1,3 +1,5 @@
+import type { MessengerChat } from "../features/messenger/types.js";
+
 export type UserState =
   | "pending"
   | "approved_unbound"
@@ -19,6 +21,17 @@ export type MaxLoginState =
 export type MaxLoginResult = Readonly<{
   state: MaxLoginState;
 }>;
+
+export type MessageSendResult =
+  | Readonly<{
+    state: "confirmed";
+    operationId: string;
+    messageId?: string;
+  }>
+  | Readonly<{
+    state: "ambiguous";
+    operationId: string;
+  }>;
 
 export class ApiError extends Error {
   constructor(
@@ -64,6 +77,40 @@ export class ApiClient {
 
   async logoutMax(): Promise<void> {
     await this.request("/api/max/logout", { method: "POST" });
+  }
+
+  async listChats(): Promise<Readonly<{
+    chats: readonly MessengerChat[];
+  }>> {
+    return this.requestJson("/api/chats");
+  }
+
+  async getHistory(
+    chatId: string,
+    cursor?: string
+  ): Promise<Readonly<{ messages: readonly unknown[] }>> {
+    const query = cursor === undefined
+      ? ""
+      : `?cursor=${encodeURIComponent(cursor)}`;
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/messages${query}`
+    );
+  }
+
+  async sendText(
+    chatId: string,
+    text: string,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson("/api/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "text",
+        chatId,
+        clientRequestId,
+        text
+      })
+    });
   }
 
   private async requestJson<T>(

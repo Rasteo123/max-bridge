@@ -7,7 +7,7 @@ import { ApiClient } from "../api/client.js";
 import { AuthGate } from "../features/auth/AuthGate.js";
 import { currentTelegramWebApp } from "../features/auth/telegram.js";
 import { MaxLogin } from "../features/login/MaxLogin.js";
-import { MessengerShell } from "../features/messenger/MessengerShell.js";
+import { ConnectedMessenger } from "../features/messenger/ConnectedMessenger.js";
 
 export function App() {
   const client = useMemo(() => new ApiClient(), []);
@@ -17,12 +17,7 @@ export function App() {
   return (
     <AuthGate client={client} telegram={telegram}>
       {maxReady ? (
-        <MessengerShell
-          chats={[]}
-          messages={[]}
-          onSelectChat={() => {}}
-          onSend={() => {}}
-        />
+        <ConnectedMessenger client={client} />
       ) : (
         <MaxLogin
           client={client}

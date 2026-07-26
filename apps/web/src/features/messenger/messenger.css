@@ -310,6 +310,47 @@
   text-align: right;
 }
 
+.message-media {
+  display: block;
+  max-width: min(58vw, 420px);
+  max-height: 50vh;
+  border-radius: 11px;
+}
+
+.message-audio {
+  display: block;
+  max-width: 100%;
+}
+
+.message-file {
+  color: var(--tg-theme-link-color);
+  font-weight: 700;
+}
+
+.media-loading,
+.media-unavailable {
+  display: block;
+  min-width: 120px;
+  padding: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.connection-banner {
+  position: fixed;
+  z-index: 10;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  max-width: calc(100vw - 24px);
+  padding: 7px 12px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, #d28a00 86%, var(--surface));
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgb(20 30 60 / 16%);
+  font-size: 0.78rem;
+}
+
 .message--incoming {
   align-self: flex-start;
   border-bottom-left-radius: 5px;

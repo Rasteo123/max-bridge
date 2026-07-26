@@ -8,6 +8,8 @@ export type AuthenticatedSocketOptions = Readonly<{
   createSocket?: SocketFactory;
   path?: string;
   reconnectDelayMs?: number;
+  onMessage?(value: unknown): void;
+  onStatus?(status: "connected" | "reconnecting" | "disconnected"): void;
 }>;
 
 export class AuthenticatedSocket {
@@ -22,6 +24,7 @@ export class AuthenticatedSocket {
       return;
     }
     this.stopped = false;
+    this.options.onStatus?.("reconnecting");
     this.connect();
   }
 
@@ -33,6 +36,7 @@ export class AuthenticatedSocket {
     }
     this.socket?.close(1_000, "client_stop");
     this.socket = null;
+    this.options.onStatus?.("disconnected");
   }
 
   private connect(): void {
@@ -48,14 +52,29 @@ export class AuthenticatedSocket {
       `${protocol}//${location.host}${path}`
     );
     this.socket = socket;
+    socket.addEventListener("open", () => {
+      this.options.onStatus?.("connected");
+    });
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") {
+        return;
+      }
+      try {
+        this.options.onMessage?.(JSON.parse(event.data) as unknown);
+      } catch {
+        // Invalid live frames are ignored and never enter the UI store.
+      }
+    });
     socket.addEventListener("close", (event) => {
       if (this.stopped) {
         return;
       }
       if (event.code === 4_401 || event.code === 1_008) {
+        this.options.onStatus?.("reconnecting");
         void this.reauthenticateAndReconnect();
         return;
       }
+      this.options.onStatus?.("reconnecting");
       this.scheduleReconnect();
     });
   }

@@ -118,6 +118,34 @@ describe("UsersRepository", () => {
     expect(durableBytes).not.toContain("CANARY_MAX_SESSION_PLAINTEXT");
   });
 
+  it("encrypts per-chat notification preferences", async () => {
+    const user = await repository.createPending({
+      telegramId: "123456789"
+    });
+    await repository.saveNotificationPreferencesByLookup(user.lookupId, {
+      enabled: true,
+      mutedChatIds: ["CANARY_MUTED_CHAT"],
+      previewChatIds: ["CANARY_PREVIEW_CHAT"]
+    });
+
+    await expect(repository.loadNotificationPreferencesByLookup(user.lookupId))
+      .resolves.toEqual({
+        enabled: true,
+        mutedChatIds: ["CANARY_MUTED_CHAT"],
+        previewChatIds: ["CANARY_PREVIEW_CHAT"]
+      });
+
+    database.pragma("wal_checkpoint(TRUNCATE)");
+    database.close();
+    const durableBytes = await readExistingFiles([
+      databasePath,
+      `${databasePath}-wal`,
+      `${databasePath}-shm`
+    ]);
+    expect(durableBytes).not.toContain("CANARY_MUTED_CHAT");
+    expect(durableBytes).not.toContain("CANARY_PREVIEW_CHAT");
+  });
+
   it("deletes the encrypted binding and wrapped key", async () => {
     await repository.createPending({ telegramId: "123456789" });
     await repository.saveMaxSession(

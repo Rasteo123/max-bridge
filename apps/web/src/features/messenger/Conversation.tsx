@@ -1,4 +1,5 @@
 import { Composer } from "./Composer.js";
+import { MessageBubble } from "./MessageBubble.js";
 import type {
   MessengerChat,
   MessengerMessage
@@ -60,16 +61,7 @@ export function Conversation({
           <>
             <div className="day-divider"><span>Сегодня</span></div>
             {messages.map((message) => (
-              <article
-                key={message.id}
-                className={`message message--${message.direction}`}
-              >
-                {message.senderName !== undefined && (
-                  <strong>{message.senderName}</strong>
-                )}
-                <p>{message.text}</p>
-                <time>{message.sentAt}</time>
-              </article>
+              <MessageBubble key={message.id} message={message} />
             ))}
           </>
         )}

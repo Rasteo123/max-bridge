@@ -31,6 +31,10 @@ import {
   type MaxLoginGateway
 } from "./routes/max-login.js";
 import {
+  registerMediaRoutes,
+  type MediaGateway
+} from "./routes/media.js";
+import {
   registerMessageRoutes,
   type MessageGateway
 } from "./routes/messages.js";
@@ -53,6 +57,7 @@ export type AppServices = Readonly<{
   maxLogin: MaxLoginGateway;
   messages: MessageGateway;
   live: LiveGateway;
+  media?: MediaGateway;
   ready: () => boolean;
 }>;
 
@@ -123,6 +128,12 @@ export async function buildApp(
     allowedOrigins: options.allowedOrigins,
     resolvePrincipal
   });
+  if (options.services.media !== undefined) {
+    await app.register(registerMediaRoutes, {
+      gateway: options.services.media,
+      resolvePrincipal
+    });
+  }
   await app.register(registerHealthRoutes, {
     ready: options.services.ready
   });

@@ -37,9 +37,22 @@ type UserRow = Readonly<{
   wrapped_dek: string;
   identity_cipher: string;
   max_session_cipher: string | null;
+  preferences_cipher: string | null;
   created_at: string;
   updated_at: string;
 }>;
+
+export type NotificationPreferences = Readonly<{
+  enabled: boolean;
+  mutedChatIds: readonly string[];
+  previewChatIds: readonly string[];
+}>;
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  enabled: true,
+  mutedChatIds: [],
+  previewChatIds: []
+};
 
 const allowedTransitions: Readonly<Record<UserState, readonly UserState[]>> = {
   pending: ["approved_unbound", "disabled"],
@@ -250,6 +263,64 @@ export class UsersRepository {
     }
   }
 
+  async saveNotificationPreferencesByLookup(
+    lookupId: string,
+    preferences: NotificationPreferences
+  ): Promise<void> {
+    const validated = parseNotificationPreferences(preferences);
+    const row = this.requireRow(lookupId);
+    const dataKey = await this.loadDataKey(row);
+    const plaintext = encoder.encode(JSON.stringify(validated));
+    try {
+      const encrypted = await encryptRecord({
+        key: dataKey,
+        keyId: "dek-v1",
+        recordType: "notification-preferences",
+        userLookup: lookupId,
+        plaintext
+      });
+      this.database.prepare(`
+        UPDATE users
+        SET preferences_cipher = ?, updated_at = ?
+        WHERE lookup_id = ?
+      `).run(
+        serializeEnvelope(encrypted),
+        this.now().toISOString(),
+        lookupId
+      );
+    } finally {
+      zeroBuffer(dataKey);
+      zeroBuffer(plaintext);
+    }
+  }
+
+  async loadNotificationPreferencesByLookup(
+    lookupId: string
+  ): Promise<NotificationPreferences> {
+    const row = this.requireRow(lookupId);
+    if (row.preferences_cipher === null) {
+      return DEFAULT_NOTIFICATION_PREFERENCES;
+    }
+    const dataKey = await this.loadDataKey(row);
+    let plaintext: Uint8Array | undefined;
+    try {
+      plaintext = await decryptRecord({
+        key: dataKey,
+        envelope: deserializeEnvelope(row.preferences_cipher),
+        recordType: "notification-preferences",
+        userLookup: lookupId
+      });
+      return parseNotificationPreferences(
+        JSON.parse(decoder.decode(plaintext)) as unknown
+      );
+    } finally {
+      zeroBuffer(dataKey);
+      if (plaintext !== undefined) {
+        zeroBuffer(plaintext);
+      }
+    }
+  }
+
   deleteUser(telegramId: string): void {
     const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
     const transaction = this.database.transaction(() => {
@@ -299,6 +370,7 @@ export class UsersRepository {
         wrapped_dek,
         identity_cipher,
         max_session_cipher,
+        preferences_cipher,
         created_at,
         updated_at
       FROM users
@@ -385,6 +457,10 @@ function parseUserRow(value: unknown): UserRow | undefined {
       typeof row["max_session_cipher"] !== "string"
       && row["max_session_cipher"] !== null
     )
+    || (
+      typeof row["preferences_cipher"] !== "string"
+      && row["preferences_cipher"] !== null
+    )
     || typeof row["created_at"] !== "string"
     || typeof row["updated_at"] !== "string"
   ) {
@@ -396,9 +472,46 @@ function parseUserRow(value: unknown): UserRow | undefined {
     wrapped_dek: row["wrapped_dek"],
     identity_cipher: row["identity_cipher"],
     max_session_cipher: row["max_session_cipher"],
+    preferences_cipher: row["preferences_cipher"],
     created_at: row["created_at"],
     updated_at: row["updated_at"]
   };
+}
+
+function parseNotificationPreferences(
+  value: unknown
+): NotificationPreferences {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError("Invalid notification preferences");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) =>
+      key !== "enabled" &&
+      key !== "mutedChatIds" &&
+      key !== "previewChatIds"
+    ) ||
+    typeof record["enabled"] !== "boolean" ||
+    !isOpaqueIdArray(record["mutedChatIds"]) ||
+    !isOpaqueIdArray(record["previewChatIds"])
+  ) {
+    throw new TypeError("Invalid notification preferences");
+  }
+  return {
+    enabled: record["enabled"],
+    mutedChatIds: [...new Set(record["mutedChatIds"])],
+    previewChatIds: [...new Set(record["previewChatIds"])]
+  };
+}
+
+function isOpaqueIdArray(value: unknown): value is string[] {
+  return Array.isArray(value) &&
+    value.length <= 250 &&
+    value.every((item) =>
+      typeof item === "string" &&
+      item.length >= 1 &&
+      item.length <= 512
+    );
 }
 
 function serializeEnvelope(envelope: CipherEnvelopeV1): string {
