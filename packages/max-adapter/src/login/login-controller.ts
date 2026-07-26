@@ -46,9 +46,12 @@ export class MaxLoginController {
     if (!await this.isVisible(input)) {
       const method = phoneMethodButton(this.page);
       if (!await this.isVisible(method)) {
-        return { state: "failed" };
+        await this.reloadLoginPage();
       }
-      await method.click();
+      if (!await this.isVisible(input)) {
+        await method.waitFor({ state: "visible", timeout: this.timeoutMs });
+        await method.click();
+      }
     }
     await input.waitFor({ state: "visible", timeout: this.timeoutMs });
     await input.fill(phone);
@@ -110,9 +113,12 @@ export class MaxLoginController {
     if (!await this.isVisible(visual)) {
       const method = qrMethodButton(this.page);
       if (!await this.isVisible(method)) {
-        throw new Error("QR login is unavailable");
+        await this.reloadLoginPage();
       }
-      await method.click();
+      if (!await this.isVisible(visual)) {
+        await method.waitFor({ state: "visible", timeout: this.timeoutMs });
+        await method.click();
+      }
     }
     await visual.waitFor({ state: "visible", timeout: this.timeoutMs });
     return visual.screenshot({ type: "png" });
@@ -157,12 +163,35 @@ export class MaxLoginController {
     const deadline = Date.now() + this.timeoutMs;
     while (Date.now() <= deadline) {
       const result = await this.detectState();
-      if (expected.includes(result.state)) {
+      if (
+        result.state !== "failed"
+        && expected.includes(result.state)
+      ) {
+        return result;
+      }
+      if (
+        result.state === "failed"
+        && expected.includes("failed")
+        && await this.isVisible(loginAlert(this.page))
+      ) {
         return result;
       }
       await this.page.waitForTimeout(25);
     }
     return { state: "failed" };
+  }
+
+  private async reloadLoginPage(): Promise<void> {
+    await this.page.reload({
+      waitUntil: "domcontentloaded",
+      timeout: this.timeoutMs
+    });
+    await phoneMethodButton(this.page)
+      .or(qrMethodButton(this.page))
+      .or(phoneInput(this.page))
+      .or(qrVisual(this.page))
+      .first()
+      .waitFor({ state: "visible", timeout: this.timeoutMs });
   }
 
   private async isVisible(locator: ReturnType<typeof phoneInput>): Promise<boolean> {

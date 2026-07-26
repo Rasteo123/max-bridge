@@ -54,7 +54,9 @@
       phoneForm.addEventListener("submit", (event) => {
         event.preventDefault();
         phoneForm.hidden = true;
-        codeForm.hidden = false;
+        setTimeout(() => {
+          codeForm.hidden = false;
+        }, 75);
       });
       codeForm.addEventListener("submit", (event) => {
         event.preventDefault();

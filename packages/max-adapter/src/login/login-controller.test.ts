@@ -82,6 +82,32 @@ describe.each([
     expect(image.subarray(1, 4).toString("ascii")).toBe("PNG");
     await page.context().close();
   });
+
+  it("switches from QR login back to phone login", async () => {
+    const page = await fixturePage(fixtureName);
+    const controller = new MaxLoginController(page, {
+      timeoutMs: 1_000
+    });
+    await controller.getQrPng();
+
+    await expect(controller.submitPhone("+79990000000"))
+      .resolves.toEqual({ state: "code_required" });
+
+    await page.context().close();
+  });
+
+  it("switches from phone login back to QR login", async () => {
+    const page = await fixturePage(fixtureName);
+    const controller = new MaxLoginController(page, {
+      timeoutMs: 1_000
+    });
+    await controller.submitPhone("+79990000000");
+
+    const image = await controller.getQrPng();
+
+    expect(image.subarray(1, 4).toString("ascii")).toBe("PNG");
+    await page.context().close();
+  });
 });
 
 describe("MAX login exceptional states", () => {
@@ -105,6 +131,8 @@ async function fixturePage(fixtureName: string): Promise<Page> {
     new URL(`../../tests/fixtures/${fixtureName}`, import.meta.url),
     "utf8"
   );
-  await page.setContent(html);
+  await page.goto(
+    `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+  );
   return page;
 }
