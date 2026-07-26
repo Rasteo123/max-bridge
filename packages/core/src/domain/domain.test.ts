@@ -54,6 +54,21 @@ describe("chat summary domain", () => {
     expect(parseChatSummary(syntheticChat)).toEqual(syntheticChat);
   });
 
+  it("accepts an allowlisted MAX avatar URL", () => {
+    const avatarUrl = "https://i.oneme.ru/i?id=synthetic";
+    expect(parseChatSummary({
+      ...syntheticChat,
+      avatarUrl
+    }).avatarUrl).toBe(avatarUrl);
+  });
+
+  it("rejects an avatar URL outside the MAX image host", () => {
+    expect(() => parseChatSummary({
+      ...syntheticChat,
+      avatarUrl: "https://example.test/avatar.png"
+    })).toThrow(DomainValidationError);
+  });
+
   it("rejects a negative unread count", () => {
     expect(() => parseChatSummary({
       ...syntheticChat,

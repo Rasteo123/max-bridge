@@ -33,7 +33,7 @@ export const ChatSummarySchema = Type.Object({
   avatarUrl: Type.Optional(Type.String({
     minLength: 1,
     maxLength: 2048,
-    format: "uri"
+    pattern: "^https://i\\.oneme\\.ru(?:/|$)"
   })),
   deliveryStatus: Type.Optional(DeliveryStatusSchema)
 }, strictObjectOptions);
