@@ -63,14 +63,18 @@ export class BrowserSlot {
     if (browser === undefined || !this.hasCapacity) {
       throw new Error("Browser slot is unavailable");
     }
-    const context = storageState === undefined
-      ? await browser.newContext()
-      : await withSecretBuffer(
-          storageState,
-          async (secret) => browser.newContext(secret)
-        );
     this.activeContexts += 1;
-    return context;
+    try {
+      return storageState === undefined
+        ? await browser.newContext()
+        : await withSecretBuffer(
+            storageState,
+            async (secret) => browser.newContext(secret)
+          );
+    } catch (error: unknown) {
+      this.activeContexts = Math.max(0, this.activeContexts - 1);
+      throw error;
+    }
   }
 
   contextClosed(): void {
