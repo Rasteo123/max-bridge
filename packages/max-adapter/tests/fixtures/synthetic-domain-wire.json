@@ -1,0 +1,174 @@
+{
+  "viewerId": "900",
+  "chatList": {
+    "chats": [
+      {
+        "id": 1001,
+        "type": "DIALOG",
+        "title": "Синтетический контакт",
+        "lastMessage": {
+          "id": 2001,
+          "time": 1767225600000,
+          "sender": 901,
+          "text": "Синтетический привет"
+        },
+        "unread": 2,
+        "muted": false,
+        "baseUrl": "https://media.example.invalid/avatar/",
+        "photoId": 7001
+      },
+      {
+        "id": 1002,
+        "type": "CHAT",
+        "title": "Синтетическая группа",
+        "lastMessage": {
+          "id": 2002,
+          "time": 1767225660000,
+          "sender": 902,
+          "attaches": [
+            {
+              "_type": "PHOTO"
+            }
+          ]
+        },
+        "unreadCount": 0,
+        "options": [
+          "MUTE"
+        ]
+      }
+    ],
+    "cursor": 1000,
+    "hasMore": true
+  },
+  "history": {
+    "messages": [
+      {
+        "id": 3001,
+        "time": 1767225600000,
+        "type": "USER",
+        "sender": 901,
+        "text": "Текстовое сообщение",
+        "attaches": []
+      },
+      {
+        "id": 3002,
+        "time": 1767225660000,
+        "type": "USER",
+        "sender": 900,
+        "cid": 8002,
+        "text": "Подпись к фото",
+        "attaches": [
+          {
+            "_type": "PHOTO",
+            "baseUrl": "https://media.example.invalid/photo/",
+            "photoToken": "SYNTHETIC_PHOTO_TOKEN",
+            "photoId": 7101,
+            "width": 1280,
+            "height": 720,
+            "previewData": [
+              1,
+              2,
+              3
+            ]
+          }
+        ]
+      },
+      {
+        "id": 3003,
+        "time": 1767225720000,
+        "type": "USER",
+        "sender": 901,
+        "attaches": [
+          {
+            "_type": "VIDEO",
+            "url": "https://media.example.invalid/video/test.mp4",
+            "mimeType": "video/mp4",
+            "duration": 12,
+            "width": 640,
+            "height": 360
+          }
+        ]
+      },
+      {
+        "id": 3004,
+        "time": 1767225780000,
+        "type": "USER",
+        "sender": 901,
+        "attaches": [
+          {
+            "_type": "AUDIO",
+            "url": "https://media.example.invalid/voice/test.ogg",
+            "mimeType": "audio/ogg",
+            "durationMs": 2400
+          }
+        ]
+      },
+      {
+        "id": 3005,
+        "time": 1767225840000,
+        "type": "USER",
+        "sender": 901,
+        "attaches": [
+          {
+            "_type": "FILE",
+            "url": "https://media.example.invalid/file/test.pdf",
+            "mimeType": "application/pdf",
+            "name": "../unsafe/test.pdf",
+            "size": 12345
+          }
+        ]
+      },
+      {
+        "id": 3006,
+        "time": 1767225900000,
+        "type": "SYSTEM",
+        "sender": 0,
+        "text": "Системное событие",
+        "attaches": []
+      },
+      {
+        "id": 3007,
+        "time": 1767225960000,
+        "type": "USER",
+        "sender": 901,
+        "text": "Изменённое сообщение",
+        "edited": true,
+        "attaches": []
+      },
+      {
+        "id": 3008,
+        "time": 1767226020000,
+        "type": "USER",
+        "sender": 901,
+        "deleted": true,
+        "attaches": []
+      }
+    ],
+    "cursor": 3001,
+    "hasMore": true
+  },
+  "liveIncoming": {
+    "chatId": 1001,
+    "message": {
+      "id": 4001,
+      "time": 1767226080000,
+      "type": "USER",
+      "sender": 901,
+      "text": "Новое синтетическое сообщение",
+      "attaches": []
+    },
+    "mark": 4001,
+    "unread": 3
+  },
+  "liveDeleted": {
+    "chatId": 1001,
+    "messageId": 4001,
+    "deleted": true,
+    "mark": 4002
+  },
+  "unknown": {
+    "unexpected": {
+      "shape": true
+    }
+  }
+}
