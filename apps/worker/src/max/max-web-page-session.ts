@@ -247,8 +247,23 @@ export class MaxWebPageSession {
         const session = accessor();
         const chats = session.viewer?.folders?.all?.chats;
         const values = iterableValues(chats);
+        const viewerId = opaque(session.viewer?.id);
+        const avatarByTitle = new Map<string, string>();
+        for (const row of document.querySelectorAll("button.cell")) {
+          const title = row.querySelector("h3")?.textContent.trim();
+          const source = row.querySelector("img")?.getAttribute("src");
+          if (
+            title !== undefined &&
+            title.length > 0 &&
+            source !== null &&
+            source !== undefined &&
+            isAllowedAvatar(source)
+          ) {
+            avatarByTitle.set(title, source);
+          }
+        }
         return {
-          viewerId: opaque(session.viewer?.id),
+          viewerId,
           chats: values.slice(0, 1_000).map((value) => {
             const tuple = Array.isArray(value)
               ? value as unknown[]
@@ -260,12 +275,24 @@ export class MaxWebPageSession {
             const chat = mapValue as Record<string, unknown>;
             const raw = record(chat["$"]);
             const last = record(chat["lastMessage"] ?? raw?.["lastMessage"]);
+            const id = chatOpaque(
+              chat["id"] ?? raw?.["id"] ?? tuple?.[0]
+            );
+            const storedTitle = richText(
+              chat["longName"] ?? raw?.["longName"]
+            );
+            const isSaved = id === "0" || id === viewerId;
+            const title = isSaved
+              ? "Избранное"
+              : storedTitle ?? "Чат";
             return {
-              id: opaque(chat["id"] ?? raw?.["id"]),
-              type: text(raw?.["type"])
+              id,
+              type: isSaved
+                ? "SAVED"
+                : text(raw?.["type"])
                 ?? (chat["recipient"] === undefined ? "CHAT" : "DIALOG"),
-              title: richText(chat["longName"] ?? raw?.["longName"])
-                ?? "Чат",
+              title,
+              avatarUrl: avatarByTitle.get(title),
               lastMessage: last === undefined
                 ? undefined
                 : {
@@ -282,7 +309,7 @@ export class MaxWebPageSession {
               ),
               muted: Boolean(chat["muted"] ?? false)
             };
-          }).filter((chat) => chat.id !== "0")
+          }).filter((chat) => chat.id.length > 0)
         };
 
         function iterableValues(value: unknown): unknown[] {
@@ -309,8 +336,22 @@ export class MaxWebPageSession {
           }
           return typeof value === "string" ? value : "0";
         }
+        function chatOpaque(value: unknown): string {
+          if (typeof value === "bigint" || typeof value === "number") {
+            return String(value);
+          }
+          return typeof value === "string" ? value : "";
+        }
         function text(value: unknown): string | undefined {
           return typeof value === "string" ? value : undefined;
+        }
+        function isAllowedAvatar(value: string): boolean {
+          try {
+            const url = new URL(value);
+            return url.protocol === "https:" && url.hostname === "i.oneme.ru";
+          } catch {
+            return false;
+          }
         }
         function richText(value: unknown): string | undefined {
           if (typeof value === "string") {

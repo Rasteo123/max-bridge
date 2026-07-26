@@ -1,6 +1,8 @@
 import {
   type FormEvent,
   type ChangeEvent,
+  useEffect,
+  useRef,
   useState
 } from "react";
 
@@ -17,6 +19,33 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = useState("");
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const attachmentRoot = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!attachmentsOpen) {
+      return;
+    }
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        attachmentRoot.current?.contains(target) === false
+      ) {
+        setAttachmentsOpen(false);
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAttachmentsOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [attachmentsOpen]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -42,7 +71,7 @@ export function Composer({
 
   return (
     <form className="composer" onSubmit={submit}>
-      <div className="composer__attachment">
+      <div className="composer__attachment" ref={attachmentRoot}>
         {attachmentsOpen && (
           <div className="composer__attachment-menu" role="menu">
             <label role="menuitem">

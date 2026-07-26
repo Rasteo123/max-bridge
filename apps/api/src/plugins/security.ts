@@ -27,7 +27,7 @@ const securityImplementation: FastifyPluginAsync<
           "https://*.telegram.org"
         ],
         connectSrc: ["'self'", "wss:"],
-        imgSrc: ["'self'", "data:", "blob:"],
+        imgSrc: ["'self'", "data:", "blob:", "https://i.oneme.ru"],
         mediaSrc: ["'self'", "blob:"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         formAction: ["'self'"]

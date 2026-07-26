@@ -8,7 +8,8 @@ import { Conversation } from "./Conversation.js";
 import type {
   MessengerChat,
   MessengerMessage,
-  MessengerPane
+  MessengerPane,
+  MessengerTheme
 } from "./types.js";
 import { useResponsivePane } from "./useResponsivePane.js";
 import { useSwipeNavigation } from "./useSwipeNavigation.js";
@@ -22,6 +23,10 @@ type MessengerShellProps = Readonly<{
   onSelectChat(chatId: string): void;
   onSend(text: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
+  theme?: MessengerTheme;
+  onThemeChange?(theme: MessengerTheme): void;
+  onLogout?(): void;
+  historyLoading?: boolean;
 }>;
 
 export function MessengerShell({
@@ -31,7 +36,11 @@ export function MessengerShell({
   initialPane,
   onSelectChat,
   onSend,
-  onAttach
+  onAttach,
+  theme = "system",
+  onThemeChange = () => undefined,
+  onLogout,
+  historyLoading = false
 }: MessengerShellProps) {
   const wide = useResponsivePane();
   const [selectedChatId, setSelectedChatId] = useState(initialChatId);
@@ -80,14 +89,14 @@ export function MessengerShell({
               ? {}
               : { selectedChatId })}
             onSelectChat={selectChat}
-            onClose={() => {
-              setPane("conversation");
-            }}
-            wide={wide}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            {...(onLogout === undefined ? {} : { onLogout })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}
             messages={messages}
+            historyLoading={historyLoading}
             wide={wide}
             onOpenChats={() => {
               setPane("list");

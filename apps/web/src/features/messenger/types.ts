@@ -25,6 +25,7 @@ export type MessengerMessage = Readonly<{
 }>;
 
 export type MessengerPane = "list" | "conversation";
+export type MessengerTheme = "system" | "light" | "dark";
 
 export type MessengerMedia = Readonly<{
   handle: string;

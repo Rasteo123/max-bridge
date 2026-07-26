@@ -35,6 +35,13 @@ describe("narrow messenger gestures", () => {
       .toHaveAttribute("data-pane", "list");
   });
 
+  it("opens the chat list with a right swipe from the middle of the chat", () => {
+    renderShell("conversation");
+    swipe(140, 300);
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
+  });
+
   it("hides the chat list with a left swipe", () => {
     renderShell("list");
     swipe(260, 70);

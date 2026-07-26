@@ -30,6 +30,11 @@ export const ChatSummarySchema = Type.Object({
   unreadCount: Type.Integer({ minimum: 0, maximum: 9999 }),
   muted: Type.Boolean(),
   avatarHandle: Type.Optional(Type.String(opaqueIdOptions)),
+  avatarUrl: Type.Optional(Type.String({
+    minLength: 1,
+    maxLength: 2048,
+    format: "uri"
+  })),
   deliveryStatus: Type.Optional(DeliveryStatusSchema)
 }, strictObjectOptions);
 

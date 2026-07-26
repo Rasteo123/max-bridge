@@ -37,7 +37,6 @@ export type SwipeNavigation = Readonly<{
   onClickCapture(event: ReactMouseEvent<HTMLElement>): void;
 }>;
 
-const EDGE_WIDTH_PX = 32;
 const DIRECTION_LOCK_PX = 8;
 const MIN_FAST_DISTANCE_PX = 28;
 const VELOCITY_THRESHOLD_PX_MS = 0.5;
@@ -57,8 +56,7 @@ export function useSwipeNavigation({
       disabled ||
       event.button !== 0 ||
       !event.isPrimary ||
-      isIgnoredTarget(event.target) ||
-      (pane === "conversation" && event.clientX > EDGE_WIDTH_PX)
+      isIgnoredTarget(event.target)
     ) {
       return;
     }

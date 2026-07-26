@@ -13,7 +13,7 @@ body {
   min-width: 320px;
   background:
     radial-gradient(circle at 15% 5%, rgb(77 98 237 / 13%), transparent 32rem),
-    var(--tg-theme-bg-color);
+    var(--app-bg);
   color: var(--text);
   font: 16px/1.45 var(--font, inherit);
   -webkit-font-smoothing: antialiased;

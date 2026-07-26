@@ -76,6 +76,9 @@ function adaptChatSummary(
     "Чат"
   ).trim() || "Чат";
   const avatarHandle = media.registerAvatar(id, chat);
+  const avatarUrl = safeAvatarUrl(
+    readWireString(chat, "avatarUrl", "avatarURL")
+  );
   const summary = {
     id,
     kind: chatKind(chat),
@@ -88,9 +91,24 @@ function adaptChatSummary(
       9_999
     ),
     muted: isMuted(chat),
-    ...(avatarHandle === undefined ? {} : { avatarHandle })
+    ...(avatarHandle === undefined ? {} : { avatarHandle }),
+    ...(avatarUrl === undefined ? {} : { avatarUrl })
   };
   return parseChatSummary(summary);
+}
+
+function safeAvatarUrl(value: string | undefined): string | undefined {
+  if (value === undefined || value.length > 2_048) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "i.oneme.ru"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function chatKind(chat: WireRecord): ChatKind {
@@ -100,6 +118,8 @@ function chatKind(chat: WireRecord): ChatKind {
     value?.includes("DIALOG") === true
     || value?.includes("DIRECT") === true
     || value?.includes("PRIVATE") === true
+    || value?.includes("SAVED") === true
+    || value?.includes("SELF") === true
   ) {
     return "direct";
   }

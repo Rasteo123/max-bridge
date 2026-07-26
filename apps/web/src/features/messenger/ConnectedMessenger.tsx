@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore
 } from "react";
@@ -13,16 +14,23 @@ import {
 } from "./messenger-store.js";
 import type {
   MessengerMedia,
-  MessengerMessage
+  MessengerMessage,
+  MessengerTheme
 } from "./types.js";
 import { useLiveEvents } from "./useLiveEvents.js";
 
 type ConnectedMessengerProps = Readonly<{
   client: ApiClient;
+  theme: MessengerTheme;
+  onThemeChange(theme: MessengerTheme): void;
+  onLoggedOut(): void;
 }>;
 
 export function ConnectedMessenger({
-  client
+  client,
+  theme,
+  onThemeChange,
+  onLoggedOut
 }: ConnectedMessengerProps) {
   const store = useMemo(() => new MessengerStore(), []);
   const snapshot = useSyncExternalStore(
@@ -32,6 +40,9 @@ export function ConnectedMessenger({
   const telegram = useMemo(() => currentTelegramWebApp(), []);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyCache = useRef(new Map<string, readonly MessengerMessage[]>());
+  const historyRequest = useRef(0);
   useLiveEvents({ store, client, telegram });
 
   useEffect(() => {
@@ -47,7 +58,9 @@ export function ConnectedMessenger({
           store.selectChat(first.id);
           const history = await client.getHistory(first.id);
           if (!isAborted(controller.signal)) {
-            store.mergeHistory(history.messages.map(toMessengerMessage));
+            const messages = history.messages.map(toMessengerMessage);
+            historyCache.current.set(first.id, messages);
+            store.mergeHistory(messages);
           }
         }
         if (!isAborted(controller.signal)) {
@@ -66,12 +79,29 @@ export function ConnectedMessenger({
   }, [client, store]);
 
   async function selectChat(chatId: string) {
+    const requestId = ++historyRequest.current;
     store.selectChat(chatId);
+    const cached = historyCache.current.get(chatId);
+    if (cached !== undefined) {
+      store.mergeHistory(cached);
+    }
+    setHistoryLoading(cached === undefined);
     try {
       const history = await client.getHistory(chatId);
-      store.mergeHistory(history.messages.map(toMessengerMessage));
+      const messages = history.messages.map(toMessengerMessage);
+      historyCache.current.set(chatId, messages);
+      if (
+        requestId === historyRequest.current &&
+        store.getSnapshot().selectedChatId === chatId
+      ) {
+        store.mergeHistory(messages);
+      }
     } catch {
       // The live connection can still recover the selected conversation.
+    } finally {
+      if (requestId === historyRequest.current) {
+        setHistoryLoading(false);
+      }
     }
   }
 
@@ -82,7 +112,9 @@ export function ConnectedMessenger({
     }
     await client.sendText(chatId, text);
     const history = await client.getHistory(chatId);
-    store.mergeHistory(history.messages.map(toMessengerMessage));
+    const messages = history.messages.map(toMessengerMessage);
+    historyCache.current.set(chatId, messages);
+    store.mergeHistory(messages);
   }
 
   async function sendAttachment(file: File, kind: "media" | "file") {
@@ -92,7 +124,18 @@ export function ConnectedMessenger({
     }
     await client.sendAttachment(chatId, file, kind);
     const history = await client.getHistory(chatId);
-    store.mergeHistory(history.messages.map(toMessengerMessage));
+    const messages = history.messages.map(toMessengerMessage);
+    historyCache.current.set(chatId, messages);
+    store.mergeHistory(messages);
+  }
+
+  async function logout() {
+    if (!window.confirm("Выйти из аккаунта MAX на этом устройстве?")) {
+      return;
+    }
+    await client.logoutMax();
+    historyCache.current.clear();
+    onLoggedOut();
   }
 
   if (!loaded) {
@@ -128,6 +171,12 @@ export function ConnectedMessenger({
           ? {}
           : { initialChatId: snapshot.selectedChatId })}
         initialPane="list"
+        historyLoading={historyLoading}
+        theme={theme}
+        onThemeChange={onThemeChange}
+        onLogout={() => {
+          void logout();
+        }}
         onSelectChat={(chatId) => {
           void selectChat(chatId);
         }}
