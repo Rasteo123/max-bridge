@@ -85,6 +85,10 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       ).telegramId;
     } catch (error: unknown) {
       if (error instanceof TelegramInitDataError) {
+        request.log.warn(
+          { reason: error.reason },
+          "Telegram init data rejected"
+        );
         await reply.code(401).send({ code: error.code });
         return;
       }

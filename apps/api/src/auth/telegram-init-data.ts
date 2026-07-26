@@ -20,7 +20,7 @@ export type TelegramValidationOptions = Readonly<{
 export class TelegramInitDataError extends Error {
   readonly code = "telegram_init_data_invalid";
 
-  constructor(reason: string) {
+  constructor(readonly reason: string) {
     super(`Telegram init data ${reason}`);
     this.name = "TelegramInitDataError";
   }
