@@ -137,6 +137,12 @@ export class UsersRepository {
     telegramId: string
   ): Promise<TelegramIdentity | null> {
     const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
+    return this.findIdentityByLookup(lookupId);
+  }
+
+  async findIdentityByLookup(
+    lookupId: string
+  ): Promise<TelegramIdentity | null> {
     const row = this.findRow(lookupId);
     if (row === undefined) {
       return null;
@@ -160,6 +166,16 @@ export class UsersRepository {
         zeroBuffer(plaintext);
       }
     }
+  }
+
+  findUser(telegramId: string): UserRecord | null {
+    const lookupId = createUserLookup(this.keys.lookupKey, telegramId);
+    return this.findUserByLookup(lookupId);
+  }
+
+  findUserByLookup(lookupId: string): UserRecord | null {
+    const row = this.findRow(lookupId);
+    return row === undefined ? null : rowToUserRecord(row);
   }
 
   transition(
