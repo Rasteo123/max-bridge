@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Synthetic MAX login EN</title>
+  </head>
+  <body>
+    <main>
+      <button id="phone-method" type="button">Sign in with phone number</button>
+      <button id="qr-method" type="button">Sign in with QR code</button>
+      <form id="phone-form" hidden>
+        <label>
+          Phone number
+          <input type="text" autocomplete="tel" inputmode="tel">
+        </label>
+        <button type="submit">Continue</button>
+      </form>
+      <form id="code-form" hidden>
+        <label>
+          Verification code
+          <input type="text" autocomplete="one-time-code" inputmode="numeric">
+        </label>
+        <button type="submit">Confirm</button>
+      </form>
+      <section id="qr" hidden>
+        <img
+          alt="QR code"
+          src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        >
+      </section>
+      <div role="alert" id="error" hidden></div>
+      <nav aria-label="Chats" id="chats" hidden>Chats</nav>
+    </main>
+    <script>
+      const phoneMethod = document.querySelector("#phone-method");
+      const qrMethod = document.querySelector("#qr-method");
+      const phoneForm = document.querySelector("#phone-form");
+      const codeForm = document.querySelector("#code-form");
+      const qr = document.querySelector("#qr");
+      const error = document.querySelector("#error");
+      const chats = document.querySelector("#chats");
+
+      phoneMethod.addEventListener("click", () => {
+        phoneMethod.hidden = true;
+        qrMethod.hidden = true;
+        phoneForm.hidden = false;
+      });
+      qrMethod.addEventListener("click", () => {
+        phoneMethod.hidden = true;
+        qrMethod.hidden = true;
+        qr.hidden = false;
+      });
+      phoneForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        phoneForm.hidden = true;
+        codeForm.hidden = false;
+      });
+      codeForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const code = codeForm.querySelector("input").value;
+        if (code === "0000") {
+          error.textContent = "Invalid code";
+          error.hidden = false;
+          return;
+        }
+        codeForm.hidden = true;
+        chats.hidden = false;
+      });
+    </script>
+  </body>
+</html>

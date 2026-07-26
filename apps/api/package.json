@@ -8,6 +8,7 @@
   "dependencies": {
     "@fastify/cookie": "11.1.2",
     "@maxbridge/core": "0.1.0",
+    "@maxbridge/max-adapter": "0.1.0",
     "@maxbridge/protocol": "0.1.0",
     "@types/better-sqlite3": "7.6.13",
     "better-sqlite3": "13.0.1",

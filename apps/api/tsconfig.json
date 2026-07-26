@@ -13,6 +13,9 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/max-adapter"
+    },
+    {
       "path": "../../packages/protocol"
     }
   ]
