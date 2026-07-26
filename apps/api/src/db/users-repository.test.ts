@@ -52,7 +52,7 @@ describe("UsersRepository", () => {
   });
 
   it("supports the approved authentication lifecycle", async () => {
-    await repository.createPending({ telegramId: "123456789" });
+    const user = await repository.createPending({ telegramId: "123456789" });
 
     expect(repository.transition(
       "123456789",
@@ -66,6 +66,9 @@ describe("UsersRepository", () => {
       "123456789",
       "active"
     )).toMatchObject({ state: "active" });
+    expect(repository.listUsersByState("active")).toEqual([
+      expect.objectContaining({ lookupId: user.lookupId, state: "active" })
+    ]);
     expect(repository.transition(
       "123456789",
       "reauth_required"

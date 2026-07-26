@@ -141,7 +141,7 @@ describe("private notifications", () => {
       mediaUrl: "https://private.invalid/CANARY_MEDIA_TOKEN"
     });
 
-    expect(notification).toBe("Новое сообщение от Алексей · Фото");
+    expect(notification).toBe("Вам пришло сообщение от Алексей · Фото");
     expect(notification).not.toContain("CANARY_PRIVATE_MESSAGE");
     expect(notification).not.toContain("CANARY_MEDIA_TOKEN");
   });

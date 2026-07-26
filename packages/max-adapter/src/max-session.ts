@@ -65,6 +65,11 @@ export class MaxSession {
     this.selectedMessages = [];
   }
 
+  leaveChat(): void {
+    this.selectedChatId = undefined;
+    this.selectedMessages = [];
+  }
+
   replaceOpenHistory(payload: unknown): void {
     if (this.selectedChatId === undefined) {
       throw new Error("No MAX chat is selected");

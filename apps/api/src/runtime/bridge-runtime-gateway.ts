@@ -56,6 +56,13 @@ export class BridgeRuntimeGateway implements
     string,
     Set<(event: BridgeEvent) => void>
   >();
+  private readonly globalListeners = new Set<
+    (userLookup: string, event: BridgeEvent) => void
+  >();
+  private readonly backgroundTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   constructor(private readonly options: Readonly<{
     worker: RuntimeWorker;
@@ -292,6 +299,11 @@ export class BridgeRuntimeGateway implements
     userLookup: string,
     listener: (event: BridgeEvent) => void
   ): () => void {
+    const backgroundTimer = this.backgroundTimers.get(userLookup);
+    if (backgroundTimer !== undefined) {
+      clearTimeout(backgroundTimer);
+      this.backgroundTimers.delete(userLookup);
+    }
     const listeners = this.listeners.get(userLookup) ?? new Set();
     listeners.add(listener);
     this.listeners.set(userLookup, listeners);
@@ -300,7 +312,17 @@ export class BridgeRuntimeGateway implements
       listeners.delete(listener);
       if (listeners.size === 0) {
         this.listeners.delete(userLookup);
+        this.scheduleBackground(userLookup);
       }
+    };
+  }
+
+  subscribeAll(
+    listener: (userLookup: string, event: BridgeEvent) => void
+  ): () => void {
+    this.globalListeners.add(listener);
+    return () => {
+      this.globalListeners.delete(listener);
     };
   }
 
@@ -317,6 +339,29 @@ export class BridgeRuntimeGateway implements
     });
     this.opening.set(userLookup, opening);
     return opening;
+  }
+
+  private scheduleBackground(userLookup: string): void {
+    if (
+      this.backgroundTimers.has(userLookup) ||
+      !this.opened.has(userLookup)
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.backgroundTimers.delete(userLookup);
+      if (
+        this.listeners.has(userLookup) ||
+        !this.opened.has(userLookup)
+      ) {
+        return;
+      }
+      void this.options.worker.request({
+        operation: "session.background",
+        sessionHandle: sessionHandle(userLookup)
+      }).catch(() => undefined);
+    }, 250);
+    this.backgroundTimers.set(userLookup, timer);
   }
 
   private async openSession(userLookup: string): Promise<void> {
@@ -361,6 +406,9 @@ export class BridgeRuntimeGateway implements
       parsed = parseBridgeEvent(event.payload);
     } catch {
       return;
+    }
+    for (const listener of this.globalListeners) {
+      listener(userLookup, parsed);
     }
     for (const listener of this.listeners.get(userLookup) ?? []) {
       listener(parsed);

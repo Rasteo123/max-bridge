@@ -20,6 +20,7 @@ export interface RuntimeMaxSession {
   getCaptchaPng(): Promise<Buffer>;
   sendCaptchaPointer(input: CaptchaPointerInput): Promise<MaxLoginResult>;
   status(): Promise<MaxLoginResult>;
+  background(): Promise<void>;
   listChats(): Promise<readonly ChatSummary[]>;
   history(chatId: string): Promise<readonly Message[] | null>;
   sendText(chatId: string, text: string): Promise<Readonly<{
@@ -105,6 +106,9 @@ export class WorkerRuntimeRequestHandler {
         return failure(request, "session_not_found");
       }
       switch (request.operation) {
+        case "session.background":
+          await session.background();
+          return success(request, { background: true });
         case "login.phone":
           return success(
             request,

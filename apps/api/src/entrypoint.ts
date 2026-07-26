@@ -8,7 +8,10 @@ import {
   RepositoryAuthUserGateway
 } from "./auth/repository-user-gateway.js";
 import { MemorySessionStore } from "./auth/session-store.js";
-import { createTelegramBot } from "./bot/bot.js";
+import {
+  createTelegramBot,
+  TelegrafTransport
+} from "./bot/bot.js";
 import {
   SqliteFriendAccessGateway
 } from "./bot/sqlite-access-gateway.js";
@@ -16,6 +19,11 @@ import { ApprovalRepository } from "./db/approval-repository.js";
 import { openDatabase } from "./db/client.js";
 import { UsersRepository } from "./db/users-repository.js";
 import { listenApi } from "./main.js";
+import { NotificationDeduplicator } from "./notifications/deduplicator.js";
+import { NotificationRouter } from "./notifications/router.js";
+import {
+  RuntimeNotificationService
+} from "./notifications/runtime-service.js";
 import {
   BridgeRuntimeGateway
 } from "./runtime/bridge-runtime-gateway.js";
@@ -74,11 +82,13 @@ async function main(): Promise<void> {
 
   let stopping = false;
   let botStarted = false;
+  let notifications: RuntimeNotificationService | undefined;
   const shutdown = async (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
     if (stopping) {
       return;
     }
     stopping = true;
+    notifications?.stop();
     if (botStarted) {
       bot.stop(signal);
     }
@@ -96,6 +106,22 @@ async function main(): Promise<void> {
   });
 
   if (config.botEnabled) {
+    notifications = new RuntimeNotificationService({
+      source: runtime,
+      users,
+      router: new NotificationRouter({
+        transport: new TelegrafTransport(bot.telegram),
+        settings: {
+          load: (userLookup) =>
+            users.loadNotificationPreferencesByLookup(userLookup)
+        },
+        deduplicator: new NotificationDeduplicator()
+      }),
+      onError: (error) => {
+        app.log.warn({ err: error }, "MAX notification delivery failed");
+      }
+    });
+    await notifications.start();
     botStarted = true;
     void bot.launch().catch((error: unknown) => {
       app.log.error({ err: error }, "Telegram bot stopped unexpectedly");

@@ -92,6 +92,18 @@ export class MaxWebPageSession {
     return state;
   }
 
+  async background(): Promise<void> {
+    this.adapter?.leaveChat();
+    if (this.options.page.url() === MAX_WEB_URL) {
+      return;
+    }
+    this.bindings = undefined;
+    await this.options.page.goto(MAX_WEB_URL, {
+      waitUntil: "domcontentloaded"
+    });
+    await this.ensureBindings();
+  }
+
   async submitPhone(phone: string): Promise<MaxLoginResult> {
     const exchanges = new Map<string, number>();
     const observeResponse = (response: Response) => {

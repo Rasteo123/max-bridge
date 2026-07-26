@@ -1,6 +1,7 @@
 export const WORKER_OPERATIONS = [
   "health.check",
   "session.open",
+  "session.background",
   "session.close",
   "login.phone",
   "login.code",

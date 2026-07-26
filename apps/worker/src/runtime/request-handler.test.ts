@@ -169,6 +169,7 @@ function request(
 
 function fakeSession(): RuntimeMaxSession {
   return {
+    background: () => Promise.resolve(),
     submitPhone: () => Promise.resolve({ state: "code_required" }),
     submitCode: () => Promise.resolve({
       result: { state: "authenticated" },

@@ -13,9 +13,13 @@ afterEach(() => {
 describe("AuthenticatedSocket", () => {
   it("reauthenticates from current Telegram initData without browser tokens", async () => {
     vi.useFakeTimers();
-    const socket = new FakeSocket();
+    const sockets: FakeSocket[] = [];
     const authenticate = vi.fn().mockResolvedValue(undefined);
-    const createSocket = vi.fn(() => socket as unknown as WebSocket);
+    const createSocket = vi.fn(() => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    });
     const bridge = new AuthenticatedSocket({
       initData: () => "signed-live-init-data",
       authenticate,
@@ -24,7 +28,7 @@ describe("AuthenticatedSocket", () => {
     });
 
     bridge.start();
-    socket.emitClose(1_008);
+    sockets[0]?.emitClose(1_008);
     await vi.runAllTimersAsync();
 
     expect(authenticate).toHaveBeenCalledWith("signed-live-init-data");
@@ -35,15 +39,78 @@ describe("AuthenticatedSocket", () => {
     expect(sessionStorage).toHaveLength(0);
     bridge.stop();
   });
+
+  it("stops retrying when Telegram rejects expired init data", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const expired = new Error("expired");
+    const authenticate = vi.fn().mockRejectedValue(expired);
+    const onAuthenticationExpired = vi.fn();
+    const onStatus = vi.fn();
+    const bridge = new AuthenticatedSocket({
+      initData: () => "expired-init-data",
+      authenticate,
+      isAuthenticationRejected: (error) => error === expired,
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      reconnectDelayMs: 10,
+      onAuthenticationExpired,
+      onStatus
+    });
+
+    bridge.start();
+    sockets[0]?.emitClose(4_401);
+    await vi.runAllTimersAsync();
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(onAuthenticationExpired).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenLastCalledWith("disconnected");
+    expect(sockets).toHaveLength(1);
+  });
+
+  it("uses bounded backoff and reports a prolonged disconnect", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const onStatus = vi.fn();
+    const bridge = new AuthenticatedSocket({
+      initData: () => "signed-live-init-data",
+      authenticate: vi.fn().mockResolvedValue(undefined),
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      reconnectDelayMs: 10,
+      maxReconnectDelayMs: 40,
+      onStatus
+    });
+
+    bridge.start();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      sockets[attempt]?.emitClose(1_006);
+      await vi.runOnlyPendingTimersAsync();
+    }
+
+    expect(sockets).toHaveLength(6);
+    expect(onStatus).toHaveBeenCalledWith("disconnected");
+    bridge.stop();
+  });
 });
 
 class FakeSocket {
+  private openListener: (() => void) | undefined;
   private closeListener: ((event: CloseEvent) => void) | undefined;
 
   addEventListener(
     type: string,
     listener: EventListenerOrEventListenerObject
   ): void {
+    if (type === "open" && typeof listener === "function") {
+      this.openListener = listener as () => void;
+    }
     if (type === "close" && typeof listener === "function") {
       this.closeListener = listener;
     }
@@ -53,5 +120,9 @@ class FakeSocket {
 
   emitClose(code: number): void {
     this.closeListener?.({ code } as CloseEvent);
+  }
+
+  emitOpen(): void {
+    this.openListener?.();
   }
 }

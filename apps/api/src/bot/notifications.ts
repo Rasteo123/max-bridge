@@ -17,5 +17,8 @@ export function formatPrivateNotification(
   notification: PrivateNotification
 ): string {
   const senderName = notification.senderName.slice(0, 256);
-  return `Новое сообщение от ${senderName} · ${kindLabels[notification.kind]}`;
+  const kind = notification.kind === "text"
+    ? ""
+    : ` · ${kindLabels[notification.kind]}`;
+  return `Вам пришло сообщение от ${senderName}${kind}`;
 }

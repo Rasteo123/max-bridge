@@ -21,7 +21,7 @@ import {
 } from "./telegram-init-data.js";
 
 export const SESSION_COOKIE = "__Host-maxbridge_session";
-const SESSION_MAX_AGE_SECONDS = 600;
+const SESSION_MAX_AGE_SECONDS = 86_400;
 
 export type AuthUserGateway = {
   findPrincipal(telegramId: string): SessionPrincipal | null;

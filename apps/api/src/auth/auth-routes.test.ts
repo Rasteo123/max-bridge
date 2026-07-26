@@ -67,6 +67,7 @@ describe("auth routes", () => {
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Strict");
     expect(cookie).toContain("Path=/");
+    expect(cookie).toContain("Max-Age=86400");
   });
 
   it("rejects a pending user", async () => {

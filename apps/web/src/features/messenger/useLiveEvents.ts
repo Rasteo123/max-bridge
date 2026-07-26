@@ -4,6 +4,7 @@ import {
   AuthenticatedSocket,
   type SocketFactory
 } from "../../api/socket.js";
+import { ApiError } from "../../api/client.js";
 import type { AuthClient } from "../auth/AuthGate.js";
 import type { TelegramWebApp } from "../auth/telegram.js";
 import type { MessengerStore } from "./messenger-store.js";
@@ -31,6 +32,11 @@ export function useLiveEvents({
       authenticate: async (initData) => {
         await client.authenticateTelegram(initData);
       },
+      isAuthenticationRejected: (error) =>
+        error instanceof ApiError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        error.status !== 429,
       ...(createSocket === undefined ? {} : { createSocket }),
       onStatus: (status) => {
         store.applyEvent({
@@ -38,6 +44,14 @@ export function useLiveEvents({
           sequence: 0,
           occurredAt: new Date().toISOString(),
           state: status
+        });
+      },
+      onAuthenticationExpired: () => {
+        store.applyEvent({
+          type: "authentication.state",
+          sequence: 0,
+          occurredAt: new Date().toISOString(),
+          state: "reauth_required"
         });
       },
       onMessage: (value) => {

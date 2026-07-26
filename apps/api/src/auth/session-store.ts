@@ -28,7 +28,7 @@ export class MemorySessionStore {
   private readonly now: () => number;
 
   constructor(options: SessionStoreOptions = {}) {
-    this.idleTtlMs = options.idleTtlMs ?? 600_000;
+    this.idleTtlMs = options.idleTtlMs ?? 86_400_000;
     this.now = options.now ?? Date.now;
   }
 

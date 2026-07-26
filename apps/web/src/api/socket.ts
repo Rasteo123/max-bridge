@@ -5,16 +5,20 @@ export type SocketFactory = (
 export type AuthenticatedSocketOptions = Readonly<{
   initData: () => string;
   authenticate: (initData: string) => Promise<void>;
+  isAuthenticationRejected?(error: unknown): boolean;
   createSocket?: SocketFactory;
   path?: string;
   reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
   onMessage?(value: unknown): void;
   onStatus?(status: "connected" | "reconnecting" | "disconnected"): void;
+  onAuthenticationExpired?(): void;
 }>;
 
 export class AuthenticatedSocket {
   private socket: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
   private stopped = true;
 
   constructor(private readonly options: AuthenticatedSocketOptions) {}
@@ -53,9 +57,16 @@ export class AuthenticatedSocket {
     );
     this.socket = socket;
     socket.addEventListener("open", () => {
+      if (this.socket !== socket || this.stopped) {
+        return;
+      }
+      this.reconnectAttempts = 0;
       this.options.onStatus?.("connected");
     });
     socket.addEventListener("message", (event) => {
+      if (this.socket !== socket || this.stopped) {
+        return;
+      }
       if (typeof event.data !== "string") {
         return;
       }
@@ -66,9 +77,10 @@ export class AuthenticatedSocket {
       }
     });
     socket.addEventListener("close", (event) => {
-      if (this.stopped) {
+      if (this.socket !== socket || this.stopped) {
         return;
       }
+      this.socket = null;
       if (event.code === 4_401 || event.code === 1_008) {
         this.options.onStatus?.("reconnecting");
         void this.reauthenticateAndReconnect();
@@ -83,11 +95,16 @@ export class AuthenticatedSocket {
     try {
       const initData = this.options.initData();
       if (initData.length === 0) {
+        this.expireAuthentication();
         return;
       }
       await this.options.authenticate(initData);
       this.scheduleReconnect();
-    } catch {
+    } catch (error: unknown) {
+      if (this.options.isAuthenticationRejected?.(error) === true) {
+        this.expireAuthentication();
+        return;
+      }
       this.scheduleReconnect();
     }
   }
@@ -96,9 +113,31 @@ export class AuthenticatedSocket {
     if (this.stopped || this.reconnectTimer !== null) {
       return;
     }
+    const baseDelay = this.options.reconnectDelayMs ?? 1_000;
+    const maxDelay = this.options.maxReconnectDelayMs ?? 30_000;
+    const delay = Math.min(
+      maxDelay,
+      baseDelay * 2 ** Math.min(this.reconnectAttempts, 8)
+    );
+    this.reconnectAttempts += 1;
+    if (this.reconnectAttempts >= 5) {
+      this.options.onStatus?.("disconnected");
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, this.options.reconnectDelayMs ?? 1_000);
+    }, delay);
+  }
+
+  private expireAuthentication(): void {
+    this.stopped = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.socket?.close(1_000, "authentication_expired");
+    this.socket = null;
+    this.options.onStatus?.("disconnected");
+    this.options.onAuthenticationExpired?.();
   }
 }

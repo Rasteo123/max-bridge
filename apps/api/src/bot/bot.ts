@@ -78,7 +78,7 @@ export function createTelegramBot(options: TelegramBotOptions): Telegraf {
   return bot;
 }
 
-class TelegrafTransport implements BotTransport {
+export class TelegrafTransport implements BotTransport {
   constructor(
     private readonly telegram: Telegram,
     private readonly callbackQueryId?: string

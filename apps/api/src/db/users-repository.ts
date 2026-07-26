@@ -191,6 +191,33 @@ export class UsersRepository {
     return row === undefined ? null : rowToUserRecord(row);
   }
 
+  listUsersByState(state: UserState): readonly UserRecord[] {
+    if (!USER_STATES.includes(state)) {
+      throw new InvalidUserTransitionError();
+    }
+    const rows = this.database.prepare(`
+      SELECT
+        lookup_id,
+        state,
+        wrapped_dek,
+        identity_cipher,
+        max_session_cipher,
+        preferences_cipher,
+        created_at,
+        updated_at
+      FROM users
+      WHERE state = ?
+      ORDER BY created_at ASC
+    `).all(state);
+    return rows.map((value) => {
+      const row = parseUserRow(value);
+      if (row === undefined) {
+        throw new TypeError("Invalid user row");
+      }
+      return rowToUserRecord(row);
+    });
+  }
+
   transition(
     telegramId: string,
     nextState: UserState

@@ -159,7 +159,9 @@ export function ConnectedMessenger({
     <>
       {snapshot.connection !== "connected" && (
         <div className="connection-banner" role="status">
-          {snapshot.connection === "reconnecting"
+          {snapshot.authentication === "reauth_required"
+            ? "Сессия Telegram устарела. Закройте и снова откройте Mini App."
+            : snapshot.connection === "reconnecting"
             ? "Восстанавливаем соединение…"
             : "Нет соединения с MAX"}
         </div>

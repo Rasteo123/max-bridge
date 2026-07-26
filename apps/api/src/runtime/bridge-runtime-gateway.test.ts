@@ -65,6 +65,42 @@ describe("BridgeRuntimeGateway", () => {
       "active"
     );
   });
+
+  it("returns the MAX page to the chat list after the last Mini App closes", async () => {
+    vi.useFakeTimers();
+    const requests: unknown[] = [];
+    const worker = fakeWorker((request) => {
+      requests.push(request);
+      if (request.operation === "session.open") {
+        return Promise.resolve({ opened: true });
+      }
+      if (request.operation === "chats.list") {
+        return Promise.resolve({ chats: [] });
+      }
+      if (request.operation === "session.background") {
+        return Promise.resolve({ background: true });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    const gateway = new BridgeRuntimeGateway({
+      worker,
+      users: fakeUsers()
+    });
+
+    await gateway.list("u_AbCdEfGhIjKlMnOpQrStUv");
+    const unsubscribe = gateway.subscribe(
+      "u_AbCdEfGhIjKlMnOpQrStUv",
+      () => undefined
+    );
+    unsubscribe();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(requests).toContainEqual(expect.objectContaining({
+      operation: "session.background",
+      sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv"
+    }));
+    vi.useRealTimers();
+  });
 });
 
 function fakeWorker(

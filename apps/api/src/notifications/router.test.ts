@@ -18,7 +18,7 @@ describe("NotificationRouter", () => {
     }));
 
     const sent = transport.send.mock.calls[0]?.[0];
-    expect(sent?.text).toBe("Новое сообщение от Алексей · Сообщение");
+    expect(sent?.text).toBe("Вам пришло сообщение от Алексей");
     expect(JSON.stringify(sent)).not.toContain("CANARY_PRIVATE_BODY");
     expect(JSON.stringify(sent)).not.toContain("CANARY_MEDIA");
   });
