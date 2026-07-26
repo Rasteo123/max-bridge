@@ -85,6 +85,16 @@ export function ConnectedMessenger({
     store.mergeHistory(history.messages.map(toMessengerMessage));
   }
 
+  async function sendAttachment(file: File, kind: "media" | "file") {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.sendAttachment(chatId, file, kind);
+    const history = await client.getHistory(chatId);
+    store.mergeHistory(history.messages.map(toMessengerMessage));
+  }
+
   if (!loaded) {
     return (
       <main className="centered-page" aria-busy="true">
@@ -123,6 +133,9 @@ export function ConnectedMessenger({
         }}
         onSend={(text) => {
           void send(text);
+        }}
+        onAttach={(file, kind) => {
+          void sendAttachment(file, kind);
         }}
       />
     </>

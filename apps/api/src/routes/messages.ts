@@ -42,6 +42,15 @@ export interface MessageGateway {
       confirmedByUser: true;
     }>
   ): Promise<MessageRouteResult>;
+  sendAttachment?(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      clientRequestId: string;
+      filePath: string;
+      kind: "media" | "file";
+    }>
+  ): Promise<MessageRouteResult>;
 }
 
 export type MessageRouteOptions = Readonly<{
@@ -64,6 +73,16 @@ type RetryBody = TextBody & {
   confirmedByUser: boolean;
 };
 
+type AttachmentParams = { chatId: string };
+type AttachmentQuery = {
+  kind: "media" | "file";
+  name: string;
+  clientRequestId: string;
+};
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MEDIA_ROOT = "/run/maxbridge/media";
+
 const commonTextProperties = {
   kind: { type: "string", const: "text" },
   chatId: { type: "string", minLength: 1, maxLength: 512 },
@@ -74,6 +93,14 @@ const commonTextProperties = {
 export const registerMessageRoutes: FastifyPluginCallback<
   MessageRouteOptions
 > = (app, options, done) => {
+  app.addContentTypeParser(
+    "application/octet-stream",
+    { parseAs: "buffer", bodyLimit: MAX_ATTACHMENT_BYTES },
+    (_request, body, next) => {
+      next(null, body);
+    }
+  );
+
   app.post<{ Body: TextBody }>("/api/messages", {
     config: { sensitiveBody: true },
     schema: {
@@ -162,8 +189,87 @@ export const registerMessageRoutes: FastifyPluginCallback<
     }
   });
 
+  app.post<{
+    Params: AttachmentParams;
+    Querystring: AttachmentQuery;
+    Body: Buffer;
+  }>("/api/chats/:chatId/attachments", {
+    config: { sensitiveBody: true },
+    bodyLimit: MAX_ATTACHMENT_BYTES,
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["chatId"],
+        properties: {
+          chatId: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      },
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "name", "clientRequestId"],
+        properties: {
+          kind: { type: "string", enum: ["media", "file"] },
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          clientRequestId: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    if (!Buffer.isBuffer(request.body) || request.body.length < 1) {
+      await reply.code(400).send({ code: "attachment_empty" });
+      return;
+    }
+    if (options.gateway.sendAttachment === undefined) {
+      request.body.fill(0);
+      await reply.code(501).send({ code: "attachment_unavailable" });
+      return;
+    }
+    const safeName = safeAttachmentName(request.query.name);
+    await mkdir(MEDIA_ROOT, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(MEDIA_ROOT, "upload-"));
+    const filePath = join(directory, safeName);
+    try {
+      await writeFile(filePath, request.body, {
+        flag: "wx",
+        mode: 0o600
+      });
+      await reply.send(await options.gateway.sendAttachment(
+        principal.userLookup,
+        {
+          chatId: request.params.chatId,
+          clientRequestId: request.query.clientRequestId,
+          filePath,
+          kind: request.query.kind
+        }
+      ));
+    } finally {
+      request.body.fill(0);
+      await unlink(filePath).catch(() => undefined);
+      await rmdir(directory).catch(() => undefined);
+    }
+  });
+
   done();
 };
+
+function safeAttachmentName(value: string): string {
+  const safe = basename(value)
+    .replaceAll("\0", "")
+    .replace(/[^\p{L}\p{N}._() -]/gu, "_")
+    .slice(0, 180)
+    .trim();
+  return safe.length > 0 ? safe : "attachment";
+}
 
 function authorizeMutation(
   request: FastifyRequest,
@@ -185,3 +291,11 @@ function authorizeMutation(
   }
   return principal;
 }
+import {
+  mkdir,
+  mkdtemp,
+  rmdir,
+  unlink,
+  writeFile
+} from "node:fs/promises";
+import { basename, join } from "node:path";

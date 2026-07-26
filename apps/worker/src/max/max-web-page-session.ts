@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { realpath, stat } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 
 import type {
   BridgeEvent,
@@ -31,6 +33,7 @@ const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
 const MAX_SESSION_READY_WAIT_MS = 15_000;
+const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 
 type PendingSend = {
   resolve: (messageId?: string) => void;
@@ -365,7 +368,14 @@ export class MaxWebPageSession {
     let messages: unknown[] = [];
     while (Date.now() <= deadline) {
       messages = await this.readMessages(chatId);
-      if (messages.length > 1) {
+      if (
+        messages.length > 0
+        || await this.options.page
+          .locator('[contenteditable="true"][role="textbox"], textarea')
+          .last()
+          .isVisible()
+          .catch(() => false)
+      ) {
         break;
       }
       await this.options.page.waitForTimeout(50);
@@ -405,6 +415,57 @@ export class MaxWebPageSession {
     } catch {
       this.clearPendingSend();
       throw new Error("MAX send failed before confirmation");
+    }
+
+    const messageId = await confirmation;
+    return messageId === undefined
+      ? { state: "ambiguous", operationId }
+      : { state: "confirmed", operationId, messageId };
+  }
+
+  async sendAttachment(input: Readonly<{
+    chatId: string;
+    filePath: string;
+    kind: "media" | "file";
+  }>): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>> {
+    const filePath = await validateTransientFile(input.filePath);
+    if (await this.history(input.chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const operationId = createOperationId();
+    const confirmation = new Promise<string | undefined>((resolvePending) => {
+      const timeout = setTimeout(() => {
+        this.pendingSend = undefined;
+        resolvePending(undefined);
+      }, MAX_SEND_CONFIRMATION_MS);
+      this.pendingSend = { resolve: resolvePending, timeout };
+    });
+
+    try {
+      await this.options.page
+        .getByRole("button", { name: "Загрузить файл", exact: true })
+        .click({ timeout: 5_000 });
+      await this.options.page
+        .getByRole("menuitem", {
+          name: input.kind === "media" ? "Фото или видео" : "Файл",
+          exact: true
+        })
+        .click({ timeout: 5_000 });
+      await this.options.page
+        .locator('input[type="file"]')
+        .last()
+        .setInputFiles(filePath);
+      const send = this.options.page
+        .getByRole("button", { name: "Отправить сообщение", exact: true });
+      await send.waitFor({ state: "visible", timeout: 10_000 });
+      await send.click({ timeout: 10_000 });
+    } catch {
+      this.clearPendingSend();
+      throw new Error("MAX attachment send failed before confirmation");
     }
 
     const messageId = await confirmation;
@@ -523,47 +584,91 @@ export class MaxWebPageSession {
       };
       const session = accessor();
       const source = session.viewer?.folders?.all?.chats;
-      const chats = source !== null
+      const entries = source !== null
         && typeof source === "object"
         && Symbol.iterator in source
-        ? Array.from(source as Iterable<Record<string, unknown>>)
+        ? Array.from(source as Iterable<unknown>)
         : [];
-      const chat = chats.find((candidate) =>
-        String(candidate["id"]) === input.chatId
-      );
+      const chat = entries
+        .map((entry) => {
+          const tuple = Array.isArray(entry)
+            ? entry as unknown[]
+            : undefined;
+          const value = tuple?.length === 2 ? tuple[1] : entry;
+          const candidate = asRecord(value);
+          const raw = asRecord(candidate?.["$"]);
+          return {
+            id: safeOpaque(
+              candidate?.["id"] ?? raw?.["id"] ?? tuple?.[0]
+            ),
+            value: candidate,
+            raw
+          };
+        })
+        .find((candidate) => candidate.id === input.chatId);
       if (chat === undefined) {
         return [];
       }
-      const values = Array.isArray(chat["messages"])
-        ? chat["messages"]
-        : chat["messages"] !== null
-          && typeof chat["messages"] === "object"
-          && Symbol.iterator in chat["messages"]
-          ? Array.from(chat["messages"] as Iterable<unknown>)
+      const messageSource = chat.value?.["messages"] ?? chat.raw?.["messages"];
+      const values = Array.isArray(messageSource)
+        ? messageSource
+        : messageSource !== null
+          && typeof messageSource === "object"
+          && Symbol.iterator in messageSource
+          ? Array.from(messageSource as Iterable<unknown>)
           : [];
       return values.slice(-200).map((value) => {
-        const message = value as Record<string, unknown>;
-        const textValue = message["text"];
+        const tuple = Array.isArray(value)
+          ? value as unknown[]
+          : undefined;
+        const candidate = asRecord(tuple?.length === 2 ? tuple[1] : value);
+        const raw = asRecord(candidate?.["$"]);
+        const message = candidate ?? {};
+        const textValue = message["text"] ?? raw?.["text"];
         const text = typeof textValue === "string"
           ? textValue
           : textValue !== null && typeof textValue === "object"
             ? (textValue as Record<string, unknown>)["plain"]
             : undefined;
-        const sender = message["sender"];
+        const sender = message["sender"] ?? raw?.["sender"];
         return {
-          id: safeOpaque(message["id"]),
-          sender: safeOpaque(message["senderId"]),
+          id: safeOpaque(message["id"] ?? raw?.["id"] ?? tuple?.[0]),
+          sender: safeOpaque(message["senderId"] ?? raw?.["senderId"]),
           senderName: sender !== null && typeof sender === "object"
             ? (sender as Record<string, unknown>)["fullName"]
             : undefined,
-          time: typeof message["time"] === "bigint"
-            ? message["time"].toString()
-            : message["time"] ?? Date.now(),
-          type: message["type"] ?? "MESSAGE",
+          time: typeof (message["time"] ?? raw?.["time"]) === "bigint"
+            ? String(message["time"] ?? raw?.["time"])
+            : message["time"] ?? raw?.["time"] ?? Date.now(),
+          type: message["type"] ?? raw?.["type"] ?? "MESSAGE",
           text: typeof text === "string" ? text : undefined,
-          attaches: []
+          attaches: normalizeAttaches(
+            message["attaches"] ?? raw?.["attaches"]
+          )
         };
       });
+
+      function asRecord(
+        value: unknown
+      ): Record<string, unknown> | undefined {
+        return value !== null && typeof value === "object"
+          ? value as Record<string, unknown>
+          : undefined;
+      }
+
+      function normalizeAttaches(value: unknown): unknown[] {
+        if (Array.isArray(value)) {
+          return value.slice(0, 16);
+        }
+        if (
+          value !== null
+          && typeof value === "object"
+          && Symbol.iterator in value
+        ) {
+          return Array.from(value as Iterable<unknown>).slice(0, 16);
+        }
+        return [];
+      }
 
       function safeOpaque(value: unknown): string {
         return (
@@ -636,6 +741,24 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object"
     ? value as Record<string, unknown>
     : undefined;
+}
+
+async function validateTransientFile(filePath: string): Promise<string> {
+  const root = resolve(MAX_MEDIA_ROOT);
+  const canonical = await realpath(filePath);
+  const fromRoot = relative(root, canonical);
+  if (
+    fromRoot.length < 1
+    || fromRoot.startsWith("..")
+    || resolve(root, fromRoot) !== canonical
+  ) {
+    throw new TypeError("Attachment path is invalid");
+  }
+  const details = await stat(canonical);
+  if (!details.isFile() || details.size < 1 || details.size > 20 * 1024 * 1024) {
+    throw new TypeError("Attachment file is invalid");
+  }
+  return canonical;
 }
 
 function opaqueId(value: unknown): string | undefined {

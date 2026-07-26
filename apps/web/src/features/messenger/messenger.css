@@ -395,6 +395,53 @@
   color: var(--accent-text);
 }
 
+.composer__attachment {
+  position: relative;
+}
+
+.composer__attachment-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 10px);
+  left: 0;
+  display: grid;
+  width: max-content;
+  min-width: 210px;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 12px 36px rgb(20 30 60 / 20%);
+}
+
+.composer__attachment-menu label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.composer__attachment-menu label:hover {
+  background: var(--surface-hover);
+}
+
+.composer__attachment-menu input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer__attachment-menu small {
+  padding: 2px 12px 4px;
+  color: var(--muted);
+}
+
 .composer__field {
   display: grid;
   min-width: 0;

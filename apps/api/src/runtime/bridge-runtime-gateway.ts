@@ -264,6 +264,23 @@ export class BridgeRuntimeGateway implements
     }));
   }
 
+  async sendAttachment(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      clientRequestId: string;
+      filePath: string;
+      kind: "media" | "file";
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "message.sendAttachment",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
+  }
+
   async canAccessChat(
     userLookup: string,
     chatId: string

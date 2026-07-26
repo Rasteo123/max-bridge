@@ -27,6 +27,15 @@ export interface RuntimeMaxSession {
     operationId: string;
     messageId?: string;
   }>>;
+  sendAttachment?(input: Readonly<{
+    chatId: string;
+    filePath: string;
+    kind: "media" | "file";
+  }>): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>>;
   close(): Promise<void>;
 }
 
@@ -134,6 +143,16 @@ export class WorkerRuntimeRequestHandler {
           return success(
             request,
             await session.sendText(input.chatId, input.text)
+          );
+        }
+        case "message.sendAttachment": {
+          const input = readSendAttachment(request.payload);
+          if (session.sendAttachment === undefined) {
+            return failure(request, "invalid_request");
+          }
+          return success(
+            request,
+            await session.sendAttachment(input)
           );
         }
         default:
@@ -360,4 +379,34 @@ function readSendText(value: unknown): Readonly<{
     throw new TypeError("Invalid worker payload");
   }
   return { chatId, text };
+}
+
+function readSendAttachment(value: unknown): Readonly<{
+  chatId: string;
+  filePath: string;
+  kind: "media" | "file";
+}> {
+  const input = exact(value, [
+    "chatId",
+    "clientRequestId",
+    "filePath",
+    "kind"
+  ]);
+  const chatId = readChatId({ chatId: input["chatId"] });
+  const filePath = input["filePath"];
+  const kind = input["kind"];
+  const clientRequestId = input["clientRequestId"];
+  if (
+    typeof filePath !== "string"
+    || !filePath.startsWith("/run/maxbridge/media/")
+    || filePath.length > 512
+    || hasControlCharacter(filePath)
+    || (kind !== "media" && kind !== "file")
+    || typeof clientRequestId !== "string"
+    || clientRequestId.length < 1
+    || clientRequestId.length > 128
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return { chatId, filePath, kind };
 }

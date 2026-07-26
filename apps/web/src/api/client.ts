@@ -129,6 +129,27 @@ export class ApiClient {
     });
   }
 
+  async sendAttachment(
+    chatId: string,
+    file: File,
+    kind: "media" | "file",
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    const query = new URLSearchParams({
+      kind,
+      name: file.name,
+      clientRequestId
+    });
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/attachments?${query}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: file
+      }
+    );
+  }
+
   private async requestJson<T>(
     path: string,
     init: RequestInit = {}
@@ -142,7 +163,7 @@ export class ApiClient {
     init: RequestInit
   ): Promise<Response> {
     const headers = new Headers(init.headers);
-    if (init.body !== undefined) {
+    if (init.body !== undefined && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
     }
     headers.set("accept", "application/json");

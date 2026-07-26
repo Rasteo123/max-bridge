@@ -11,6 +11,7 @@ type ConversationProps = Readonly<{
   wide: boolean;
   onOpenChats(): void;
   onSend(text: string): void;
+  onAttach?(file: File, kind: "media" | "file"): void;
 }>;
 
 export function Conversation({
@@ -18,7 +19,8 @@ export function Conversation({
   messages,
   wide,
   onOpenChats,
-  onSend
+  onSend,
+  onAttach
 }: ConversationProps) {
   return (
     <section
@@ -66,7 +68,11 @@ export function Conversation({
           </>
         )}
       </div>
-      <Composer disabled={chat === undefined} onSend={onSend} />
+      <Composer
+        disabled={chat === undefined}
+        onSend={onSend}
+        {...(onAttach === undefined ? {} : { onAttach })}
+      />
     </section>
   );
 }

@@ -10,7 +10,8 @@ export const WORKER_OPERATIONS = [
   "login.status",
   "chats.list",
   "messages.history",
-  "message.send"
+  "message.send",
+  "message.sendAttachment"
 ] as const;
 
 export type WorkerOperation = typeof WORKER_OPERATIONS[number];

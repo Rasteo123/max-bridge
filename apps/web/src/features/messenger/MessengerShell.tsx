@@ -21,6 +21,7 @@ type MessengerShellProps = Readonly<{
   initialPane?: MessengerPane;
   onSelectChat(chatId: string): void;
   onSend(text: string): void;
+  onAttach?(file: File, kind: "media" | "file"): void;
 }>;
 
 export function MessengerShell({
@@ -29,7 +30,8 @@ export function MessengerShell({
   initialChatId,
   initialPane,
   onSelectChat,
-  onSend
+  onSend,
+  onAttach
 }: MessengerShellProps) {
   const wide = useResponsivePane();
   const [selectedChatId, setSelectedChatId] = useState(initialChatId);
@@ -91,6 +93,7 @@ export function MessengerShell({
               setPane("list");
             }}
             onSend={onSend}
+            {...(onAttach === undefined ? {} : { onAttach })}
           />
         </div>
       </section>
