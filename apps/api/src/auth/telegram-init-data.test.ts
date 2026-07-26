@@ -48,6 +48,27 @@ describe("validateTelegramInitData", () => {
     })).toThrow(TelegramInitDataError);
   });
 
+  it("accepts signed string ids and empty optional Telegram fields", () => {
+    const raw = createSignedInitData({
+      auth_date: String(nowSeconds),
+      user: JSON.stringify({
+        id: "123456789",
+        first_name: "Синтетический",
+        last_name: "",
+        username: ""
+      })
+    });
+
+    expect(validateTelegramInitData(raw, botToken, {
+      nowSeconds,
+      maxAgeSeconds: 300
+    })).toEqual({
+      telegramId: "123456789",
+      firstName: "Синтетический",
+      authDate: nowSeconds
+    });
+  });
+
   it("rejects data older than five minutes", () => {
     const raw = createSignedInitData({
       auth_date: String(nowSeconds - 301),

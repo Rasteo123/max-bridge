@@ -117,10 +117,9 @@ function parseSignedUser(
     throw new TelegramInitDataError("has no valid user");
   }
   const record = user as Record<string, unknown>;
+  const telegramId = parseTelegramId(record["id"]);
   if (
-    typeof record["id"] !== "number"
-    || !Number.isSafeInteger(record["id"])
-    || record["id"] <= 0
+    telegramId === null
     || typeof record["first_name"] !== "string"
     || record["first_name"].length === 0
     || record["first_name"].length > 256
@@ -130,7 +129,7 @@ function parseSignedUser(
   const lastName = parseOptionalUserField(record["last_name"]);
   const username = parseOptionalUserField(record["username"]);
   return {
-    telegramId: String(record["id"]),
+    telegramId,
     firstName: record["first_name"],
     ...(lastName === undefined ? {} : { lastName }),
     ...(username === undefined ? {} : { username }),
@@ -138,8 +137,26 @@ function parseSignedUser(
   };
 }
 
+function parseTelegramId(value: unknown): string | null {
+  if (
+    typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value > 0
+  ) {
+    return String(value);
+  }
+  if (
+    typeof value === "string"
+    && /^[1-9]\d{0,15}$/u.test(value)
+    && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return value;
+  }
+  return null;
+}
+
 function parseOptionalUserField(value: unknown): string | undefined {
-  if (value === undefined) {
+  if (value === undefined || value === "") {
     return undefined;
   }
   if (typeof value !== "string" || value.length === 0 || value.length > 256) {
