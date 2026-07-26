@@ -25,18 +25,22 @@ export class LoginRateLimiter {
   }
 
   isLocked(userLookup: string): boolean {
+    return this.retryAfterSeconds(userLookup) > 0;
+  }
+
+  retryAfterSeconds(userLookup: string): number {
     const state = this.states.get(userLookup);
     if (state === undefined) {
-      return false;
+      return 0;
     }
     const now = this.now();
     if (state.lockedUntil > now) {
-      return true;
+      return Math.ceil((state.lockedUntil - now) / 1_000);
     }
     if (state.lockedUntil !== 0) {
       this.states.delete(userLookup);
     }
-    return false;
+    return 0;
   }
 
   recordFailure(userLookup: string): void {

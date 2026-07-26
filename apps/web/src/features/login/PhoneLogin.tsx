@@ -4,9 +4,10 @@ import {
   useState
 } from "react";
 
-import type {
-  MaxLoginResult,
-  MaxLoginState
+import {
+  ApiError,
+  type MaxLoginResult,
+  type MaxLoginState
 } from "../../api/client.js";
 
 export type PhoneLoginClient = Readonly<{
@@ -42,16 +43,32 @@ export function PhoneLogin({
 
   async function submitPhone(event: FormEvent) {
     event.preventDefault();
+    const normalizedPhone = normalizePhone(phone);
+    if (normalizedPhone === null) {
+      setError(
+        "Проверьте номер телефона. Для российского номера нужно 10 цифр после +7."
+      );
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const result = await client.submitPhone(phone);
+      const result = await client.submitPhone(normalizedPhone);
       setState(result.state);
       if (result.state !== "code_required") {
-        setError(messageForState(result.state));
+        setError(result.state === "failed"
+          ? "MAX не принял номер. Проверьте его и попробуйте ещё раз."
+          : messageForState(result.state));
       }
-    } catch {
-      setError("Не удалось отправить номер. Попробуйте позже.");
+    } catch (caught: unknown) {
+      if (
+        caught instanceof ApiError
+        && caught.code === "login_temporarily_locked"
+      ) {
+        setError(lockedMessage(caught.retryAfterSeconds));
+      } else {
+        setError("Не удалось связаться с MAX. Попробуйте позже.");
+      }
     } finally {
       setBusy(false);
     }
@@ -123,10 +140,10 @@ export function PhoneLogin({
         inputMode="tel"
         autoComplete="tel"
         placeholder="+7 999 123-45-67"
-        pattern="\+[1-9][0-9]{7,14}"
         value={phone}
         onChange={(event) => {
           setPhone(event.currentTarget.value);
+          setError("");
         }}
         disabled={busy}
         required
@@ -137,6 +154,43 @@ export function PhoneLogin({
       </button>
     </form>
   );
+}
+
+function normalizePhone(value: string): string | null {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  let normalized: string;
+
+  if (trimmed.startsWith("+")) {
+    normalized = `+${digits}`;
+  } else if (/^8\d{10}$/.test(digits)) {
+    normalized = `+7${digits.slice(1)}`;
+  } else if (/^7\d{10}$/.test(digits)) {
+    normalized = `+${digits}`;
+  } else if (/^\d{10}$/.test(digits)) {
+    normalized = `+7${digits}`;
+  } else {
+    return null;
+  }
+
+  if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
+    return null;
+  }
+  if (normalized.startsWith("+7") && !/^\+7\d{10}$/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function lockedMessage(retryAfterSeconds?: number): string {
+  if (
+    retryAfterSeconds === undefined
+    || !Number.isFinite(retryAfterSeconds)
+  ) {
+    return "Слишком много попыток. Подождите и попробуйте снова.";
+  }
+  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  return `Слишком много попыток. Повторите через ${String(minutes)} мин.`;
 }
 
 function messageForState(state: MaxLoginState): string {

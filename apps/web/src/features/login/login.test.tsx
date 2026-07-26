@@ -11,7 +11,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../../test-setup.js";
-import { ApiClient } from "../../api/client.js";
+import { ApiClient, ApiError } from "../../api/client.js";
 import { AuthGate } from "../auth/AuthGate.js";
 import type { TelegramWebApp } from "../auth/telegram.js";
 import { PhoneLogin } from "./PhoneLogin.js";
@@ -203,6 +203,76 @@ describe("MAX login", () => {
     );
 
     expect(screen.getByLabelText("Номер телефона")).toHaveValue("");
+  });
+
+  it("normalizes a Russian phone number before submitting it", async () => {
+    const user = userEvent.setup();
+    const client = {
+      submitPhone: vi.fn().mockResolvedValue({ state: "code_required" }),
+      submitCode: vi.fn()
+    };
+    render(
+      <PhoneLogin
+        client={client}
+        initialState="method_required"
+        onAuthenticated={vi.fn()}
+      />
+    );
+
+    await user.type(
+      screen.getByLabelText("Номер телефона"),
+      "999 123-45-67"
+    );
+    await user.click(screen.getByRole("button", { name: "Получить код" }));
+
+    expect(client.submitPhone).toHaveBeenCalledWith("+79991234567");
+  });
+
+  it("does not send an incomplete Russian phone number", async () => {
+    const user = userEvent.setup();
+    const client = {
+      submitPhone: vi.fn(),
+      submitCode: vi.fn()
+    };
+    render(
+      <PhoneLogin
+        client={client}
+        initialState="method_required"
+        onAuthenticated={vi.fn()}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Номер телефона"), "+7999123456");
+    await user.click(screen.getByRole("button", { name: "Получить код" }));
+
+    expect(client.submitPhone).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Для российского номера нужно 10 цифр после +7."
+    );
+  });
+
+  it("explains a temporary login lock", async () => {
+    const user = userEvent.setup();
+    const client = {
+      submitPhone: vi.fn().mockRejectedValue(
+        new ApiError(429, "login_temporarily_locked", 1_800)
+      ),
+      submitCode: vi.fn()
+    };
+    render(
+      <PhoneLogin
+        client={client}
+        initialState="method_required"
+        onAuthenticated={vi.fn()}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Номер телефона"), "+79991234567");
+    await user.click(screen.getByRole("button", { name: "Получить код" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Повторите через 30 мин."
+    );
   });
 
   it("refreshes an expired QR without caching it", async () => {

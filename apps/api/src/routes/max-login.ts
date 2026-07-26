@@ -180,10 +180,14 @@ function rejectLocked(
   reply: FastifyReply,
   limiter: LoginRateLimiter
 ): boolean {
-  if (!limiter.isLocked(principal.userLookup)) {
+  const retryAfterSeconds = limiter.retryAfterSeconds(principal.userLookup);
+  if (retryAfterSeconds === 0) {
     return false;
   }
-  void reply.code(429).send({ code: "login_temporarily_locked" });
+  void reply
+    .header("retry-after", retryAfterSeconds)
+    .code(429)
+    .send({ code: "login_temporarily_locked" });
   return true;
 }
 
@@ -195,7 +199,7 @@ async function sendLoginResult(
 ): Promise<void> {
   if (result.state === "invalid_code" || result.state === "failed") {
     limiter.recordFailure(userLookup);
-    await reply.code(401).send(result);
+    await reply.send(result);
     return;
   }
   if (result.state === "authenticated") {

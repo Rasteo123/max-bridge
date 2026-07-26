@@ -100,13 +100,15 @@ describe("MAX login routes", () => {
     gateway.codeResult = { state: "invalid_code" };
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await submitCode();
-      expect(response.statusCode).toBe(401);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ state: "invalid_code" });
     }
 
     const blocked = await submitCode();
 
     expect(blocked.statusCode).toBe(429);
     expect(blocked.json()).toEqual({ code: "login_temporarily_locked" });
+    expect(blocked.headers["retry-after"]).toBe("1800");
     expect(gateway.codeCalls).toBe(5);
   });
 

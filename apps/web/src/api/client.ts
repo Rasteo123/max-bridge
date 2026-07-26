@@ -36,7 +36,8 @@ export type MessageSendResult =
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string
+    readonly code: string,
+    readonly retryAfterSeconds?: number
   ) {
     super(code);
     this.name = "ApiError";
@@ -153,6 +154,14 @@ export class ApiClient {
     } catch {
       // Public errors intentionally contain no sensitive response details.
     }
-    throw new ApiError(response.status, code);
+    const retryAfter = response.headers.get("retry-after");
+    const retryAfterSeconds = retryAfter === null
+      ? undefined
+      : Number.parseInt(retryAfter, 10);
+    throw new ApiError(
+      response.status,
+      code,
+      Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
+    );
   }
 }
