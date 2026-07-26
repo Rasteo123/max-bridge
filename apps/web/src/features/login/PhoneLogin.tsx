@@ -19,12 +19,14 @@ type PhoneLoginProps = Readonly<{
   client: PhoneLoginClient;
   initialState: MaxLoginState;
   onAuthenticated(): void;
+  onCaptchaRequired?(): void;
 }>;
 
 export function PhoneLogin({
   client,
   initialState,
-  onAuthenticated
+  onAuthenticated,
+  onCaptchaRequired
 }: PhoneLoginProps) {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -55,6 +57,10 @@ export function PhoneLogin({
     try {
       const result = await client.submitPhone(normalizedPhone);
       setState(result.state);
+      if (result.state === "captcha_required") {
+        onCaptchaRequired?.();
+        return;
+      }
       if (result.state !== "code_required") {
         setError(result.state === "failed"
           ? "MAX не принял номер. Проверьте его и попробуйте ещё раз."
@@ -196,7 +202,7 @@ function lockedMessage(retryAfterSeconds?: number): string {
 function messageForState(state: MaxLoginState): string {
   switch (state) {
     case "captcha_required":
-      return "MAX запросил проверку. Попробуйте другой способ входа.";
+      return "MAX запросил CAPTCHA. Перейдите на вход по QR-коду.";
     case "invalid_code":
       return "Код не подошёл или устарел.";
     case "failed":

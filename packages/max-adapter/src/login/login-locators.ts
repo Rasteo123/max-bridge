@@ -54,8 +54,14 @@ export function qrVisual(page: Page): Locator {
 export function captchaElement(page: Page): Locator {
   return page.locator([
     'iframe[title*="captcha" i]',
+    'iframe[src*="captcha" i]',
+    'iframe[src*="challenge" i]',
     '[aria-label*="captcha" i]',
-    '[data-sitekey]'
+    '[data-sitekey]',
+    '[data-test-id="captcha-widget"]',
+    '[data-testid*="captcha" i]',
+    '[class*="captcha" i]',
+    '[id$="_captcha" i]'
   ].join(",")).first();
 }
 

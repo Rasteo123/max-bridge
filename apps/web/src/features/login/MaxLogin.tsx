@@ -23,6 +23,7 @@ export function MaxLogin({
 }: MaxLoginProps) {
   const [method, setMethod] = useState<Method>("phone");
   const [state, setState] = useState<MaxLoginState | "loading">("loading");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -96,6 +97,7 @@ export function MaxLogin({
             role="tab"
             aria-selected={method === "phone"}
             onClick={() => {
+              setNotice("");
               setMethod("phone");
             }}
           >
@@ -106,12 +108,16 @@ export function MaxLogin({
             role="tab"
             aria-selected={method === "qr"}
             onClick={() => {
+              setNotice("");
               setMethod("qr");
             }}
           >
             По QR-коду
           </button>
         </div>
+        {notice.length > 0 && (
+          <p className="form-error" role="status">{notice}</p>
+        )}
         {state === "loading" ? (
           <p className="loading-label" aria-busy="true">Проверяем MAX…</p>
         ) : method === "phone" ? (
@@ -119,6 +125,12 @@ export function MaxLogin({
             client={client}
             initialState={state}
             onAuthenticated={onAuthenticated}
+            onCaptchaRequired={() => {
+              setNotice(
+                "MAX запросил CAPTCHA для входа по SMS. Используйте QR-код."
+              );
+              setMethod("qr");
+            }}
           />
         ) : (
           <QrLogin />

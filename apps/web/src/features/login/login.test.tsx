@@ -275,6 +275,30 @@ describe("MAX login", () => {
     );
   });
 
+  it("offers QR login when MAX requires CAPTCHA", async () => {
+    const user = userEvent.setup();
+    const captchaRequired = vi.fn();
+    const client = {
+      submitPhone: vi.fn().mockResolvedValue({
+        state: "captcha_required"
+      }),
+      submitCode: vi.fn()
+    };
+    render(
+      <PhoneLogin
+        client={client}
+        initialState="method_required"
+        onAuthenticated={vi.fn()}
+        onCaptchaRequired={captchaRequired}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Номер телефона"), "+79991234567");
+    await user.click(screen.getByRole("button", { name: "Получить код" }));
+
+    expect(captchaRequired).toHaveBeenCalledOnce();
+  });
+
   it("refreshes an expired QR without caching it", async () => {
     const user = userEvent.setup();
     render(<QrLogin refreshAfterMs={60_000} />);
