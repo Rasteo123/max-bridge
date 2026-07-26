@@ -30,6 +30,7 @@ const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
+const MAX_SESSION_READY_WAIT_MS = 15_000;
 
 type PendingSend = {
   resolve: (messageId?: string) => void;
@@ -465,7 +466,19 @@ export class MaxWebPageSession {
     if (this.adapter !== undefined) {
       return this.adapter;
     }
-    const viewerId = await this.options.page.evaluate((accessorKey) => {
+    const deadline = Date.now() + MAX_SESSION_READY_WAIT_MS;
+    while (Date.now() <= deadline) {
+      const viewerId = await this.readViewerId();
+      if (viewerId !== "0") {
+        return this.ensureViewer(viewerId);
+      }
+      await this.options.page.waitForTimeout(50);
+    }
+    throw new Error("MAX session is not authenticated");
+  }
+
+  private readViewerId(): Promise<string> {
+    return this.options.page.evaluate((accessorKey) => {
       const accessorValue = (
         globalThis as Record<PropertyKey, unknown>
       )[Symbol.for(accessorKey)];
@@ -480,10 +493,6 @@ export class MaxWebPageSession {
         ? String(id)
         : typeof id === "string" ? id : "0";
     }, MAX_SESSION_ACCESSOR_KEY);
-    if (viewerId === "0") {
-      throw new Error("MAX session is not authenticated");
-    }
-    return this.ensureViewer(viewerId);
   }
 
   private ensureViewer(viewerId: string): MaxSession {

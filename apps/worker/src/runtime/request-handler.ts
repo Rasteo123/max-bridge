@@ -139,7 +139,12 @@ export class WorkerRuntimeRequestHandler {
         default:
           return failure(request, "invalid_request");
       }
-    } catch {
+    } catch (error) {
+      process.stderr.write(`${JSON.stringify({
+        event: "max_worker_operation_failed",
+        operation: request.operation,
+        category: classifyWorkerError(error)
+      })}\n`);
       return failure(request, "worker_failure");
     }
   }
@@ -207,6 +212,28 @@ function failure(
     ok: false,
     errorCode
   };
+}
+
+function classifyWorkerError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "unknown";
+  }
+  if (error.name === "TimeoutError") {
+    return "browser_timeout";
+  }
+  if (error.message === "MAX session is not authenticated") {
+    return "max_session_unavailable";
+  }
+  if (error.message === "binding") {
+    return "max_binding_unavailable";
+  }
+  if (error.message === "node module") {
+    return "max_node_module_unavailable";
+  }
+  if (error instanceof TypeError) {
+    return "invalid_operation_data";
+  }
+  return "unexpected";
 }
 
 function record(value: unknown): Record<string, unknown> {
