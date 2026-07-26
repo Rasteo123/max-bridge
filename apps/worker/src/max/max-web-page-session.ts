@@ -21,9 +21,9 @@ import type {
   WebSocket
 } from "playwright";
 import {
-  installMaxSessionCapture,
+  instrumentMaxNodeModule,
   MAX_SESSION_ACCESSOR_KEY
-} from "./max-session-capture.js";
+} from "./max-node-instrumentation.js";
 import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 
 const MAX_WEB_URL = "https://web.max.ru/";
@@ -58,7 +58,17 @@ export class MaxWebPageSession {
   }
 
   async start(): Promise<MaxLoginResult> {
-    await installMaxSessionCapture(this.options.page);
+    await this.options.page.route(
+      "**/_app/immutable/nodes/0.*.js",
+      async (route) => {
+        const response = await route.fetch();
+        const source = await response.text();
+        await route.fulfill({
+          response,
+          body: instrumentMaxNodeModule(source)
+        });
+      }
+    );
     await this.options.page.goto(MAX_WEB_URL, {
       waitUntil: "domcontentloaded"
     });
