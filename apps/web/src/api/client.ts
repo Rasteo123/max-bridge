@@ -1,0 +1,107 @@
+export type UserState =
+  | "pending"
+  | "approved_unbound"
+  | "authenticating"
+  | "active"
+  | "reauth_required"
+  | "disabled";
+
+export type MaxLoginState =
+  | "method_required"
+  | "code_required"
+  | "qr_required"
+  | "captcha_required"
+  | "authenticated"
+  | "invalid_code"
+  | "qr_expired"
+  | "failed";
+
+export type MaxLoginResult = Readonly<{
+  state: MaxLoginState;
+}>;
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string
+  ) {
+    super(code);
+    this.name = "ApiError";
+  }
+}
+
+export class ApiClient {
+  constructor(private readonly fetcher: typeof fetch = globalThis.fetch) {}
+
+  async authenticateTelegram(initData: string): Promise<void> {
+    await this.request("/api/auth/telegram", {
+      method: "POST",
+      body: JSON.stringify({ initData })
+    });
+  }
+
+  async getMe(): Promise<Readonly<{ state: UserState }>> {
+    return this.requestJson("/api/me");
+  }
+
+  async getMaxLoginStatus(): Promise<MaxLoginResult> {
+    return this.requestJson("/api/max/login/status");
+  }
+
+  async submitPhone(phone: string): Promise<MaxLoginResult> {
+    return this.requestJson("/api/max/login/phone", {
+      method: "POST",
+      body: JSON.stringify({ phone })
+    });
+  }
+
+  async submitCode(code: string): Promise<MaxLoginResult> {
+    return this.requestJson("/api/max/login/code", {
+      method: "POST",
+      body: JSON.stringify({ code })
+    });
+  }
+
+  async logoutMax(): Promise<void> {
+    await this.request("/api/max/logout", { method: "POST" });
+  }
+
+  private async requestJson<T>(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<T> {
+    const response = await this.request(path, init);
+    return response.json() as Promise<T>;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit
+  ): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (init.body !== undefined) {
+      headers.set("content-type", "application/json");
+    }
+    headers.set("accept", "application/json");
+    const response = await this.fetcher(path, {
+      ...init,
+      credentials: "include",
+      cache: "no-store",
+      headers
+    });
+    if (response.ok) {
+      return response;
+    }
+
+    let code = "request_failed";
+    try {
+      const payload = await response.json() as { code?: unknown };
+      if (typeof payload.code === "string") {
+        code = payload.code;
+      }
+    } catch {
+      // Public errors intentionally contain no sensitive response details.
+    }
+    throw new ApiError(response.status, code);
+  }
+}
