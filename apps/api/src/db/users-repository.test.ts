@@ -108,6 +108,35 @@ describe("UsersRepository", () => {
       .resolves.toBeNull();
   });
 
+  it("never decrypts one Telegram user's MAX session as another user's", async () => {
+    const first = await repository.createPending({ telegramId: "123456789" });
+    const second = await repository.createPending({ telegramId: "987654321" });
+    const firstState = new TextEncoder().encode(
+      '{"cookies":[{"value":"SESSION_FIRST"}]}'
+    );
+    const secondState = new TextEncoder().encode(
+      '{"cookies":[{"value":"SESSION_SECOND"}]}'
+    );
+
+    await repository.saveMaxSessionByLookup(first.lookupId, firstState);
+    await repository.saveMaxSessionByLookup(second.lookupId, secondState);
+
+    const restoredFirst = await repository.loadMaxSessionByLookup(
+      first.lookupId
+    );
+    const restoredSecond = await repository.loadMaxSessionByLookup(
+      second.lookupId
+    );
+    expect(new TextDecoder().decode(restoredFirst ?? undefined))
+      .toContain("SESSION_FIRST");
+    expect(new TextDecoder().decode(restoredFirst ?? undefined))
+      .not.toContain("SESSION_SECOND");
+    expect(new TextDecoder().decode(restoredSecond ?? undefined))
+      .toContain("SESSION_SECOND");
+    expect(new TextDecoder().decode(restoredSecond ?? undefined))
+      .not.toContain("SESSION_FIRST");
+  });
+
   it("does not expose identity or MAX state in raw SQLite files", async () => {
     await repository.createPending({
       telegramId: "987654321",

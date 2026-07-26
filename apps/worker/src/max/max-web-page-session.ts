@@ -421,6 +421,7 @@ export class MaxWebPageSession {
       await this.options.page.waitForTimeout(200);
     }
     await this.openChat(bindings, chatId);
+    await this.waitForChatReady(chatId);
 
     const startedAt = Date.now();
     const deadline = Date.now() + MAX_HISTORY_WAIT_MS;
@@ -525,18 +526,14 @@ export class MaxWebPageSession {
       stage = "set_file";
       const fileInput = this.options.page.locator('input[type="file"]').first();
       await fileInput.waitFor({ state: "attached", timeout: 5_000 });
-      await fileInput.evaluate((element, kind) => {
-        if (!(element instanceof HTMLInputElement)) {
-          throw new TypeError("MAX file input is invalid");
-        }
-        element.accept = kind === "media" ? "image/*, video/*" : "";
-      }, input.kind);
       await fileInput.setInputFiles(filePath);
       stage = "wait_for_preview";
       await this.options.page.waitForFunction(() =>
-        document.querySelector(
-          'button:has(use[href="#icon_cross_round_fill_mini_color"])'
-        ) !== null,
+        Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+          .some((button) =>
+            button.getAttribute("aria-label") === "Отправить сообщение"
+            && !button.disabled
+          ),
       undefined, { timeout: 10_000 });
       stage = "send";
       const send = this.options.page
@@ -704,7 +701,10 @@ export class MaxWebPageSession {
           && Symbol.iterator in messageSource
           ? Array.from(messageSource as Iterable<unknown>)
           : [];
-      const mediaByIndex = new Map<number, string[]>();
+      const mediaByIndex = new Map<
+        number,
+        Array<{ url: string; type: "PHOTO" | "VIDEO" | "AUDIO" }>
+      >();
       for (const item of document.querySelectorAll<HTMLElement>(
         "main [data-index]"
       )) {
@@ -714,11 +714,16 @@ export class MaxWebPageSession {
         }
         const urls = Array.from(item.querySelectorAll(
           "img[src], video[src], audio[src], a[href]"
-        )).map((element) =>
-          element instanceof HTMLAnchorElement
+        )).map((element) => ({
+          url: element instanceof HTMLAnchorElement
             ? element.href
-            : element.getAttribute("src") ?? ""
-        ).filter(isAllowedMediaUrl);
+            : element.getAttribute("src") ?? "",
+          type: element instanceof HTMLVideoElement
+            ? "VIDEO" as const
+            : element instanceof HTMLAudioElement
+              ? "AUDIO" as const
+              : "PHOTO" as const
+        })).filter((entry) => isAllowedMediaUrl(entry.url));
         if (urls.length > 0) {
           mediaByIndex.set(index, urls);
         }
@@ -731,12 +736,14 @@ export class MaxWebPageSession {
         const candidate = asRecord(tuple?.length === 2 ? tuple[1] : value);
         const raw = asRecord(candidate?.["$"]);
         const message = candidate ?? {};
-        const textValue = message["text"] ?? raw?.["text"];
-        const text = typeof textValue === "string"
-          ? textValue
-          : textValue !== null && typeof textValue === "object"
-            ? (textValue as Record<string, unknown>)["plain"]
-            : undefined;
+        const text = readableText(
+          message["text"],
+          raw?.["text"],
+          message["message"],
+          raw?.["message"],
+          message["caption"],
+          raw?.["caption"]
+        );
         const sender = message["sender"] ?? raw?.["sender"];
         const normalizedAttaches = normalizeAttaches(
           message["attaches"] ?? raw?.["attaches"]
@@ -766,23 +773,47 @@ export class MaxWebPageSession {
       }
 
       function normalizeAttaches(value: unknown): unknown[] {
-        if (Array.isArray(value)) {
-          return value.slice(0, 16);
-        }
-        if (
-          value !== null
-          && typeof value === "object"
-          && Symbol.iterator in value
-        ) {
-          return Array.from(value as Iterable<unknown>).slice(0, 16);
-        }
-        return [];
+        const container = asRecord(value);
+        const rawContainer = asRecord(container?.["$"]);
+        const source = container?.["attaches"]
+          ?? rawContainer?.["attaches"]
+          ?? rawContainer
+          ?? value;
+        const entries = Array.isArray(source)
+          ? source
+          : source !== null
+              && typeof source === "object"
+              && Symbol.iterator in source
+            ? Array.from(source as Iterable<unknown>)
+            : [];
+        return entries.slice(0, 16).map((entry): unknown => {
+          const tuple: unknown[] | undefined = Array.isArray(entry)
+            ? entry as unknown[]
+            : undefined;
+          const tupleValue: unknown = tuple?.length === 2
+            ? tuple[1]
+            : entry;
+          const attachment = asRecord(tupleValue);
+          const raw = asRecord(attachment?.["$"]);
+          return raw === undefined
+            ? tupleValue
+            : { ...raw, ...attachment };
+        });
       }
 
       function attachDomMediaUrls(
         attaches: unknown[],
-        urls: readonly string[]
+        urls: readonly {
+          url: string;
+          type: "PHOTO" | "VIDEO" | "AUDIO";
+        }[]
       ): unknown[] {
+        if (attaches.length === 0) {
+          return urls.map((entry) => ({
+            _type: entry.type,
+            url: entry.url
+          }));
+        }
         let mediaIndex = 0;
         return attaches.map((value) => {
           const attachment = asRecord(value);
@@ -794,19 +825,51 @@ export class MaxWebPageSession {
           const type = typeof typeValue === "string"
             ? typeValue.toUpperCase()
             : "";
+          const isFile = type.includes("FILE");
           const canUseRenderedUrl = type.includes("PHOTO")
             || type.includes("IMAGE")
             || type.includes("VIDEO")
             || type.includes("AUDIO")
-            || type.includes("VOICE");
-          const url = canUseRenderedUrl ? urls[mediaIndex] : undefined;
-          if (canUseRenderedUrl) {
+            || type.includes("VOICE")
+            || type.includes("STICKER")
+            || (!isFile && urls.length === attaches.length);
+          const rendered = canUseRenderedUrl ? urls[mediaIndex] : undefined;
+          if (rendered !== undefined) {
             mediaIndex += 1;
           }
-          return attachment === undefined || url === undefined
-            ? value
-            : { ...attachment, url };
+          if (attachment === undefined || rendered === undefined) {
+            return value;
+          }
+          const renderedType = type.includes("STICKER") || type.length === 0
+            ? rendered.type
+            : typeValue;
+          return renderedType === undefined
+            ? { ...attachment, url: rendered.url }
+            : {
+                ...attachment,
+                _type: renderedType,
+                url: rendered.url
+              };
         });
+      }
+
+      function readableText(...values: unknown[]): string | undefined {
+        for (const value of values) {
+          if (typeof value === "string") {
+            return value;
+          }
+          const record = asRecord(value);
+          if (record === undefined) {
+            continue;
+          }
+          for (const key of ["plain", "text", "message", "caption"]) {
+            const nested = record[key];
+            if (typeof nested === "string") {
+              return nested;
+            }
+          }
+        }
+        return undefined;
       }
 
       function isAllowedMediaUrl(value: string): boolean {
@@ -846,6 +909,18 @@ export class MaxWebPageSession {
       }
       await router.openChat(BigInt(input.chatId));
     }, { ...bindings, chatId });
+  }
+
+  private async waitForChatReady(chatId: string): Promise<void> {
+    await this.options.page.waitForURL((url) =>
+      chatIdFromPageUrl(url.href) === chatId,
+    { timeout: 7_500 });
+    await this.options.page
+      .locator(
+        'main [contenteditable="true"][role="textbox"], main textarea'
+      )
+      .last()
+      .waitFor({ state: "visible", timeout: 7_500 });
   }
 
   private observeSocket(socket: WebSocket): void {
@@ -917,7 +992,20 @@ function chatIdFromPageUrl(value: string): string | undefined {
 function historyFingerprint(messages: readonly unknown[]): string {
   return messages.map((value) => {
     const message = asRecord(value);
-    return opaqueId(message?.["id"]) ?? "";
+    const attachments = Array.isArray(message?.["attaches"])
+      ? message["attaches"] as unknown[]
+      : [];
+    return [
+      opaqueId(message?.["id"]) ?? "",
+      typeof message?.["text"] === "string" ? message["text"] : "",
+      ...attachments.map((attachment) => {
+        const record = asRecord(attachment);
+        return [
+          typeof record?.["url"] === "string" ? record["url"] : "",
+          typeof record?.["_type"] === "string" ? record["_type"] : ""
+        ].join(":");
+      })
+    ].join("|");
   }).join("|");
 }
 

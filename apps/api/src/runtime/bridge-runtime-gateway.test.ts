@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { UserRecord } from "@maxbridge/core";
+import type { BridgeEvent, UserRecord } from "@maxbridge/core";
+import type { WorkerEvent } from "@maxbridge/protocol";
 
 import {
   BridgeRuntimeGateway,
@@ -101,7 +102,64 @@ describe("BridgeRuntimeGateway", () => {
     }));
     vi.useRealTimers();
   });
+
+  it("routes live events only to the matching Telegram user's MAX session", () => {
+    let emit: ((event: WorkerEvent) => void) | undefined;
+    const worker: RuntimeWorker = {
+      request: () => Promise.resolve({ opened: true }),
+      subscribe: (listener) => {
+        emit = listener;
+        return () => undefined;
+      }
+    };
+    const gateway = new BridgeRuntimeGateway({
+      worker,
+      users: fakeUsers()
+    });
+    const userA = "u_AbCdEfGhIjKlMnOpQrStUv";
+    const userB = "u_ZyXwVuTsRqPoNmLkJiHgFe";
+    const receivedA: BridgeEvent[] = [];
+    const receivedB: BridgeEvent[] = [];
+    gateway.subscribe(userA, (event) => receivedA.push(event));
+    gateway.subscribe(userB, (event) => receivedB.push(event));
+    const eventA = messageEvent("message-a", "chat-a");
+    const eventB = messageEvent("message-b", "chat-b");
+
+    emit?.({
+      kind: "event",
+      event: "session.event",
+      sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+      payload: eventA
+    });
+    emit?.({
+      kind: "event",
+      event: "session.event",
+      sessionHandle: "s_ZyXwVuTsRqPoNmLkJiHgFe",
+      payload: eventB
+    });
+
+    expect(receivedA).toEqual([eventA]);
+    expect(receivedB).toEqual([eventB]);
+  });
 });
+
+function messageEvent(id: string, chatId: string): BridgeEvent {
+  return {
+    type: "message.upsert",
+    sequence: 1,
+    occurredAt: "2026-01-01T00:00:00.000Z",
+    message: {
+      id,
+      chatId,
+      senderId: "sender",
+      direction: "incoming",
+      sentAt: "2026-01-01T00:00:00.000Z",
+      status: "delivered",
+      kind: "text",
+      text: "Изолированное сообщение"
+    }
+  };
+}
 
 function fakeWorker(
   request: RuntimeWorker["request"]

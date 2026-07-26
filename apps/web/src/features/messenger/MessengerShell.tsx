@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useState
 } from "react";
@@ -57,6 +58,12 @@ export function MessengerShell({
     disabled: wide
   });
 
+  useEffect(() => {
+    if (initialChatId !== undefined) {
+      setSelectedChatId(initialChatId);
+    }
+  }, [initialChatId]);
+
   function selectChat(chatId: string) {
     setSelectedChatId(chatId);
     setPane("conversation");
@@ -71,6 +78,10 @@ export function MessengerShell({
       onPointerMove={swipe.onPointerMove}
       onPointerUp={swipe.onPointerUp}
       onPointerCancel={swipe.onPointerCancel}
+      onTouchStart={swipe.onTouchStart}
+      onTouchMove={swipe.onTouchMove}
+      onTouchEnd={swipe.onTouchEnd}
+      onTouchCancel={swipe.onTouchCancel}
       onWheel={swipe.onWheel}
       onClickCapture={swipe.onClickCapture}
     >

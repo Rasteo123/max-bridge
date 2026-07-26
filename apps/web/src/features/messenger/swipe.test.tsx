@@ -24,6 +24,10 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.stubGlobal("PointerEvent", TestPointerEvent);
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    configurable: true,
+    value: 0
+  });
   installMatchMedia(false);
 });
 
@@ -90,6 +94,39 @@ describe("narrow messenger gestures", () => {
       .toHaveAttribute("data-dragging", "true");
     expect(screen.getByTestId("chat-list").parentElement)
       .toHaveStyle({ "--swipe-offset": "142px" });
+  });
+
+  it("does not capture a tap before it becomes a swipe", () => {
+    renderShell("list");
+    const surface = screen.getByTestId("messenger-surface");
+    const capture = vi.fn();
+    Object.assign(surface, { setPointerCapture: capture });
+
+    fireEvent.pointerDown(surface, pointer(40, 120, 1, 0));
+
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("supports native touch gestures in embedded mobile WebViews", () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 5
+    });
+    renderShell("conversation");
+    const surface = screen.getByTestId("messenger-surface");
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 8, clientY: 120 }]
+    });
+    fireEvent.touchMove(surface, {
+      touches: [{ clientX: 170, clientY: 124 }]
+    });
+    fireEvent.touchEnd(surface, {
+      touches: [],
+      changedTouches: [{ clientX: 170, clientY: 124 }]
+    });
+
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
   });
 
   it("finishes from the last captured movement when pointerup loses coordinates", () => {

@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type TouchEvent as ReactTouchEvent,
   type WheelEvent as ReactWheelEvent,
   useRef,
   useState
@@ -18,7 +19,7 @@ type SwipeNavigationOptions = Readonly<{
 type GestureAxis = "pending" | "horizontal" | "vertical";
 
 type Gesture = {
-  pointerId: number;
+  pointerId: number | null;
   startX: number;
   startY: number;
   lastX: number;
@@ -35,6 +36,10 @@ export type SwipeNavigation = Readonly<{
   onPointerMove(event: ReactPointerEvent<HTMLElement>): void;
   onPointerUp(event: ReactPointerEvent<HTMLElement>): void;
   onPointerCancel(event: ReactPointerEvent<HTMLElement>): void;
+  onTouchStart(event: ReactTouchEvent<HTMLElement>): void;
+  onTouchMove(event: ReactTouchEvent<HTMLElement>): void;
+  onTouchEnd(event: ReactTouchEvent<HTMLElement>): void;
+  onTouchCancel(event: ReactTouchEvent<HTMLElement>): void;
   onWheel(event: ReactWheelEvent<HTMLElement>): void;
   onClickCapture(event: ReactMouseEvent<HTMLElement>): void;
 }>;
@@ -58,12 +63,16 @@ export function useSwipeNavigation({
     if (
       disabled ||
       (event.pointerType === "mouse" && event.button !== 0) ||
+      (
+        event.pointerType === "touch" &&
+        navigator.maxTouchPoints > 0
+      ) ||
       !event.isPrimary ||
-      isIgnoredTarget(event.target)
+      isIgnoredTarget(event.target) ||
+      gesture.current !== null
     ) {
       return;
     }
-    capturePointer(event.currentTarget, event.pointerId);
     gesture.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -97,6 +106,7 @@ export function useSwipeNavigation({
     if (current.axis !== "horizontal") {
       return;
     }
+    capturePointer(event.currentTarget, event.pointerId);
     event.preventDefault();
     suppressClick.current = true;
     setDragging(true);
@@ -151,6 +161,75 @@ export function useSwipeNavigation({
     }
   }
 
+  function onTouchStart(event: ReactTouchEvent<HTMLElement>) {
+    if (
+      disabled ||
+      event.touches.length !== 1 ||
+      isIgnoredTarget(event.target) ||
+      gesture.current !== null
+    ) {
+      return;
+    }
+    const touch = event.touches[0];
+    if (touch === undefined) {
+      return;
+    }
+    gesture.current = {
+      pointerId: null,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+      offset: 0,
+      startedAt: event.timeStamp,
+      axis: "pending"
+    };
+    suppressClick.current = false;
+  }
+
+  function onTouchMove(event: ReactTouchEvent<HTMLElement>) {
+    const current = gesture.current;
+    const touch = event.touches[0];
+    if (
+      current === null ||
+      current.pointerId !== null ||
+      touch === undefined
+    ) {
+      return;
+    }
+    updateGesture(
+      current,
+      touch.clientX,
+      touch.clientY,
+      event.currentTarget.getBoundingClientRect().width || window.innerWidth
+    );
+    if (current.axis === "horizontal") {
+      event.preventDefault();
+      suppressClick.current = true;
+      setDragging(true);
+      setOffset(current.offset);
+    }
+  }
+
+  function onTouchEnd(event: ReactTouchEvent<HTMLElement>) {
+    const current = gesture.current;
+    if (current === null || current.pointerId !== null) {
+      return;
+    }
+    finishGesture(
+      current,
+      event.timeStamp,
+      event.currentTarget.getBoundingClientRect().width || window.innerWidth
+    );
+    resetGesture();
+  }
+
+  function onTouchCancel() {
+    if (gesture.current?.pointerId === null) {
+      resetGesture();
+    }
+  }
+
   function onWheel(event: ReactWheelEvent<HTMLElement>) {
     if (
       disabled ||
@@ -190,9 +269,70 @@ export function useSwipeNavigation({
     onPointerMove,
     onPointerUp,
     onPointerCancel,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
     onWheel,
     onClickCapture
   };
+
+  function updateGesture(
+    current: Gesture,
+    clientX: number,
+    clientY: number,
+    width: number
+  ) {
+    const deltaX = clientX - current.startX;
+    const deltaY = clientY - current.startY;
+    current.lastX = clientX;
+    current.lastY = clientY;
+    if (
+      current.axis === "pending" &&
+      Math.hypot(deltaX, deltaY) >= DIRECTION_LOCK_PX
+    ) {
+      current.axis = Math.abs(deltaX) > Math.abs(deltaY)
+        ? "horizontal"
+        : "vertical";
+    }
+    if (current.axis === "horizontal") {
+      current.offset = clampOffset(
+        pane,
+        deltaX,
+        width * MAX_OVERSCROLL_RATIO
+      );
+    }
+  }
+
+  function finishGesture(
+    current: Gesture,
+    timeStamp: number,
+    width: number
+  ) {
+    const deltaX = current.lastX - current.startX;
+    const duration = Math.max(1, timeStamp - current.startedAt);
+    const velocity = Math.abs(deltaX) / duration;
+    const distanceThreshold = Math.min(
+      110,
+      Math.max(56, width * 0.18)
+    );
+    const correctDirection = pane === "conversation"
+      ? deltaX > 0
+      : deltaX < 0;
+    if (
+      current.axis === "horizontal" &&
+      correctDirection &&
+      (
+        Math.abs(deltaX) >= distanceThreshold ||
+        (
+          Math.abs(deltaX) >= MIN_FAST_DISTANCE_PX &&
+          velocity >= VELOCITY_THRESHOLD_PX_MS
+        )
+      )
+    ) {
+      setPane(pane === "conversation" ? "list" : "conversation");
+    }
+  }
 }
 
 function clampOffset(
