@@ -31,6 +31,11 @@ export type DecryptRecordOptions = Readonly<{
   userLookup: string;
 }>;
 
+export function parseCipherEnvelope(value: unknown): CipherEnvelopeV1 {
+  assertEnvelope(value);
+  return value;
+}
+
 export async function generateKey(): Promise<Uint8Array> {
   await sodium.ready;
   return sodium.randombytes_buf(KEY_BYTES);
