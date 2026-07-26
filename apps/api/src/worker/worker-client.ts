@@ -60,7 +60,9 @@ export class WorkerClient {
   private readonly listeners = new Set<(event: WorkerEvent) => void>();
 
   constructor(private readonly options: WorkerClientOptions) {
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
+    // Worker operations may include a 15-second MAX UI state transition.
+    // Keep the transport deadline safely above the operation deadline.
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   }
 
   async connect(): Promise<void> {

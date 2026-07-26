@@ -25,7 +25,7 @@ export class MaxLoginController {
     private readonly page: Page,
     private readonly options: MaxLoginControllerOptions = {}
   ) {
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = options.timeoutMs ?? 15_000;
   }
 
   async submitPhone(phone: string): Promise<MaxLoginResult> {
