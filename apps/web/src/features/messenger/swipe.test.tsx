@@ -92,6 +92,17 @@ describe("narrow messenger gestures", () => {
       .toHaveStyle({ "--swipe-offset": "142px" });
   });
 
+  it("finishes from the last captured movement when pointerup loses coordinates", () => {
+    renderShell("conversation");
+    const surface = screen.getByTestId("messenger-surface");
+    fireEvent.pointerDown(surface, pointer(8, 120, 1, 0));
+    fireEvent.pointerMove(surface, pointer(170, 124, 1, 80));
+    fireEvent.pointerUp(surface, pointer(0, 0, 1, 100));
+
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
+  });
+
   it("maps horizontal trackpad movement to the same navigation", () => {
     renderShell("conversation");
     const surface = screen.getByTestId("messenger-surface");

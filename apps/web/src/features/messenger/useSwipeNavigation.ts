@@ -22,6 +22,8 @@ type Gesture = {
   startX: number;
   startY: number;
   lastX: number;
+  lastY: number;
+  offset: number;
   startedAt: number;
   axis: GestureAxis;
 };
@@ -40,6 +42,7 @@ export type SwipeNavigation = Readonly<{
 const DIRECTION_LOCK_PX = 8;
 const MIN_FAST_DISTANCE_PX = 28;
 const VELOCITY_THRESHOLD_PX_MS = 0.5;
+const MAX_OVERSCROLL_RATIO = 1;
 
 export function useSwipeNavigation({
   pane,
@@ -54,17 +57,20 @@ export function useSwipeNavigation({
   function onPointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (
       disabled ||
-      event.button !== 0 ||
+      (event.pointerType === "mouse" && event.button !== 0) ||
       !event.isPrimary ||
       isIgnoredTarget(event.target)
     ) {
       return;
     }
+    capturePointer(event.currentTarget, event.pointerId);
     gesture.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       lastX: event.clientX,
+      lastY: event.clientY,
+      offset: 0,
       startedAt: event.timeStamp,
       axis: "pending"
     };
@@ -79,11 +85,12 @@ export function useSwipeNavigation({
     const deltaX = event.clientX - current.startX;
     const deltaY = event.clientY - current.startY;
     current.lastX = event.clientX;
+    current.lastY = event.clientY;
     if (
       current.axis === "pending" &&
       Math.hypot(deltaX, deltaY) >= DIRECTION_LOCK_PX
     ) {
-      current.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.15
+      current.axis = Math.abs(deltaX) > Math.abs(deltaY)
         ? "horizontal"
         : "vertical";
     }
@@ -93,7 +100,14 @@ export function useSwipeNavigation({
     event.preventDefault();
     suppressClick.current = true;
     setDragging(true);
-    setOffset(directionOffset(pane, deltaX));
+    const width = event.currentTarget.getBoundingClientRect().width ||
+      window.innerWidth;
+    current.offset = clampOffset(
+      pane,
+      deltaX,
+      width * MAX_OVERSCROLL_RATIO
+    );
+    setOffset(current.offset);
   }
 
   function onPointerUp(event: ReactPointerEvent<HTMLElement>) {
@@ -101,7 +115,7 @@ export function useSwipeNavigation({
     if (current === null || current.pointerId !== event.pointerId) {
       return;
     }
-    const deltaX = event.clientX - current.startX;
+    const deltaX = current.lastX - current.startX;
     const duration = Math.max(1, event.timeStamp - current.startedAt);
     const velocity = Math.abs(deltaX) / duration;
     const width = event.currentTarget.getBoundingClientRect().width ||
@@ -126,11 +140,13 @@ export function useSwipeNavigation({
     ) {
       setPane(pane === "conversation" ? "list" : "conversation");
     }
+    releasePointer(event.currentTarget, event.pointerId);
     resetGesture();
   }
 
   function onPointerCancel(event: ReactPointerEvent<HTMLElement>) {
     if (gesture.current?.pointerId === event.pointerId) {
+      releasePointer(event.currentTarget, event.pointerId);
       resetGesture();
     }
   }
@@ -167,7 +183,8 @@ export function useSwipeNavigation({
   return {
     dragging,
     trackStyle: {
-      "--swipe-offset": `${String(offset)}px`
+      "--swipe-offset": `${String(offset)}px`,
+      "--swipe-progress": String(swipeProgress(offset))
     } as CSSProperties,
     onPointerDown,
     onPointerMove,
@@ -178,14 +195,44 @@ export function useSwipeNavigation({
   };
 }
 
-function directionOffset(
+function clampOffset(
   pane: MessengerPane,
-  deltaX: number
+  deltaX: number,
+  width: number
 ): number {
+  const limit = Math.max(1, width);
   if (pane === "conversation") {
-    return Math.max(0, deltaX);
+    return Math.min(limit, Math.max(0, deltaX));
   }
-  return Math.min(0, deltaX);
+  return Math.max(-limit, Math.min(0, deltaX));
+}
+
+function swipeProgress(offset: number): number {
+  if (typeof window === "undefined") {
+    return 0;
+  }
+  return Math.min(
+    1,
+    Math.abs(offset) / Math.max(1, window.innerWidth)
+  );
+}
+
+function capturePointer(element: HTMLElement, pointerId: number): void {
+  try {
+    element.setPointerCapture(pointerId);
+  } catch {
+    // Some embedded WebViews expose Pointer Events without capture support.
+  }
+}
+
+function releasePointer(element: HTMLElement, pointerId: number): void {
+  try {
+    if (element.hasPointerCapture(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // The browser may release capture before pointerup/pointercancel.
+  }
 }
 
 function isIgnoredTarget(target: EventTarget): boolean {

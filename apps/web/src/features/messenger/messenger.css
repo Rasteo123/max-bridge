@@ -8,6 +8,7 @@
     max(12px, env(safe-area-inset-bottom))
     max(12px, env(safe-area-inset-left));
   overflow: hidden;
+  overscroll-behavior-x: none;
   place-items: center;
   touch-action: pan-y;
 }
@@ -611,6 +612,7 @@
   }
 
   .messenger-track {
+    --swipe-progress: 0;
     width: 200%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     transition: transform 260ms cubic-bezier(0.22, 0.7, 0, 1);
@@ -618,11 +620,11 @@
   }
 
   .messenger-shell[data-pane="list"] .messenger-track {
-    transform: translateX(var(--swipe-offset));
+    transform: translate3d(var(--swipe-offset), 0, 0);
   }
 
   .messenger-shell[data-pane="conversation"] .messenger-track {
-    transform: translateX(calc(-50% + var(--swipe-offset)));
+    transform: translate3d(calc(-50% + var(--swipe-offset)), 0, 0);
   }
 
   .messenger-shell[data-dragging="true"] .messenger-track {
@@ -631,6 +633,14 @@
 
   .chat-list {
     border-right: 0;
+  }
+
+  .conversation {
+    position: relative;
+    z-index: 1;
+    box-shadow:
+      -12px 0 30px
+      color-mix(in srgb, #000000 18%, transparent);
   }
 
   .conversation__messages {
