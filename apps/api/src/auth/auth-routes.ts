@@ -20,7 +20,7 @@ import {
   validateTelegramInitData
 } from "./telegram-init-data.js";
 
-const SESSION_COOKIE = "__Host-maxbridge_session";
+export const SESSION_COOKIE = "__Host-maxbridge_session";
 const SESSION_MAX_AGE_SECONDS = 600;
 
 export type AuthUserGateway = {
@@ -50,7 +50,9 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   app,
   options
 ) => {
-  await app.register(cookie);
+  if (!app.hasRequestDecorator("cookies")) {
+    await app.register(cookie);
+  }
 
   app.post<{ Body: TelegramAuthBody }>("/api/auth/telegram", {
     schema: {
@@ -128,7 +130,7 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   });
 
   app.get("/api/me", async (request, reply) => {
-    const principal = resolvePrincipal(request, options.sessions);
+    const principal = resolveSessionPrincipal(request, options.sessions);
     if (principal === null) {
       await reply.code(401).send({ code: "authentication_required" });
       return;
@@ -137,7 +139,7 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   });
 };
 
-function resolvePrincipal(
+export function resolveSessionPrincipal(
   request: FastifyRequest,
   sessions: MemorySessionStore
 ): SessionPrincipal | null {
