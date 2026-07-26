@@ -247,14 +247,22 @@ export class MaxWebPageSession {
         return {
           viewerId: opaque(session.viewer?.id),
           chats: values.slice(0, 1_000).map((value) => {
-            const chat = value as Record<string, unknown>;
+            const tuple = Array.isArray(value)
+              ? value as unknown[]
+              : undefined;
+            const mapValue = tuple?.length === 2
+              && record(tuple[1]) !== undefined
+              ? tuple[1]
+              : value;
+            const chat = mapValue as Record<string, unknown>;
             const raw = record(chat["$"]);
-            const last = record(chat["lastMessage"]);
+            const last = record(chat["lastMessage"] ?? raw?.["lastMessage"]);
             return {
-              id: opaque(chat["id"]),
+              id: opaque(chat["id"] ?? raw?.["id"]),
               type: text(raw?.["type"])
                 ?? (chat["recipient"] === undefined ? "CHAT" : "DIALOG"),
-              title: text(chat["longName"]) ?? "Чат",
+              title: richText(chat["longName"] ?? raw?.["longName"])
+                ?? "Чат",
               lastMessage: last === undefined
                 ? undefined
                 : {
@@ -271,7 +279,7 @@ export class MaxWebPageSession {
               ),
               muted: Boolean(chat["muted"] ?? false)
             };
-          })
+          }).filter((chat) => chat.id !== "0")
         };
 
         function iterableValues(value: unknown): unknown[] {
