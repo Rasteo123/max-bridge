@@ -35,6 +35,12 @@ export class MaxLoginController {
     if (await this.isVisible(captchaElement(this.page))) {
       return { state: "captcha_required" };
     }
+    if (await this.isVisible(loginAlert(this.page))) {
+      await this.page.reload({
+        waitUntil: "domcontentloaded",
+        timeout: this.timeoutMs
+      });
+    }
 
     const input = phoneInput(this.page);
     if (!await this.isVisible(input)) {
@@ -53,6 +59,32 @@ export class MaxLoginController {
       "captcha_required",
       "failed"
     ]);
+  }
+
+  async failureCategory(): Promise<
+    "rate_limited" | "phone_rejected" | "generic" | "unknown"
+  > {
+    const alert = loginAlert(this.page);
+    if (!await this.isVisible(alert)) {
+      return "unknown";
+    }
+    const text = (await alert.textContent() ?? "").toLowerCase();
+    if (
+      /too many|rate limit|try again later|слишком много|попробуйте позже/u
+        .test(text)
+    ) {
+      return "rate_limited";
+    }
+    if (
+      /invalid phone|phone number|неверн.{0,12}номер|номер телефона/u
+        .test(text)
+    ) {
+      return "phone_rejected";
+    }
+    if (/something went wrong|error|ошибк/u.test(text)) {
+      return "generic";
+    }
+    return "unknown";
   }
 
   async submitCode(code: string): Promise<MaxLoginResult> {

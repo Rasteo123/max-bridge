@@ -16,6 +16,7 @@ import {
 import type {
   BrowserContext,
   Page,
+  Response,
   WebSocket
 } from "playwright";
 
@@ -66,8 +67,43 @@ export class MaxWebPageSession {
     return state;
   }
 
-  submitPhone(phone: string): Promise<MaxLoginResult> {
-    return this.login.submitPhone(phone);
+  async submitPhone(phone: string): Promise<MaxLoginResult> {
+    const exchanges = new Map<string, number>();
+    const observeResponse = (response: Response) => {
+      const method = response.request().method();
+      if (method === "GET" || method === "OPTIONS") {
+        return;
+      }
+      try {
+        const origin = new URL(response.url()).origin;
+        exchanges.set(
+          `${method} ${origin} ${String(response.status())}`,
+          (exchanges.get(
+            `${method} ${origin} ${String(response.status())}`
+          ) ?? 0) + 1
+        );
+      } catch {
+        // Ignore malformed URLs from browser extensions or internal schemes.
+      }
+    };
+    this.options.page.on("response", observeResponse);
+    try {
+      const result = await this.login.submitPhone(phone);
+      if (result.state === "failed") {
+        const diagnostic = {
+          event: "max_login_phone_failed",
+          alertCategory: await this.login.failureCategory(),
+          exchanges: [...exchanges.entries()].map(([exchange, count]) => ({
+            exchange,
+            count
+          }))
+        };
+        process.stderr.write(`${JSON.stringify(diagnostic)}\n`);
+      }
+      return result;
+    } finally {
+      this.options.page.off("response", observeResponse);
+    }
   }
 
   async submitCode(code: string): Promise<Readonly<{
