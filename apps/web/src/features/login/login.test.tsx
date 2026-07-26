@@ -278,6 +278,35 @@ describe("MAX login", () => {
     );
   });
 
+  it("does not describe a server timeout as an invalid SMS code", async () => {
+    const user = userEvent.setup();
+    const client = {
+      submitPhone: vi.fn(),
+      submitCode: vi.fn().mockRejectedValue(
+        new ApiError(500, "request_failed")
+      )
+    };
+    render(
+      <PhoneLogin
+        client={client}
+        initialState="code_required"
+        onAuthenticated={vi.fn()}
+      />
+    );
+
+    const code = screen.getByLabelText("Код из SMS");
+    await user.type(code, "123456");
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "MAX не успел ответить"
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      "Код не подошёл"
+    );
+    expect(code).toHaveValue("123456");
+  });
+
   it("offers QR login when MAX requires CAPTCHA", async () => {
     const user = userEvent.setup();
     const captchaRequired = vi.fn();

@@ -111,6 +111,9 @@ export function CaptchaLogin({
     queue.current = queue.current
       .then(async () => {
         handleResult(await client.sendCaptchaPointer(phase, x, y));
+        if (phase === "up") {
+          pointerActive.current = false;
+        }
         if (
           active.current
           && (phase === "up" || !pointerActive.current)
@@ -119,6 +122,9 @@ export function CaptchaLogin({
         }
       })
       .catch(() => {
+        if (phase === "up") {
+          pointerActive.current = false;
+        }
         if (active.current) {
           setError("Не удалось передать действие в MAX. Повторите его.");
         }
@@ -165,7 +171,6 @@ export function CaptchaLogin({
       return;
     }
     event.preventDefault();
-    pointerActive.current = false;
     const position = point(event) ?? lastPoint.current;
     lastPoint.current = null;
     if (position === null) {

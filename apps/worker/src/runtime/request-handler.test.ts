@@ -114,6 +114,44 @@ describe("WorkerRuntimeRequestHandler", () => {
       errorCode: "worker_failure"
     });
   });
+
+  it("serializes page operations within one MAX account", async () => {
+    let releaseStatus: (() => void) | undefined;
+    const session = fakeSession();
+    const statusMock = vi.fn<RuntimeMaxSession["status"]>(
+      () => new Promise((resolve) => {
+        releaseStatus = () => {
+          resolve({ state: "authenticated" });
+        };
+      })
+    );
+    const listChatsMock = vi.fn(() => Promise.resolve([]));
+    session.status = statusMock;
+    session.listChats = listChatsMock;
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve(session),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open"));
+
+    const status = runtime.handle(request("login.status"));
+    await vi.waitFor(() => {
+      expect(statusMock).toHaveBeenCalledOnce();
+    });
+    const chats = runtime.handle(request("chats.list"));
+    await Promise.resolve();
+
+    expect(listChatsMock).not.toHaveBeenCalled();
+    releaseStatus?.();
+    await expect(status).resolves.toMatchObject({ ok: true });
+    await expect(chats).resolves.toMatchObject({
+      ok: true,
+      payload: { chats: [] }
+    });
+  });
 });
 
 function request(

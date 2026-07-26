@@ -47,6 +47,7 @@ export interface RuntimeSessionFactory {
 
 export class WorkerRuntimeRequestHandler {
   private readonly sessions = new Map<string, RuntimeMaxSession>();
+  private readonly operationQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly options: Readonly<{
     factory: RuntimeSessionFactory;
@@ -57,9 +58,28 @@ export class WorkerRuntimeRequestHandler {
     ) => void;
   }>) {}
 
-  readonly handle = async (
+  readonly handle = (
     request: WorkerRequest
   ): Promise<WorkerResponse> => {
+    const previous = this.operationQueues.get(request.sessionHandle)
+      ?? Promise.resolve();
+    const operation = previous.then(() => this.handleNow(request));
+    const settled = operation.then(
+      () => undefined,
+      () => undefined
+    );
+    this.operationQueues.set(request.sessionHandle, settled);
+    void settled.finally(() => {
+      if (this.operationQueues.get(request.sessionHandle) === settled) {
+        this.operationQueues.delete(request.sessionHandle);
+      }
+    });
+    return operation;
+  };
+
+  private async handleNow(
+    request: WorkerRequest
+  ): Promise<WorkerResponse> {
     try {
       if (request.operation === "health.check") {
         return success(request, { healthy: this.options.healthy() });
@@ -122,7 +142,7 @@ export class WorkerRuntimeRequestHandler {
     } catch {
       return failure(request, "worker_failure");
     }
-  };
+  }
 
   async close(): Promise<void> {
     await Promise.allSettled([...this.sessions].map(
@@ -131,6 +151,7 @@ export class WorkerRuntimeRequestHandler {
       }
     ));
     this.sessions.clear();
+    this.operationQueues.clear();
   }
 
   private async open(request: WorkerRequest): Promise<WorkerResponse> {

@@ -96,8 +96,9 @@ export function PhoneLogin({
         setError(messageForState(result.state));
       }
     } catch {
-      setCode("");
-      setError("Код не подошёл или устарел.");
+      setError(
+        "MAX не успел ответить. Код не признан неверным — повторите попытку."
+      );
     } finally {
       setBusy(false);
     }

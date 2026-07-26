@@ -111,6 +111,34 @@ describe.each([
 });
 
 describe("MAX login exceptional states", () => {
+  it("supports MAX code forms that submit automatically without a button", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(`
+      <input autocomplete="one-time-code" inputmode="numeric">
+      <script>
+        const input = document.querySelector("input");
+        input.addEventListener("input", () => {
+          setTimeout(() => {
+            input.remove();
+            const navigation = document.createElement("nav");
+            navigation.setAttribute("aria-label", "Chats");
+            navigation.textContent = "Chat list";
+            document.body.append(navigation);
+          }, 50);
+        });
+      </script>
+    `);
+    const controller = new MaxLoginController(page, {
+      timeoutMs: 1_000
+    });
+
+    await expect(controller.submitCode("123456"))
+      .resolves.toEqual({ state: "authenticated" });
+
+    await context.close();
+  });
+
   it("surfaces CAPTCHA instead of bypassing it", async () => {
     const page = await fixturePage("login-captcha.html");
     const controller = new MaxLoginController(page, {

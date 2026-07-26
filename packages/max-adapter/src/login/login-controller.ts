@@ -99,7 +99,24 @@ export class MaxLoginController {
       return this.detectState();
     }
     await input.fill(code);
-    await formSubmitButton(input).click();
+    const submit = formSubmitButton(input);
+    if (await this.isVisible(submit)) {
+      try {
+        await submit.click({
+          timeout: Math.min(this.timeoutMs, 2_000)
+        });
+      } catch {
+        const state = await this.detectState();
+        if (state.state !== "code_required" && state.state !== "failed") {
+          return state;
+        }
+        if (await this.isVisible(input)) {
+          await input.press("Enter", {
+            timeout: Math.min(this.timeoutMs, 2_000)
+          });
+        }
+      }
+    }
     return this.waitForState([
       "authenticated",
       "invalid_code",
