@@ -196,6 +196,37 @@ button:disabled {
   object-fit: contain;
 }
 
+.captcha-login {
+  display: grid;
+  gap: 14px;
+}
+
+.captcha-login > p {
+  margin: 0;
+}
+
+.captcha-frame {
+  display: grid;
+  width: 100%;
+  min-height: 180px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #ffffff;
+  place-items: center;
+}
+
+.captcha-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 55vh;
+  object-fit: contain;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

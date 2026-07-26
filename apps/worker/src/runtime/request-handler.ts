@@ -17,6 +17,8 @@ export interface RuntimeMaxSession {
     storageStateBase64?: string;
   }>>;
   getQrPng(): Promise<Buffer>;
+  getCaptchaPng(): Promise<Buffer>;
+  sendCaptchaPointer(input: CaptchaPointerInput): Promise<MaxLoginResult>;
   status(): Promise<MaxLoginResult>;
   listChats(): Promise<readonly ChatSummary[]>;
   history(chatId: string): Promise<readonly Message[] | null>;
@@ -27,6 +29,12 @@ export interface RuntimeMaxSession {
   }>>;
   close(): Promise<void>;
 }
+
+export type CaptchaPointerInput = Readonly<{
+  phase: "down" | "move" | "up";
+  x: number;
+  y: number;
+}>;
 
 export interface RuntimeSessionFactory {
   open(
@@ -82,6 +90,17 @@ export class WorkerRuntimeRequestHandler {
           return success(request, {
             pngBase64: (await session.getQrPng()).toString("base64")
           });
+        case "login.captcha.frame":
+          return success(request, {
+            pngBase64: (await session.getCaptchaPng()).toString("base64")
+          });
+        case "login.captcha.pointer":
+          return success(
+            request,
+            await session.sendCaptchaPointer(
+              readCaptchaPointer(request.payload)
+            )
+          );
         case "login.status":
           return success(request, await session.status());
         case "chats.list":
@@ -222,6 +241,27 @@ function readCode(value: unknown): string {
     throw new TypeError("Invalid worker payload");
   }
   return code;
+}
+
+function readCaptchaPointer(value: unknown): CaptchaPointerInput {
+  const input = exact(value, ["phase", "x", "y"]);
+  const phase = input["phase"];
+  const x = input["x"];
+  const y = input["y"];
+  if (
+    (phase !== "down" && phase !== "move" && phase !== "up")
+    || typeof x !== "number"
+    || !Number.isFinite(x)
+    || x < 0
+    || x > 1
+    || typeof y !== "number"
+    || !Number.isFinite(y)
+    || y < 0
+    || y > 1
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return { phase, x, y };
 }
 
 function readChatId(value: unknown): string {

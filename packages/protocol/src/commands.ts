@@ -5,6 +5,8 @@ export const WORKER_OPERATIONS = [
   "login.phone",
   "login.code",
   "login.qr",
+  "login.captcha.frame",
+  "login.captcha.pointer",
   "login.status",
   "chats.list",
   "messages.history",

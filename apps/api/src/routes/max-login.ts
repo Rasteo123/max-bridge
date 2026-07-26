@@ -14,6 +14,12 @@ import {
 import type { SessionPrincipal } from "../auth/session-store.js";
 import { LoginRateLimiter } from "./login-rate-limiter.js";
 
+export type CaptchaPointerInput = Readonly<{
+  phase: "down" | "move" | "up";
+  x: number;
+  y: number;
+}>;
+
 export interface MaxLoginGateway {
   submitPhone(
     userLookup: string,
@@ -24,6 +30,11 @@ export interface MaxLoginGateway {
     code: Uint8Array
   ): Promise<MaxLoginResult>;
   getQrPng(userLookup: string): Promise<Buffer>;
+  getCaptchaPng(userLookup: string): Promise<Buffer>;
+  sendCaptchaPointer(
+    userLookup: string,
+    input: CaptchaPointerInput
+  ): Promise<MaxLoginResult>;
   status(userLookup: string): Promise<MaxLoginResult>;
   logout(userLookup: string): Promise<void>;
 }
@@ -39,6 +50,11 @@ export type MaxLoginRouteOptions = Readonly<{
 
 type PhoneBody = { phone: string };
 type CodeBody = { code: string };
+type CaptchaPointerBody = {
+  phase: "down" | "move" | "up";
+  x: number;
+  y: number;
+};
 
 export const registerMaxLoginRoutes: FastifyPluginCallback<
   MaxLoginRouteOptions
@@ -46,6 +62,9 @@ export const registerMaxLoginRoutes: FastifyPluginCallback<
   const limiter = new LoginRateLimiter(
     options.now === undefined ? {} : { now: options.now },
   );
+  const now = options.now ?? Date.now;
+  const captchaFrames = new SlidingWindowLimiter(now, 30, 10_000);
+  const captchaGestures = new SlidingWindowLimiter(now, 400, 10_000);
 
   app.post<{ Body: PhoneBody }>("/api/max/login/phone", {
     config: { sensitiveBody: true },
@@ -122,6 +141,73 @@ export const registerMaxLoginRoutes: FastifyPluginCallback<
       .type("image/png")
       .send(image);
   });
+
+  app.get("/api/max/login/captcha", async (request, reply) => {
+    const principal = authorizeRead(request, reply, options);
+    if (
+      principal === null
+      || rejectLocked(principal, reply, limiter)
+      || rejectCaptchaTraffic(
+        principal.userLookup,
+        reply,
+        captchaFrames
+      )
+    ) {
+      return;
+    }
+    const image = await options.gateway.getCaptchaPng(principal.userLookup);
+    await reply
+      .header("cache-control", "no-store")
+      .type("image/png")
+      .send(image);
+  });
+
+  app.post<{ Body: CaptchaPointerBody }>(
+    "/api/max/login/captcha/pointer",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["phase", "x", "y"],
+          properties: {
+            phase: {
+              type: "string",
+              enum: ["down", "move", "up"]
+            },
+            x: {
+              type: "number",
+              minimum: 0,
+              maximum: 1
+            },
+            y: {
+              type: "number",
+              minimum: 0,
+              maximum: 1
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = authorizeMutation(request, reply, options);
+      if (
+        principal === null
+        || rejectLocked(principal, reply, limiter)
+        || rejectCaptchaTraffic(
+          principal.userLookup,
+          reply,
+          captchaGestures
+        )
+      ) {
+        return;
+      }
+      await reply.send(await options.gateway.sendCaptchaPointer(
+        principal.userLookup,
+        request.body
+      ));
+    }
+  );
 
   app.get("/api/max/login/status", async (request, reply) => {
     const principal = authorizeRead(request, reply, options);
@@ -206,4 +292,55 @@ async function sendLoginResult(
     limiter.reset(userLookup);
   }
   await reply.send(result);
+}
+
+class SlidingWindowLimiter {
+  private readonly windows = new Map<
+    string,
+    { startedAt: number; count: number }
+  >();
+
+  constructor(
+    private readonly now: () => number,
+    private readonly limit: number,
+    private readonly windowMs: number
+  ) {}
+
+  retryAfterSeconds(key: string): number {
+    const current = this.now();
+    const window = this.windows.get(key);
+    if (
+      window === undefined
+      || current - window.startedAt >= this.windowMs
+    ) {
+      this.windows.set(key, { startedAt: current, count: 1 });
+      return 0;
+    }
+    if (window.count >= this.limit) {
+      return Math.max(
+        1,
+        Math.ceil(
+          (window.startedAt + this.windowMs - current) / 1_000
+        )
+      );
+    }
+    window.count += 1;
+    return 0;
+  }
+}
+
+function rejectCaptchaTraffic(
+  userLookup: string,
+  reply: FastifyReply,
+  limiter: SlidingWindowLimiter
+): boolean {
+  const retryAfterSeconds = limiter.retryAfterSeconds(userLookup);
+  if (retryAfterSeconds === 0) {
+    return false;
+  }
+  void reply
+    .header("retry-after", retryAfterSeconds)
+    .code(429)
+    .send({ code: "captcha_temporarily_limited" });
+  return true;
 }

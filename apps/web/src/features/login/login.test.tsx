@@ -3,6 +3,8 @@
 import {
   act,
   cleanup,
+  createEvent,
+  fireEvent,
   render,
   screen,
   waitFor
@@ -14,6 +16,7 @@ import "../../test-setup.js";
 import { ApiClient, ApiError } from "../../api/client.js";
 import { AuthGate } from "../auth/AuthGate.js";
 import type { TelegramWebApp } from "../auth/telegram.js";
+import { CaptchaLogin } from "./CaptchaLogin.js";
 import { PhoneLogin } from "./PhoneLogin.js";
 import { QrLogin } from "./QrLogin.js";
 
@@ -297,6 +300,70 @@ describe("MAX login", () => {
     await user.click(screen.getByRole("button", { name: "Получить код" }));
 
     expect(captchaRequired).toHaveBeenCalledOnce();
+  });
+
+  it("sends CAPTCHA taps as normalized coordinates", async () => {
+    const client = {
+      getMaxLoginStatus: vi.fn().mockResolvedValue({
+        state: "captcha_required"
+      }),
+      sendCaptchaPointer: vi.fn()
+        .mockResolvedValueOnce({ state: "captcha_required" })
+        .mockResolvedValueOnce({ state: "code_required" })
+    };
+    const codeRequired = vi.fn();
+    render(
+      <CaptchaLogin
+        client={client}
+        onAuthenticated={vi.fn()}
+        onCodeRequired={codeRequired}
+      />
+    );
+    const image = screen.getByRole("img", {
+      name: "Проверка безопасности MAX"
+    });
+    vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
+      x: 10,
+      y: 20,
+      width: 200,
+      height: 100,
+      top: 20,
+      right: 210,
+      bottom: 120,
+      left: 10,
+      toJSON: () => ({})
+    });
+
+    const down = createEvent.pointerDown(image);
+    Object.defineProperties(down, {
+      clientX: { value: 110 },
+      clientY: { value: 70 },
+      pointerId: { value: 1 }
+    });
+    fireEvent(image, down);
+    const up = createEvent.pointerUp(image);
+    Object.defineProperties(up, {
+      clientX: { value: 110 },
+      clientY: { value: 70 },
+      pointerId: { value: 1 }
+    });
+    fireEvent(image, up);
+
+    await waitFor(() => {
+      expect(client.sendCaptchaPointer).toHaveBeenNthCalledWith(
+        1,
+        "down",
+        0.5,
+        0.5
+      );
+      expect(client.sendCaptchaPointer).toHaveBeenNthCalledWith(
+        2,
+        "up",
+        0.5,
+        0.5
+      );
+    });
+    expect(codeRequired).toHaveBeenCalledOnce();
   });
 
   it("refreshes an expired QR without caching it", async () => {

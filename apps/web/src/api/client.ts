@@ -80,6 +80,17 @@ export class ApiClient {
     });
   }
 
+  async sendCaptchaPointer(
+    phase: "down" | "move" | "up",
+    x: number,
+    y: number
+  ): Promise<MaxLoginResult> {
+    return this.requestJson("/api/max/login/captcha/pointer", {
+      method: "POST",
+      body: JSON.stringify({ phase, x, y })
+    });
+  }
+
   async logoutMax(): Promise<void> {
     await this.request("/api/max/logout", { method: "POST" });
   }

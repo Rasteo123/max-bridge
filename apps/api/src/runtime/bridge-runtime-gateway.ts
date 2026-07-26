@@ -16,7 +16,10 @@ import type {
 import type { WorkerEvent } from "@maxbridge/protocol";
 
 import type { ChatGateway } from "../routes/chats.js";
-import type { MaxLoginGateway } from "../routes/max-login.js";
+import type {
+  CaptchaPointerInput,
+  MaxLoginGateway
+} from "../routes/max-login.js";
 import type {
   MessageGateway,
   MessageRouteResult
@@ -131,6 +134,29 @@ export class BridgeRuntimeGateway implements
       throw new TypeError("MAX QR image is invalid");
     }
     return Buffer.from(encoded, "base64");
+  }
+
+  async getCaptchaPng(userLookup: string): Promise<Buffer> {
+    await this.ensureSession(userLookup);
+    this.beginAuthentication(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "login.captcha.frame",
+      sessionHandle: sessionHandle(userLookup)
+    }));
+    return parsePng(response["pngBase64"], "MAX CAPTCHA image is invalid");
+  }
+
+  async sendCaptchaPointer(
+    userLookup: string,
+    input: CaptchaPointerInput
+  ): Promise<MaxLoginResult> {
+    await this.ensureSession(userLookup);
+    this.beginAuthentication(userLookup);
+    return parseLoginResult(await this.options.worker.request({
+      operation: "login.captcha.pointer",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
   }
 
   async status(userLookup: string): Promise<MaxLoginResult> {
@@ -363,6 +389,18 @@ function parseLoginResult(value: unknown): MaxLoginResult {
     return { state };
   }
   throw new TypeError("MAX login result is invalid");
+}
+
+function parsePng(value: unknown, message: string): Buffer {
+  if (
+    typeof value !== "string"
+    || value.length < 4
+    || value.length > 4 * 1024 * 1024
+    || !/^[A-Za-z0-9+/]+={0,2}$/u.test(value)
+  ) {
+    throw new TypeError(message);
+  }
+  return Buffer.from(value, "base64");
 }
 
 function parseSendResult(value: unknown): MessageRouteResult {

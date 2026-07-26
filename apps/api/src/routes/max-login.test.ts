@@ -96,6 +96,67 @@ describe("MAX login routes", () => {
     expect(response.rawPayload).toEqual(Buffer.from([137, 80, 78, 71]));
   });
 
+  it("streams only the CAPTCHA frame with no-store semantics", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/max/login/captcha"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("image/png");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.rawPayload).toEqual(Buffer.from([137, 80, 78, 71, 1]));
+  });
+
+  it("binds normalized CAPTCHA gestures to the authenticated user", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/max/login/captcha/pointer",
+      headers: { origin: allowedOrigin },
+      payload: { phase: "down", x: 0.25, y: 0.75 }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ state: "captcha_required" });
+    expect(gateway.captchaPointer).toEqual({
+      userLookup: principal.userLookup,
+      input: { phase: "down", x: 0.25, y: 0.75 }
+    });
+  });
+
+  it("rejects CAPTCHA coordinates outside its own frame", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/max/login/captcha/pointer",
+      headers: { origin: allowedOrigin },
+      payload: { phase: "up", x: 2, y: 0.5 }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(gateway.captchaPointer).toBeUndefined();
+  });
+
+  it("limits repeated CAPTCHA frame rendering per user", async () => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/max/login/captcha"
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const blocked = await app.inject({
+      method: "GET",
+      url: "/api/max/login/captcha"
+    });
+
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json()).toEqual({
+      code: "captcha_temporarily_limited"
+    });
+    expect(blocked.headers["retry-after"]).toBe("10");
+  });
+
   it("locks login for 30 minutes after five failures", async () => {
     gateway.codeResult = { state: "invalid_code" };
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -138,6 +199,14 @@ class FakeMaxLoginGateway implements MaxLoginGateway {
   observedCode: Uint8Array | undefined;
   codeCalls = 0;
   logoutCalls = 0;
+  captchaPointer: {
+    userLookup: string;
+    input: Readonly<{
+      phase: "down" | "move" | "up";
+      x: number;
+      y: number;
+    }>;
+  } | undefined;
   codeResult: MaxLoginResult = { state: "authenticated" };
 
   submitPhone(
@@ -159,6 +228,22 @@ class FakeMaxLoginGateway implements MaxLoginGateway {
 
   getQrPng(): Promise<Buffer> {
     return Promise.resolve(Buffer.from([137, 80, 78, 71]));
+  }
+
+  getCaptchaPng(): Promise<Buffer> {
+    return Promise.resolve(Buffer.from([137, 80, 78, 71, 1]));
+  }
+
+  sendCaptchaPointer(
+    userLookup: string,
+    input: Readonly<{
+      phase: "down" | "move" | "up";
+      x: number;
+      y: number;
+    }>
+  ): Promise<MaxLoginResult> {
+    this.captchaPointer = { userLookup, input };
+    return Promise.resolve({ state: "captcha_required" });
   }
 
   status(): Promise<MaxLoginResult> {

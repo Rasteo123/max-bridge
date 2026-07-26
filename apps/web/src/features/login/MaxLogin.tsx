@@ -7,6 +7,7 @@ import type {
   ApiClient,
   MaxLoginState
 } from "../../api/client.js";
+import { CaptchaLogin } from "./CaptchaLogin.js";
 import { PhoneLogin } from "./PhoneLogin.js";
 import { QrLogin } from "./QrLogin.js";
 
@@ -15,7 +16,7 @@ type MaxLoginProps = Readonly<{
   onAuthenticated(): void;
 }>;
 
-type Method = "phone" | "qr";
+type Method = "phone" | "qr" | "captcha";
 
 export function MaxLogin({
   client,
@@ -38,6 +39,9 @@ export function MaxLogin({
           setState(result.state);
           if (result.state === "qr_required") {
             setMethod("qr");
+          } else if (result.state === "captcha_required") {
+            setNotice("Завершите проверку MAX перед отправкой SMS.");
+            setMethod("captcha");
           }
         }
       })
@@ -95,7 +99,7 @@ export function MaxLogin({
           <button
             type="button"
             role="tab"
-            aria-selected={method === "phone"}
+            aria-selected={method === "phone" || method === "captcha"}
             onClick={() => {
               setNotice("");
               setMethod("phone");
@@ -126,10 +130,19 @@ export function MaxLogin({
             initialState={state}
             onAuthenticated={onAuthenticated}
             onCaptchaRequired={() => {
-              setNotice(
-                "MAX запросил CAPTCHA для входа по SMS. Используйте QR-код."
-              );
-              setMethod("qr");
+              setState("captcha_required");
+              setNotice("MAX запросил проверку перед отправкой SMS.");
+              setMethod("captcha");
+            }}
+          />
+        ) : method === "captcha" ? (
+          <CaptchaLogin
+            client={client}
+            onAuthenticated={onAuthenticated}
+            onCodeRequired={() => {
+              setNotice("");
+              setState("code_required");
+              setMethod("phone");
             }}
           />
         ) : (

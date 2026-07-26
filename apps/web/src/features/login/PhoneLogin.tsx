@@ -202,7 +202,7 @@ function lockedMessage(retryAfterSeconds?: number): string {
 function messageForState(state: MaxLoginState): string {
   switch (state) {
     case "captcha_required":
-      return "MAX запросил CAPTCHA. Перейдите на вход по QR-коду.";
+      return "MAX запросил проверку безопасности.";
     case "invalid_code":
       return "Код не подошёл или устарел.";
     case "failed":

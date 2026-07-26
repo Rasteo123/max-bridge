@@ -6,6 +6,7 @@ export * from "./adapters/media-adapter.js";
 export * from "./discovery/sanitizer.js";
 export * from "./discovery/schema-observer.js";
 export * from "./login/login-controller.js";
+export * from "./login/login-locators.js";
 export * from "./login/login-state.js";
 export * from "./max-session.js";
 export * from "./send/send-controller.js";

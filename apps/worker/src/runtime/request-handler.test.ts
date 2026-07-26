@@ -78,6 +78,42 @@ describe("WorkerRuntimeRequestHandler", () => {
     });
     expect(JSON.stringify(response)).not.toContain("CANARY");
   });
+
+  it("accepts only normalized CAPTCHA pointer coordinates", async () => {
+    const session = fakeSession();
+    const sendCaptchaPointer = vi.spyOn(session, "sendCaptchaPointer");
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve(session),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open"));
+
+    await expect(runtime.handle(request("login.captcha.pointer", {
+      phase: "move",
+      x: 0.4,
+      y: 0.6
+    }))).resolves.toMatchObject({
+      ok: true,
+      payload: { state: "captcha_required" }
+    });
+    expect(sendCaptchaPointer).toHaveBeenCalledWith({
+      phase: "move",
+      x: 0.4,
+      y: 0.6
+    });
+
+    await expect(runtime.handle(request("login.captcha.pointer", {
+      phase: "down",
+      x: -1,
+      y: 0.5
+    }))).resolves.toMatchObject({
+      ok: false,
+      errorCode: "worker_failure"
+    });
+  });
 });
 
 function request(
@@ -101,6 +137,10 @@ function fakeSession(): RuntimeMaxSession {
       storageStateBase64: "e30="
     }),
     getQrPng: () => Promise.resolve(Buffer.from("png")),
+    getCaptchaPng: () => Promise.resolve(Buffer.from("captcha")),
+    sendCaptchaPointer: () => Promise.resolve({
+      state: "captcha_required"
+    }),
     status: () => Promise.resolve({ state: "authenticated" }),
     listChats: () => Promise.resolve([]),
     history: () => Promise.resolve([]),

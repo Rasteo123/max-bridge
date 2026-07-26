@@ -216,6 +216,10 @@ function createServices(store: MemorySessionStore): AppServices {
       submitPhone: () => Promise.resolve({ state: "code_required" }),
       submitCode: () => Promise.resolve({ state: "authenticated" }),
       getQrPng: () => Promise.resolve(Buffer.from([137, 80, 78, 71])),
+      getCaptchaPng: () => Promise.resolve(Buffer.from([137, 80, 78, 71])),
+      sendCaptchaPointer: () => Promise.resolve({
+        state: "captcha_required"
+      }),
       status: () => Promise.resolve({ state: "authenticated" }),
       logout: () => Promise.resolve()
     },

@@ -8,6 +8,7 @@ import type {
 import {
   MaxLoginController,
   MaxSession,
+  captchaElement,
   decodeMaxFrame,
   discoverMaxClientBindings,
   type MaxClientBindings,
@@ -19,6 +20,7 @@ import type {
   Response,
   WebSocket
 } from "playwright";
+import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 
 const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
@@ -35,6 +37,7 @@ export class MaxWebPageSession {
   private adapter: MaxSession | undefined;
   private readonly login: MaxLoginController;
   private pendingSend: PendingSend | undefined;
+  private captchaPointerDown = false;
   private stopped = false;
 
   constructor(private readonly options: Readonly<{
@@ -131,6 +134,65 @@ export class MaxWebPageSession {
 
   getQrPng(): Promise<Buffer> {
     return this.login.getQrPng();
+  }
+
+  async getCaptchaPng(): Promise<Buffer> {
+    const captcha = captchaElement(this.options.page);
+    if (!(await captcha.isVisible().catch(() => false))) {
+      throw new Error("MAX CAPTCHA is unavailable");
+    }
+    return captcha.screenshot({
+      animations: "disabled",
+      type: "png"
+    });
+  }
+
+  async sendCaptchaPointer(
+    input: CaptchaPointerInput
+  ): Promise<MaxLoginResult> {
+    const captcha = captchaElement(this.options.page);
+    const box = await captcha.boundingBox().catch(() => null);
+
+    if (box === null) {
+      if (input.phase === "up" && this.captchaPointerDown) {
+        await this.options.page.mouse.up({ button: "left" });
+        this.captchaPointerDown = false;
+        return this.login.detectState();
+      }
+      throw new Error("MAX CAPTCHA is unavailable");
+    }
+    if (box.width < 1 || box.height < 1) {
+      throw new Error("MAX CAPTCHA has invalid bounds");
+    }
+
+    const x = box.x + (
+      box.width * Math.min(input.x, 0.999_999)
+    );
+    const y = box.y + (
+      box.height * Math.min(input.y, 0.999_999)
+    );
+    if (input.phase === "down") {
+      if (this.captchaPointerDown) {
+        await this.options.page.mouse.up({ button: "left" });
+      }
+      await this.options.page.mouse.move(x, y);
+      await this.options.page.mouse.down({ button: "left" });
+      this.captchaPointerDown = true;
+    } else if (input.phase === "move") {
+      if (!this.captchaPointerDown) {
+        throw new Error("MAX CAPTCHA pointer is not active");
+      }
+      await this.options.page.mouse.move(x, y);
+    } else {
+      if (!this.captchaPointerDown) {
+        throw new Error("MAX CAPTCHA pointer is not active");
+      }
+      await this.options.page.mouse.move(x, y);
+      await this.options.page.mouse.up({ button: "left" });
+      this.captchaPointerDown = false;
+    }
+
+    return this.login.detectState();
   }
 
   async status(): Promise<MaxLoginResult> {
