@@ -121,10 +121,13 @@ describe("MAX login exceptional states", () => {
         input.addEventListener("input", () => {
           setTimeout(() => {
             input.remove();
+            const chatList = document.createElement("aside");
+            chatList.setAttribute("aria-label", "Chats");
+            chatList.textContent = "Chat list";
             const navigation = document.createElement("nav");
-            navigation.setAttribute("aria-label", "Chats");
-            navigation.textContent = "Chat list";
-            document.body.append(navigation);
+            navigation.setAttribute("aria-label", "Folders and profile");
+            navigation.textContent = "Folders";
+            document.body.append(chatList, navigation);
           }, 50);
         });
       </script>
@@ -134,6 +137,26 @@ describe("MAX login exceptional states", () => {
     });
 
     await expect(controller.submitCode("123456"))
+      .resolves.toEqual({ state: "authenticated" });
+
+    await context.close();
+  });
+
+  it("detects the current Russian MAX chat-list landmarks", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(`
+      <aside aria-label="Чаты">
+        <h2>Чаты</h2>
+        <input aria-label="Найти">
+      </aside>
+      <nav aria-label="Папки и профиль"></nav>
+    `);
+    const controller = new MaxLoginController(page, {
+      timeoutMs: 1_000
+    });
+
+    await expect(controller.detectState())
       .resolves.toEqual({ state: "authenticated" });
 
     await context.close();

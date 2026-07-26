@@ -117,6 +117,9 @@ export class MaxWebPageSession {
     if (result.state !== "authenticated") {
       return { result };
     }
+    // SMS login can replace the MAX application tree. Re-discover the
+    // minified client exports instead of retaining bindings from the login UI.
+    this.bindings = undefined;
     await this.ensureAdapter();
     const state = await this.options.context.storageState({
       indexedDB: true

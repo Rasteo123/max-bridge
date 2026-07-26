@@ -66,9 +66,19 @@ export function captchaElement(page: Page): Locator {
 }
 
 export function authenticatedNavigation(page: Page): Locator {
-  return page.getByRole("navigation", {
+  const currentChatList = page.getByRole("complementary", {
     name: /chats|чаты/iu
-  }).first();
+  });
+  const currentFoldersNavigation = page.getByRole("navigation", {
+    name: /folders(?: and| &)? profile|папки и профиль/iu
+  });
+  const legacyChatNavigation = page.getByRole("navigation", {
+    name: /chats|чаты/iu
+  });
+  return currentChatList
+    .or(currentFoldersNavigation)
+    .or(legacyChatNavigation)
+    .first();
 }
 
 export function loginAlert(page: Page): Locator {
