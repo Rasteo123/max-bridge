@@ -63,6 +63,9 @@ describe("hardened deployment artifacts", () => {
 
     expect(install).toContain('entry" == /*');
     expect(install).toContain('entry" == */../*');
+    expect(install).toContain("npm ci --omit=dev");
+    expect(install).toContain("playwright install chromium");
+    expect(install).toContain("cleanup_incomplete_release");
     expect(backup).toContain("^/[A-Za-z0-9._/-]+$");
   });
 });
