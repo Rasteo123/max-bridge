@@ -3,6 +3,7 @@ import type { Page } from "playwright";
 import {
   authenticatedNavigation,
   captchaElement,
+  codeDigitInputs,
   codeInput,
   formSubmitButton,
   loginAlert,
@@ -98,7 +99,18 @@ export class MaxLoginController {
     if (!await this.isVisible(input)) {
       return this.detectState();
     }
-    await input.fill(code);
+    const digitInputs = codeDigitInputs(input);
+    const digitInputCount = await digitInputs.count();
+    if (digitInputCount > 1) {
+      if (digitInputCount !== code.length) {
+        return { state: "invalid_code" };
+      }
+      for (let index = 0; index < digitInputCount; index += 1) {
+        await digitInputs.nth(index).fill(code[index] ?? "");
+      }
+    } else {
+      await input.fill(code);
+    }
     const submit = formSubmitButton(input);
     if (await this.isVisible(submit)) {
       try {

@@ -28,6 +28,11 @@ export function codeInput(page: Page): Locator {
   ].join(",")).first();
 }
 
+export function codeDigitInputs(input: Locator): Locator {
+  return input.locator("xpath=ancestor::form[1]")
+    .locator('input:not([type="hidden"])');
+}
+
 export function formSubmitButton(input: Locator): Locator {
   return input.locator("xpath=ancestor::form[1]")
     .locator('button[type="submit"]')

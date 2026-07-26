@@ -115,12 +115,22 @@ describe("MAX login exceptional states", () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.setContent(`
-      <input autocomplete="one-time-code" inputmode="numeric">
+      <form>
+        <input autocomplete="one-time-code" maxlength="1">
+        <input autocomplete="off" maxlength="1">
+        <input autocomplete="off" maxlength="1">
+        <input autocomplete="off" maxlength="1">
+        <input autocomplete="off" maxlength="1">
+        <input autocomplete="off" maxlength="1">
+      </form>
       <script>
-        const input = document.querySelector("input");
-        input.addEventListener("input", () => {
-          setTimeout(() => {
-            input.remove();
+        const inputs = [...document.querySelectorAll("input")];
+        for (const input of inputs) {
+          input.addEventListener("input", () => {
+            if (!inputs.every((candidate) => candidate.value.length === 1)) {
+              return;
+            }
+            document.querySelector("form").remove();
             const chatList = document.createElement("aside");
             chatList.setAttribute("aria-label", "Chats");
             chatList.textContent = "Chat list";
@@ -128,8 +138,8 @@ describe("MAX login exceptional states", () => {
             navigation.setAttribute("aria-label", "Folders and profile");
             navigation.textContent = "Folders";
             document.body.append(chatList, navigation);
-          }, 50);
-        });
+          });
+        }
       </script>
     `);
     const controller = new MaxLoginController(page, {
