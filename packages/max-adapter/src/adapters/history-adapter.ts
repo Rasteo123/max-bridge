@@ -130,7 +130,7 @@ export function adaptWireMessage(
       messageId: id,
       index: 0
     });
-    const text = readWireString(message, "text", "message");
+    const text = displayText(readWireString(message, "text", "message"));
     return parseMessage({
       ...base,
       kind: adapted.kind,
@@ -142,7 +142,7 @@ export function adaptWireMessage(
   }
 
   const text = boundedText(
-    readWireString(message, "text", "message"),
+    displayText(readWireString(message, "text", "message")),
     65_536,
     "Сообщение"
   );
@@ -151,6 +151,12 @@ export function adaptWireMessage(
     kind: "text",
     text: text.length === 0 ? "Сообщение" : text
   });
+}
+
+function displayText(value: string | undefined): string | undefined {
+  return value === "welcome.saved.dialog.message"
+    ? "Сохраняйте здесь сообщения, фото и файлы"
+    : value;
 }
 
 function messageStatus(message: WireRecord): DeliveryStatus {

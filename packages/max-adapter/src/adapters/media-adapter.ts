@@ -33,6 +33,7 @@ export type AdaptedMedia = Readonly<{
 export class RuntimeMediaAdapter {
   private readonly entries = new Map<string, RuntimeMediaDescriptor>();
   private readonly maxEntries: number;
+  private nextHandle = 0;
 
   constructor(options: Readonly<{ maxEntries?: number }> = {}) {
     this.maxEntries = Math.max(1, options.maxEntries ?? 256);
@@ -52,14 +53,16 @@ export class RuntimeMediaAdapter {
   ): AdaptedMedia {
     const attachment = asWireRecord(attachmentValue);
     const kind = attachmentKind(attachment);
-    const handle = [
-      "media",
-      context.chatId,
-      context.messageId,
-      String(context.index)
-    ].join(":");
+    this.nextHandle += 1;
+    const contextIndex = Number.isSafeInteger(context.index)
+      ? Math.max(0, context.index).toString(36)
+      : "0";
+    const handle = `media_${this.nextHandle.toString(36)}_${contextIndex}`;
     const descriptor = buildDescriptor(attachment);
     this.register(handle, descriptor);
+    const sourceUrl = publicMediaUrl(
+      descriptor.sourceUrl ?? descriptor.baseUrl
+    );
 
     const width = readWireNumber(attachment, "width");
     const height = readWireNumber(attachment, "height");
@@ -75,6 +78,7 @@ export class RuntimeMediaAdapter {
         0,
         1_073_741_824
       ),
+      ...(sourceUrl === undefined ? {} : { sourceUrl }),
       ...(fileName === undefined ? {} : { fileName }),
       ...(durationMs === undefined ? {} : { durationMs }),
       ...(width === undefined ? {} : {
@@ -106,6 +110,7 @@ export class RuntimeMediaAdapter {
       descriptor.previewData?.fill(0);
     }
     this.entries.clear();
+    this.nextHandle = 0;
   }
 
   private register(handle: string, descriptor: RuntimeMediaDescriptor): void {
@@ -290,6 +295,24 @@ function safeRuntimeUrl(value: string | undefined): string | undefined {
   try {
     const parsed = new URL(value);
     return parsed.protocol === "https:" ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function publicMediaUrl(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.hostname === "i.oneme.ru"
+      && parsed.port.length === 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0
+      ? parsed.toString()
+      : undefined;
   } catch {
     return undefined;
   }

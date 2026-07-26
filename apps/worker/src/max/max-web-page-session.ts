@@ -31,6 +31,9 @@ import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
+const MAX_HISTORY_POLL_MS = 150;
+const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
+const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
 const MAX_SESSION_READY_WAIT_MS = 15_000;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
@@ -394,32 +397,41 @@ export class MaxWebPageSession {
       return null;
     }
     const bindings = await this.ensureBindings();
-    await this.options.page.evaluate(async (input) => {
-      const module = await import(input.moduleUrl) as Record<string, unknown>;
-      const router = module[input.routerExport] as {
-        openChat?: (id: bigint) => unknown;
-      } | undefined;
-      if (typeof router?.openChat !== "function") {
-        throw new Error("binding");
-      }
-      await router.openChat(BigInt(input.chatId));
-    }, { ...bindings, chatId });
+    const before = await this.readMessages(chatId);
+    const currentChatId = chatIdFromPageUrl(this.options.page.url());
+    const alternate = chats.find((chat) => chat.id !== chatId);
+    if (
+      currentChatId === chatId
+      && before.length <= 1
+      && alternate !== undefined
+    ) {
+      await this.openChat(bindings, alternate.id);
+      await this.options.page.waitForTimeout(200);
+    }
+    await this.openChat(bindings, chatId);
 
+    const startedAt = Date.now();
     const deadline = Date.now() + MAX_HISTORY_WAIT_MS;
-    let messages: unknown[] = [];
+    let messages: unknown[] = before;
+    let previousFingerprint = "";
+    let stableReads = 0;
     while (Date.now() <= deadline) {
+      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
       messages = await this.readMessages(chatId);
-      if (
-        messages.length > 0
-        || await this.options.page
-          .locator('[contenteditable="true"][role="textbox"], textarea')
-          .last()
-          .isVisible()
-          .catch(() => false)
-      ) {
+      const fingerprint = historyFingerprint(messages);
+      if (fingerprint === previousFingerprint) {
+        stableReads += 1;
+      } else {
+        previousFingerprint = fingerprint;
+        stableReads = 0;
+      }
+      const elapsed = Date.now() - startedAt;
+      const minimum = messages.length <= 1
+        ? MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS
+        : MAX_HISTORY_MIN_SETTLE_MS;
+      if (elapsed >= minimum && stableReads >= 3) {
         break;
       }
-      await this.options.page.waitForTimeout(50);
     }
     adapter.openChat(chatId);
     adapter.replaceOpenHistory({ messages });
@@ -486,27 +498,49 @@ export class MaxWebPageSession {
       this.pendingSend = { resolve: resolvePending, timeout };
     });
 
+    let stage = "prepare";
     try {
-      await this.options.page
-        .getByRole("button", { name: "Загрузить файл", exact: true })
-        .click({ timeout: 5_000 });
-      await this.options.page
-        .getByRole("menuitem", {
-          name: input.kind === "media" ? "Фото или видео" : "Файл",
-          exact: true
-        })
-        .click({ timeout: 5_000 });
-      await this.options.page
-        .locator('input[type="file"]')
-        .last()
-        .setInputFiles(filePath);
+      const staleDrafts = this.options.page.locator(
+        'button:has(use[href="#icon_cross_round_fill_mini_color"])'
+      );
+      for (
+        let draftIndex = 0;
+        draftIndex < 8 && await staleDrafts.count() > 0;
+        draftIndex += 1
+      ) {
+        await staleDrafts.first().click({ timeout: 2_000 });
+      }
+      stage = "set_file";
+      const fileInput = this.options.page.locator('input[type="file"]').first();
+      await fileInput.waitFor({ state: "attached", timeout: 5_000 });
+      await fileInput.evaluate((element, kind) => {
+        if (!(element instanceof HTMLInputElement)) {
+          throw new TypeError("MAX file input is invalid");
+        }
+        element.accept = kind === "media" ? "image/*, video/*" : "";
+      }, input.kind);
+      await fileInput.setInputFiles(filePath);
+      stage = "wait_for_preview";
+      await this.options.page.waitForFunction(() =>
+        document.querySelector(
+          'button:has(use[href="#icon_cross_round_fill_mini_color"])'
+        ) !== null,
+      undefined, { timeout: 10_000 });
+      stage = "send";
       const send = this.options.page
         .getByRole("button", { name: "Отправить сообщение", exact: true });
       await send.waitFor({ state: "visible", timeout: 10_000 });
       await send.click({ timeout: 10_000 });
-    } catch {
+    } catch (error: unknown) {
       this.clearPendingSend();
-      throw new Error("MAX attachment send failed before confirmation");
+      process.stderr.write(`${JSON.stringify({
+        event: "max_attachment_ui_failed",
+        stage,
+        errorName: error instanceof Error ? error.name : "unknown"
+      })}\n`);
+      throw new Error("MAX attachment send failed before confirmation", {
+        cause: error
+      });
     }
 
     const messageId = await confirmation;
@@ -658,7 +692,27 @@ export class MaxWebPageSession {
           && Symbol.iterator in messageSource
           ? Array.from(messageSource as Iterable<unknown>)
           : [];
-      return values.slice(-200).map((value) => {
+      const mediaByIndex = new Map<number, string[]>();
+      for (const item of document.querySelectorAll<HTMLElement>(
+        "main [data-index]"
+      )) {
+        const index = Number(item.dataset["index"]);
+        if (!Number.isSafeInteger(index) || index < 0) {
+          continue;
+        }
+        const urls = Array.from(item.querySelectorAll(
+          "img[src], video[src], audio[src], a[href]"
+        )).map((element) =>
+          element instanceof HTMLAnchorElement
+            ? element.href
+            : element.getAttribute("src") ?? ""
+        ).filter(isAllowedMediaUrl);
+        if (urls.length > 0) {
+          mediaByIndex.set(index, urls);
+        }
+      }
+      const messageOffset = Math.max(0, values.length - 200);
+      return values.slice(-200).map((value, messageIndex) => {
         const tuple = Array.isArray(value)
           ? value as unknown[]
           : undefined;
@@ -672,6 +726,10 @@ export class MaxWebPageSession {
             ? (textValue as Record<string, unknown>)["plain"]
             : undefined;
         const sender = message["sender"] ?? raw?.["sender"];
+        const normalizedAttaches = normalizeAttaches(
+          message["attaches"] ?? raw?.["attaches"]
+        );
+        const mediaUrls = mediaByIndex.get(messageOffset + messageIndex) ?? [];
         return {
           id: safeOpaque(message["id"] ?? raw?.["id"] ?? tuple?.[0]),
           sender: safeOpaque(message["senderId"] ?? raw?.["senderId"]),
@@ -683,9 +741,7 @@ export class MaxWebPageSession {
             : message["time"] ?? raw?.["time"] ?? Date.now(),
           type: message["type"] ?? raw?.["type"] ?? "MESSAGE",
           text: typeof text === "string" ? text : undefined,
-          attaches: normalizeAttaches(
-            message["attaches"] ?? raw?.["attaches"]
-          )
+          attaches: attachDomMediaUrls(normalizedAttaches, mediaUrls)
         };
       });
 
@@ -711,6 +767,49 @@ export class MaxWebPageSession {
         return [];
       }
 
+      function attachDomMediaUrls(
+        attaches: unknown[],
+        urls: readonly string[]
+      ): unknown[] {
+        let mediaIndex = 0;
+        return attaches.map((value) => {
+          const attachment = asRecord(value);
+          const raw = asRecord(attachment?.["$"]);
+          const typeValue = attachment?.["_type"]
+            ?? attachment?.["type"]
+            ?? raw?.["_type"]
+            ?? raw?.["type"];
+          const type = typeof typeValue === "string"
+            ? typeValue.toUpperCase()
+            : "";
+          const canUseRenderedUrl = type.includes("PHOTO")
+            || type.includes("IMAGE")
+            || type.includes("VIDEO")
+            || type.includes("AUDIO")
+            || type.includes("VOICE");
+          const url = canUseRenderedUrl ? urls[mediaIndex] : undefined;
+          if (canUseRenderedUrl) {
+            mediaIndex += 1;
+          }
+          return attachment === undefined || url === undefined
+            ? value
+            : { ...attachment, url };
+        });
+      }
+
+      function isAllowedMediaUrl(value: string): boolean {
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:"
+            && url.hostname === "i.oneme.ru"
+            && url.port.length === 0
+            && url.username.length === 0
+            && url.password.length === 0;
+        } catch {
+          return false;
+        }
+      }
+
       function safeOpaque(value: unknown): string {
         return (
           typeof value === "string"
@@ -719,6 +818,22 @@ export class MaxWebPageSession {
         ) ? String(value) : "0";
       }
     }, { accessorKey: MAX_SESSION_ACCESSOR_KEY, chatId });
+  }
+
+  private async openChat(
+    bindings: MaxClientBindings,
+    chatId: string
+  ): Promise<void> {
+    await this.options.page.evaluate(async (input) => {
+      const module = await import(input.moduleUrl) as Record<string, unknown>;
+      const router = module[input.routerExport] as {
+        openChat?: (id: bigint) => unknown;
+      } | undefined;
+      if (typeof router?.openChat !== "function") {
+        throw new Error("binding");
+      }
+      await router.openChat(BigInt(input.chatId));
+    }, { ...bindings, chatId });
   }
 
   private observeSocket(socket: WebSocket): void {
@@ -776,6 +891,22 @@ function createOperationId(): string {
     BigInt(Date.now()) * 10_000_000_000_000_000n
     + suffix % 10_000_000_000_000_000n
   ).toString();
+}
+
+function chatIdFromPageUrl(value: string): string | undefined {
+  try {
+    const segment = new URL(value).pathname.split("/").filter(Boolean)[0];
+    return segment === undefined ? undefined : decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
+function historyFingerprint(messages: readonly unknown[]): string {
+  return messages.map((value) => {
+    const message = asRecord(value);
+    return opaqueId(message?.["id"]) ?? "";
+  }).join("|");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

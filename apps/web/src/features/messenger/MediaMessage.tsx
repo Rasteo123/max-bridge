@@ -20,6 +20,14 @@ export function MediaMessage({
   useEffect(() => {
     const controller = new AbortController();
     let createdUrl: string | null = null;
+    const directUrl = safeMaxMediaUrl(media.sourceUrl);
+    if (directUrl !== null) {
+      setFailed(false);
+      setObjectUrl(directUrl);
+      return () => {
+        controller.abort();
+      };
+    }
     const path = mediaPath(media.handle);
     if (path === null) {
       setFailed(true);
@@ -55,7 +63,7 @@ export function MediaMessage({
         URL.revokeObjectURL(createdUrl);
       }
     };
-  }, [media.handle, media.mimeType, media.size]);
+  }, [media.handle, media.mimeType, media.size, media.sourceUrl]);
 
   if (failed) {
     return <span className="media-unavailable">Медиа недоступно</span>;
@@ -88,4 +96,22 @@ export function mediaPath(handle: string): string | null {
     return null;
   }
   return `/api/media/${encodeURIComponent(handle)}`;
+}
+
+export function safeMaxMediaUrl(value: string | undefined): string | null {
+  if (value === undefined || value.length > 4_096) {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.hostname === "i.oneme.ru"
+      && parsed.port.length === 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }

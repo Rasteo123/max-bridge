@@ -28,7 +28,7 @@ const securityImplementation: FastifyPluginAsync<
         ],
         connectSrc: ["'self'", "wss:"],
         imgSrc: ["'self'", "data:", "blob:", "https://i.oneme.ru"],
-        mediaSrc: ["'self'", "blob:"],
+        mediaSrc: ["'self'", "blob:", "https://i.oneme.ru"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         formAction: ["'self'"]
       }

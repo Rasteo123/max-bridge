@@ -31,6 +31,7 @@ export type MessengerMedia = Readonly<{
   handle: string;
   mimeType: string;
   size: number;
+  sourceUrl?: string;
   fileName?: string;
   durationMs?: number;
   width?: number;

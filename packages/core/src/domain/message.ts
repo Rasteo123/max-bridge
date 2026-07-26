@@ -17,6 +17,7 @@ export const MediaMetadataSchema = Type.Object({
   handle: Type.String(opaqueIdOptions),
   mimeType: Type.String({ minLength: 1, maxLength: 255 }),
   size: Type.Integer({ minimum: 0, maximum: 1_073_741_824 }),
+  sourceUrl: Type.Optional(Type.String({ minLength: 1, maxLength: 4_096 })),
   fileName: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
   durationMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86_400_000 })),
   width: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),

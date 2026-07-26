@@ -56,6 +56,32 @@ describe("MAX chat list adapter", () => {
 });
 
 describe("MAX history and media adapters", () => {
+  it("exposes only validated MAX CDN media URLs with route-safe handles", () => {
+    const media = new RuntimeMediaAdapter();
+    const safe = media.adaptAttachment({
+      _type: "PHOTO",
+      url: "https://i.oneme.ru/i?r=signed&expires=1785192900426"
+    }, {
+      chatId: "1001",
+      messageId: "3002",
+      index: 0
+    });
+    const unsafe = media.adaptAttachment({
+      _type: "PHOTO",
+      url: "https://example.com/private.png"
+    }, {
+      chatId: "1001",
+      messageId: "3003",
+      index: 0
+    });
+
+    expect(safe.metadata.handle).toMatch(/^[A-Za-z0-9_-]+$/u);
+    expect(safe.metadata.sourceUrl).toBe(
+      "https://i.oneme.ru/i?r=signed&expires=1785192900426"
+    );
+    expect(unsafe.metadata.sourceUrl).toBeUndefined();
+  });
+
   it("adapts text, image, video, voice, file and system messages", () => {
     const media = new RuntimeMediaAdapter();
 
