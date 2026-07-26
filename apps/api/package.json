@@ -7,6 +7,8 @@
   "types": "dist/index.d.ts",
   "dependencies": {
     "@maxbridge/core": "0.1.0",
-    "@maxbridge/protocol": "0.1.0"
+    "@maxbridge/protocol": "0.1.0",
+    "@types/better-sqlite3": "7.6.13",
+    "better-sqlite3": "13.0.1"
   }
 }
