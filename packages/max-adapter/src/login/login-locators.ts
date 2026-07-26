@@ -30,7 +30,7 @@ export function codeInput(page: Page): Locator {
 
 export function formSubmitButton(input: Locator): Locator {
   return input.locator("xpath=ancestor::form[1]")
-    .getByRole("button")
+    .locator('button[type="submit"]')
     .first();
 }
 
