@@ -49,11 +49,6 @@ async function main(): Promise<void> {
     miniAppUrl: config.publicOrigin,
     gateway: new SqliteFriendAccessGateway(users, approvals)
   });
-  let botStarted = false;
-  if (config.botEnabled) {
-    await bot.launch();
-    botStarted = true;
-  }
   const app = await buildApp({
     services: {
       sessions,
@@ -78,6 +73,7 @@ async function main(): Promise<void> {
   });
 
   let stopping = false;
+  let botStarted = false;
   const shutdown = async (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
     if (stopping) {
       return;
@@ -98,6 +94,16 @@ async function main(): Promise<void> {
   process.once("SIGINT", () => {
     void shutdown("SIGINT");
   });
+
+  if (config.botEnabled) {
+    botStarted = true;
+    void bot.launch().catch((error: unknown) => {
+      app.log.error({ err: error }, "Telegram bot stopped unexpectedly");
+      void shutdown("SIGTERM").finally(() => {
+        process.exitCode = 1;
+      });
+    });
+  }
 }
 
 async function connectWorker(worker: WorkerClient): Promise<void> {
