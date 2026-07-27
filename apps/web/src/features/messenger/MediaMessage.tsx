@@ -3,12 +3,14 @@ import {
   useState
 } from "react";
 
+import { requestTelegramMediaFullscreen } from "../auth/telegram.js";
 import type { MessengerMedia } from "./types.js";
 
 export type MediaOpenInput = Readonly<{
   kind: "image" | "video";
   url: string;
   alt: string;
+  telegramFullscreenRequested: boolean;
 }>;
 
 type MediaMessageProps = Readonly<{
@@ -75,7 +77,14 @@ export function MediaMessage({
           data-no-swipe
           aria-label="Открыть изображение"
           onClick={() => {
-            onOpen({ kind, url: objectUrl, alt: "Изображение" });
+            const telegramFullscreenRequested =
+              requestTelegramMediaFullscreen();
+            onOpen({
+              kind,
+              url: objectUrl,
+              alt: "Изображение",
+              telegramFullscreenRequested
+            });
           }}
         >
           {image}
@@ -94,7 +103,14 @@ export function MediaMessage({
           data-no-swipe
           aria-label="Открыть видео"
           onClick={() => {
-            onOpen({ kind, url: objectUrl, alt: "Видео" });
+            const telegramFullscreenRequested =
+              requestTelegramMediaFullscreen();
+            onOpen({
+              kind,
+              url: objectUrl,
+              alt: "Видео",
+              telegramFullscreenRequested
+            });
           }}
         >
           <video

@@ -8,7 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { currentTelegramWebApp } from "../auth/telegram.js";
+import { exitOwnedTelegramMediaFullscreen } from "../auth/telegram.js";
 import {
   resolveMediaUrl,
   safeMaxMediaUrl
@@ -29,6 +29,7 @@ type MediaViewerProps = Readonly<{
   index: number;
   onIndexChange(index: number): void;
   onClose(): void;
+  telegramFullscreenRequested?: boolean;
 }>;
 
 type ResolvedEntry =
@@ -40,6 +41,13 @@ type ResolvedEntry =
   | Readonly<{
     status: "failed";
   }>;
+
+type MediaResolutionGeneration = {
+  id: number;
+  active: boolean;
+  controller: AbortController;
+  pending: Set<string>;
+};
 
 const VIDEO_CONTROL_STRIP_PX = 64;
 
@@ -65,7 +73,8 @@ function MediaViewerDialog({
   index,
   onIndexChange,
   onClose,
-  firstItem
+  firstItem,
+  telegramFullscreenRequested = false
 }: MediaViewerProps & Readonly<{ firstItem: MediaViewerItem }>) {
   const safeIndex = Math.min(
     Math.max(0, index),
@@ -105,33 +114,10 @@ function MediaViewerDialog({
     dialogRef.current
       ?.querySelector<HTMLButtonElement>(".media-viewer__close")
       ?.focus();
-    const webApp = currentTelegramWebApp();
-    let requestedFullscreen = false;
-    if (
-      webApp?.requestFullscreen !== undefined &&
-      webApp.isFullscreen !== true &&
-      (
-        webApp.isVersionAtLeast === undefined ||
-        webApp.isVersionAtLeast("8.0")
-      )
-    ) {
-      try {
-        requestedFullscreen = true;
-        void Promise.resolve(webApp.requestFullscreen()).catch(() => undefined);
-      } catch {
-        // The in-app dialog remains the fallback.
-      }
-    }
     return () => {
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus();
-      if (requestedFullscreen && webApp?.exitFullscreen !== undefined) {
-        try {
-          void Promise.resolve(webApp.exitFullscreen()).catch(() => undefined);
-        } catch {
-          // Telegram may already be closing the host.
-        }
-      }
+      exitOwnedTelegramMediaFullscreen(telegramFullscreenRequested);
     };
   }, []);
 
@@ -187,6 +173,12 @@ function MediaViewerDialog({
       return;
     }
     if (
+      event.key === "Tab"
+    ) {
+      trapTabKey(event, dialogRef.current);
+      return;
+    }
+    if (
       event.target instanceof HTMLVideoElement ||
       event.target instanceof HTMLInputElement
     ) {
@@ -198,8 +190,6 @@ function MediaViewerDialog({
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
       carousel.selectNext();
-    } else if (event.key === "Tab") {
-      trapTabKey(event, dialogRef.current);
     }
   }
 
@@ -434,10 +424,9 @@ function useResolvedGallery(
   index: number
 ): ReadonlyMap<string, ResolvedEntry> {
   const cache = useRef(new Map<string, ResolvedEntry>());
-  const pending = useRef(new Set<string>());
   const preloaded = useRef(new Set<string>());
-  const controller = useRef(new AbortController());
-  const alive = useRef(true);
+  const nextGenerationId = useRef(0);
+  const generation = useRef<MediaResolutionGeneration | null>(null);
   const [version, setVersion] = useState(0);
 
   for (const item of items) {
@@ -452,19 +441,58 @@ function useResolvedGallery(
   }
 
   useEffect(() => {
+    nextGenerationId.current += 1;
+    const currentGeneration: MediaResolutionGeneration = {
+      id: nextGenerationId.current,
+      active: true,
+      controller: new AbortController(),
+      pending: new Set()
+    };
+    generation.current = currentGeneration;
+    return () => {
+      currentGeneration.active = false;
+      currentGeneration.controller.abort();
+      currentGeneration.pending.clear();
+      preloaded.current.clear();
+      for (const [itemId, entry] of cache.current) {
+        if (entry.status === "ready" && !entry.revoke) {
+          continue;
+        }
+        if (entry.status === "ready") {
+          URL.revokeObjectURL(entry.url);
+        }
+        cache.current.delete(itemId);
+      }
+      if (generation.current?.id === currentGeneration.id) {
+        generation.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentGeneration = generation.current;
+    if (currentGeneration === null) {
+      return;
+    }
     const needed = [
       items[index],
       items[index - 1]?.kind === "image" ? items[index - 1] : undefined,
       items[index + 1]?.kind === "image" ? items[index + 1] : undefined
     ].filter((item): item is MediaViewerItem => item !== undefined);
     for (const item of needed) {
-      if (cache.current.has(item.id) || pending.current.has(item.id)) {
+      if (
+        cache.current.has(item.id) ||
+        currentGeneration.pending.has(item.id)
+      ) {
         continue;
       }
-      pending.current.add(item.id);
-      void resolveMediaUrl(item.media, controller.current.signal)
+      currentGeneration.pending.add(item.id);
+      void resolveMediaUrl(
+        item.media,
+        currentGeneration.controller.signal
+      )
         .then((entry) => {
-          if (!alive.current) {
+          if (!currentGeneration.active) {
             if (entry.revoke) {
               URL.revokeObjectURL(entry.url);
             }
@@ -477,13 +505,13 @@ function useResolvedGallery(
           setVersion((value) => value + 1);
         })
         .catch(() => {
-          if (alive.current) {
+          if (currentGeneration.active) {
             cache.current.set(item.id, { status: "failed" });
             setVersion((value) => value + 1);
           }
         })
         .finally(() => {
-          pending.current.delete(item.id);
+          currentGeneration.pending.delete(item.id);
         });
     }
   }, [index, items]);
@@ -505,17 +533,6 @@ function useResolvedGallery(
       }
     }
   }, [index, items, version]);
-
-  useEffect(() => () => {
-    alive.current = false;
-    controller.current.abort();
-    for (const entry of cache.current.values()) {
-      if (entry.status === "ready" && entry.revoke) {
-        URL.revokeObjectURL(entry.url);
-      }
-    }
-    cache.current.clear();
-  }, []);
 
   return cache.current;
 }
@@ -547,11 +564,16 @@ function trapTabKey(
     dialog.focus();
     return;
   }
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  const currentIndex = focusable.indexOf(
+    document.activeElement as HTMLElement
+  );
+  const nextIndex = event.shiftKey
+    ? currentIndex <= 0
+      ? focusable.length - 1
+      : currentIndex - 1
+    : currentIndex < 0 || currentIndex >= focusable.length - 1
+      ? 0
+      : currentIndex + 1;
+  event.preventDefault();
+  focusable[nextIndex]?.focus();
 }

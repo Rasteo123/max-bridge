@@ -52,6 +52,40 @@ export function currentTelegramWebApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null;
 }
 
+export function requestTelegramMediaFullscreen(): boolean {
+  const webApp = currentTelegramWebApp();
+  if (
+    webApp?.requestFullscreen === undefined ||
+    webApp.isVersionAtLeast === undefined
+  ) {
+    return false;
+  }
+  try {
+    if (!webApp.isVersionAtLeast("8.0") || webApp.isFullscreen === true) {
+      return false;
+    }
+    void Promise.resolve(webApp.requestFullscreen()).catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function exitOwnedTelegramMediaFullscreen(owned: boolean): void {
+  if (!owned) {
+    return;
+  }
+  const webApp = currentTelegramWebApp();
+  if (webApp?.exitFullscreen === undefined) {
+    return;
+  }
+  try {
+    void Promise.resolve(webApp.exitFullscreen()).catch(() => undefined);
+  } catch {
+    // Telegram may already be closing the host.
+  }
+}
+
 export function applyTelegramTheme(
   params: TelegramThemeParams,
   root: HTMLElement = document.documentElement

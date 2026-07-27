@@ -56,6 +56,8 @@ export function Conversation({
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
   const [openMediaIndex, setOpenMediaIndex] = useState<number | null>(null);
+  const [telegramMediaFullscreenRequested, setTelegramMediaFullscreenRequested] =
+    useState(false);
   const now = useMinuteAlignedNow(
     active && chat?.kind === "direct" &&
       chat.presence === "offline" &&
@@ -68,6 +70,7 @@ export function Conversation({
   useEffect(() => {
     setComposerContext(null);
     setOpenMediaIndex(null);
+    setTelegramMediaFullscreenRequested(false);
   }, [chat?.id]);
 
   const mediaGallery = useMemo<readonly MediaViewerItem[]>(() => {
@@ -222,11 +225,14 @@ export function Conversation({
                 {...(onReactMessage === undefined
                   ? {}
                   : { onReact: onReactMessage })}
-                onOpenMedia={(selectedMessage) => {
+                onOpenMedia={(selectedMessage, input) => {
                   const nextIndex = mediaGallery.findIndex(
                     (item) => item.id === selectedMessage.id
                   );
                   if (nextIndex >= 0) {
+                    setTelegramMediaFullscreenRequested(
+                      input.telegramFullscreenRequested
+                    );
                     setOpenMediaIndex(nextIndex);
                   }
                 }}
@@ -262,8 +268,10 @@ export function Conversation({
           items={mediaGallery}
           index={openMediaIndex}
           onIndexChange={setOpenMediaIndex}
+          telegramFullscreenRequested={telegramMediaFullscreenRequested}
           onClose={() => {
             setOpenMediaIndex(null);
+            setTelegramMediaFullscreenRequested(false);
           }}
         />
       )}

@@ -60,7 +60,8 @@ describe("message media URLs", () => {
     expect(onOpen).toHaveBeenCalledWith({
       kind: "image",
       url: "https://i.oneme.ru/image.jpg",
-      alt: "Изображение"
+      alt: "Изображение",
+      telegramFullscreenRequested: false
     });
 
     rerender(
@@ -149,5 +150,93 @@ describe("message media URLs", () => {
 
     expect(await screen.findByText("Медиа недоступно")).toBeVisible();
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("requests Telegram fullscreen synchronously only from a supported click", async () => {
+    const requestFullscreen = vi.fn();
+    const onOpen = vi.fn(() => {
+      expect(requestFullscreen).toHaveBeenCalledOnce();
+    });
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "",
+        themeParams: {},
+        ready: vi.fn(),
+        expand: vi.fn(),
+        isFullscreen: false,
+        isVersionAtLeast: vi.fn(() => true),
+        requestFullscreen
+      }
+    });
+    render(
+      createElement(MediaMessage, {
+        kind: "image",
+        media: {
+          handle: "image-1",
+          mimeType: "image/jpeg",
+          size: 128,
+          sourceUrl: "https://i.oneme.ru/image.jpg"
+        },
+        onOpen
+      })
+    );
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: "Открыть изображение"
+    }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({
+      telegramFullscreenRequested: true
+    }));
+  });
+
+  it("does not request fullscreen without a positive version capability", async () => {
+    const requestFullscreen = vi.fn();
+    const onOpen = vi.fn();
+    const renderButton = async (
+      isVersionAtLeast?: (version: string) => boolean,
+      isFullscreen = false
+    ) => {
+      vi.stubGlobal("Telegram", {
+        WebApp: {
+          initData: "",
+          themeParams: {},
+          ready: vi.fn(),
+          expand: vi.fn(),
+          requestFullscreen,
+          isFullscreen,
+          ...(isVersionAtLeast === undefined ? {} : { isVersionAtLeast })
+        }
+      });
+      const view = render(
+        createElement(MediaMessage, {
+          kind: "image",
+          media: {
+            handle: "image-1",
+            mimeType: "image/jpeg",
+            size: 128,
+            sourceUrl: "https://i.oneme.ru/image.jpg"
+          },
+          onOpen
+        })
+      );
+      fireEvent.click(await screen.findByRole("button", {
+        name: "Открыть изображение"
+      }));
+      view.unmount();
+    };
+
+    await renderButton();
+    await renderButton(() => false);
+    await renderButton(() => true, true);
+    expect(requestFullscreen).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      telegramFullscreenRequested: false
+    }));
+    expect(onOpen).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      telegramFullscreenRequested: false
+    }));
+    expect(onOpen).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      telegramFullscreenRequested: false
+    }));
   });
 });

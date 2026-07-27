@@ -7,6 +7,7 @@ import {
   screen,
   waitFor
 } from "@testing-library/react";
+import { StrictMode } from "react";
 import {
   afterEach,
   beforeEach,
@@ -195,10 +196,32 @@ describe("MediaViewer", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the modal usable when Telegram fullscreen is rejected", async () => {
-    const requestFullscreen = vi.fn(() =>
-      Promise.reject(new Error("unsupported"))
+  it("keeps Tab and Shift+Tab trapped when native video is focused", () => {
+    render(
+      <MediaViewer
+        items={[items[1] as MediaViewerItem]}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={vi.fn()}
+      />
     );
+    const dialog = screen.getByRole("dialog", { name: "Просмотр видео" });
+    const video = screen.getByTestId("media-viewer-video");
+    const close = screen.getByRole("button", { name: "Закрыть просмотр" });
+
+    video.focus();
+    fireEvent.keyDown(video, { key: "Tab" });
+    expect(close).toHaveFocus();
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    video.focus();
+    fireEvent.keyDown(video, { key: "Tab", shiftKey: true });
+    expect(close).toHaveFocus();
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("exits Telegram fullscreen only when the opening click owns it", async () => {
+    const requestFullscreen = vi.fn();
     const exitFullscreen = vi.fn(() =>
       Promise.reject(new Error("already closed"))
     );
@@ -219,19 +242,28 @@ describe("MediaViewer", () => {
         index={0}
         onIndexChange={vi.fn()}
         onClose={vi.fn()}
+        telegramFullscreenRequested
       />
     );
 
     expect(
       screen.getByRole("dialog", { name: "Просмотр изображения" })
     ).toBeVisible();
-    await waitFor(() => {
-      expect(requestFullscreen).toHaveBeenCalledOnce();
-    });
+    expect(requestFullscreen).not.toHaveBeenCalled();
     view.unmount();
     await waitFor(() => {
       expect(exitFullscreen).toHaveBeenCalledOnce();
     });
+
+    render(
+      <MediaViewer
+        items={items}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    ).unmount();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 
   it("navigates by swipe, arrows, and buttons and announces the position", () => {
@@ -422,6 +454,65 @@ describe("MediaViewer", () => {
 
     view.unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:adjacent");
+  });
+
+  it("survives StrictMode effect replay for handle-only current media", async () => {
+    let objectUrlNumber = 0;
+    const createdUrls: string[] = [];
+    const revokedUrls: string[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => {
+        objectUrlNumber += 1;
+        const url = `blob:strict-${String(objectUrlNumber)}`;
+        createdUrls.push(url);
+        return url;
+      })
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn((url: string) => {
+        revokedUrls.push(url);
+      })
+    });
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(
+      new Blob(["image"], { type: "image/jpeg" }),
+      { status: 200, headers: { "content-type": "image/jpeg" } }
+    )));
+    vi.stubGlobal("fetch", fetchMock);
+    const strictItems: readonly MediaViewerItem[] = [{
+      id: "strict-image",
+      kind: "image",
+      alt: "StrictMode изображение",
+      media: {
+        handle: "strict_handle",
+        mimeType: "image/jpeg",
+        size: 64
+      }
+    }];
+
+    const view = render(
+      <StrictMode>
+        <MediaViewer
+          items={strictItems}
+          index={0}
+          onIndexChange={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    expect(await screen.findByTestId("media-viewer-image")).toHaveAttribute(
+      "src",
+      expect.stringMatching(/^blob:strict-/u)
+    );
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Загрузка…")).not.toBeInTheDocument();
+
+    view.unmount();
+    await waitFor(() => {
+      expect(revokedUrls).toEqual(expect.arrayContaining(createdUrls));
+    });
   });
 
   it("removes carousel motion when reduced motion is preferred", () => {
