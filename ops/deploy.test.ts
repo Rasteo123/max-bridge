@@ -89,5 +89,8 @@ describe("hardened deployment artifacts", () => {
     expect(install).toContain("chmod -R a+rX /opt/maxbridge/browsers");
     expect(health).toContain("Host: max-users.online");
     expect(backup).toContain("^/[A-Za-z0-9._/-]+$");
+    expect(backup).toContain("command -v sqlite3");
+    expect(backup).toContain('import Database from "better-sqlite3"');
+    expect(backup).toContain("await database.backup(destination)");
   });
 });
