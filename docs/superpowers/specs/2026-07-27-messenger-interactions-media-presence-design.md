@@ -122,8 +122,17 @@ title. If a direct contact is online, a green presence dot appears at the
 avatar's bottom-right corner. The same dot is used on the contact's avatar in
 the chat list.
 
-If presence is unavailable, stale, or the bridge is reconnecting, no dot is
-shown. Offline is represented by the absence of the dot.
+If a direct contact is explicitly offline and MAX exposes a trusted last-seen
+timestamp, the conversation subtitle shows a localized relative value such as
+`5 мин. назад` or `2 ч. назад`. It updates while the Mini App is active without
+changing the underlying timestamp. Groups and channels never show a personal
+last-seen value.
+
+If presence or last-seen data is unavailable, stale, malformed, or the bridge
+is reconnecting, no dot or relative last-seen value is shown. Offline is
+otherwise represented by the absence of the dot. Message activity, the last
+message timestamp, an open conversation, and local receipt time are never used
+to infer presence or last seen.
 
 ### Delivery indicators
 
@@ -189,6 +198,8 @@ handle or Telegram user identity from the request body.
 `ChatSummary` gains:
 
 - `presence: "online" | "offline" | "unknown"` for direct chats;
+- `lastSeenAt?: number`, an authenticated MAX epoch-millisecond timestamp for
+  explicitly offline direct contacts;
 - `lastMessageDirection?: "incoming" | "outgoing"`;
 - the existing `deliveryStatus` populated from MAX for the last message.
 
@@ -196,14 +207,16 @@ Messages continue to use the existing `status` field, but the worker and MAX
 adapter must populate it from the raw message acknowledgement/read state rather
 than from Mini App assumptions.
 
-The MAX worker reads viewer identity, recipient presence, last-message sender,
-and acknowledgement state from the authenticated page session. The adapter
-normalizes raw MAX variants into the strict core schemas. API and WebSocket
-events carry only normalized values.
+The MAX worker reads viewer identity, recipient presence, an explicit
+recipient last-seen timestamp, last-message sender, and acknowledgement state
+from the authenticated page session. The adapter normalizes raw MAX variants
+into the strict core schemas. API and WebSocket events carry only normalized
+values. A last-seen value is accepted only from the authenticated recipient
+record and only after its unit and reasonable time bounds are validated.
 
 Presence is refreshed whenever the worker produces a chat snapshot or receives
 a relevant MAX update. When the worker connection is not healthy, the web store
-treats presence as `unknown` and removes online dots.
+treats presence as `unknown` and removes online dots and last-seen labels.
 
 Every API and WebSocket lookup remains keyed by the authenticated Telegram
 user. No presence, status, media handle, upload path, or retry state is shared

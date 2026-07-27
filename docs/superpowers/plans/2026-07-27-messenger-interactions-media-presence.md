@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add swipe-to-reply, a full-screen image/video viewer, direct-contact presence, outgoing delivery receipts, header avatars, and reliable desktop/mobile attachment sending.
+**Goal:** Add swipe-to-reply, a full-screen image/video viewer, direct-contact presence and last-seen time, outgoing delivery receipts, header avatars, and reliable desktop/mobile attachment sending.
 
 **Architecture:** Keep MAX as the source of truth. The worker extracts presence, direction, acknowledgement state, and performs attachment UI automation; core schemas and adapters normalize that data; the React client renders it and owns only transient interaction state. New gesture and media-transform logic live in focused hooks so message navigation, context menus, and media controls remain isolated and testable. MAX Bridge is not called because this Mini App runs inside Telegram, and MAX Bot API is not treated as personal-account access. MAX UI components and design tokens may be reused in presentation tasks when they preserve the approved messenger behavior.
 
@@ -383,6 +383,75 @@ git add apps/web/src/features/auth/telegram.test.ts apps/web/src/features/auth/t
 git commit -m "fix: follow Telegram Mini App lifecycle"
 ```
 
+## Task 2B: Extract and normalize trusted MAX last-seen time
+
+**Files:**
+
+- Modify: `packages/core/src/domain/chat.ts`
+- Modify: `packages/core/src/domain/domain.test.ts`
+- Modify: `packages/max-adapter/src/adapters/chat-list-adapter.ts`
+- Modify: `packages/max-adapter/src/adapters/adapters.test.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.test.ts`
+
+- [ ] **Step 1: Inspect the real MAX field and write failing tests**
+
+In the authenticated `web.max.ru` page, inspect one explicitly offline direct
+contact for the recipient field and unit used by MAX for last seen. Record only
+the field path, scalar type/unit, and a synthetic timestamp fixture. Never
+record the contact identity, phone number, cookies, tokens, or message data.
+
+Add failing core/adapter/worker tests that require:
+
+- `lastSeenAt` is accepted only as a finite epoch-millisecond number within
+  reasonable bounds;
+- it is omitted for online, unknown, group, and channel summaries;
+- it is read only from the authenticated recipient record path confirmed in
+  MAX, including its observed raw `$` form if present;
+- message timestamps, preview timestamps, open-chat state, and local clock
+  receipt time never populate it;
+- seconds are converted to milliseconds only when the inspected MAX field is
+  proven to use seconds; ambiguous units are rejected.
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+Run:
+
+```bash
+npx vitest run --config vitest.workspace.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/adapters.test.ts apps/worker/src/max/max-web-page-session.test.ts
+```
+
+Expected: FAIL because `lastSeenAt` is not present in the strict schema,
+adapter, or worker snapshot.
+
+- [ ] **Step 3: Implement the smallest trusted projection**
+
+Add optional `lastSeenAt` to `ChatSummary`. The adapter keeps it only for an
+explicitly offline direct chat and rejects non-finite, negative, future-skewed,
+or implausibly old values.
+
+Extend the page-side snapshot with the single MAX recipient field path and unit
+verified in Step 1. Do not enumerate or clone the full recipient object, do not
+fall back to DOM text, and do not infer last seen from any message field.
+
+- [ ] **Step 4: Run focused and regression tests**
+
+Run the Step 2 command plus:
+
+```bash
+npm run lint
+npm run typecheck
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/domain/chat.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/chat-list-adapter.ts packages/max-adapter/src/adapters/adapters.test.ts apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-page-session.test.ts
+git commit -m "feat: preserve MAX last seen time"
+```
+
 ## Task 3: Render presence, avatars, and delivery indicators
 
 **Files:**
@@ -421,6 +490,13 @@ Assert an image, `aria-label="В сети"`, and
 `aria-label="Последнее сообщение прочитано"` with two checks. Add an incoming
 case and assert no receipt.
 
+Add conversation-header tests with a fixed clock. For an offline direct chat
+whose trusted `lastSeenAt` is five minutes or two hours old, assert visible
+localized subtitles `5 мин. назад` and `2 ч. назад`. Advance the fake clock
+across a minute boundary and assert the value updates while active. Assert no
+last-seen subtitle for online/unknown presence, groups, channels, malformed
+timestamps, or reconnecting/disconnected state.
+
 In `ContextMenus.test.tsx`, render outgoing messages for every status and assert
 labels `Отправляется`, `Отправлено`, `Доставлено`, `Прочитано`, and
 `Не отправлено`. Render an incoming message with `read` and assert none.
@@ -449,6 +525,7 @@ Add fields to `MessengerChat`:
 
 ```ts
 presence?: "online" | "offline" | "unknown";
+lastSeenAt?: number;
 lastMessageDirection?: "incoming" | "outgoing";
 ```
 
@@ -482,6 +559,11 @@ otherwise create a component dependency cycle.
 
 Replace the narrow back button with avatar/identity markup. Keep
 `onOpenChats()` available for the pane gesture but do not render the old button.
+For an explicitly offline direct chat with a trusted `lastSeenAt`, render a
+localized relative subtitle below the title. Update it on a minute-aligned
+timer while the Mini App is active and clear that timer on deactivate or
+unmount. Use a deterministic formatter with Russian minute/hour/day forms;
+never derive the timestamp from a message.
 Mirror the selected narrow-pane state to Telegram's native `BackButton` through
 capability-guarded `show`, `hide`, `onClick`, and `offClick` calls. Use
 `--tg-viewport-stable-height`, `--tg-safe-area-inset-*`, and
@@ -496,7 +578,7 @@ responsive layout. Do not import the full stylesheet merely to restyle custom
 message bubbles.
 
 When store connection becomes reconnecting/disconnected, map chat presence to
-`unknown` before publishing the snapshot.
+`unknown` and remove `lastSeenAt` before publishing the snapshot.
 
 - [ ] **Step 4: Run the focused tests and verify GREEN**
 
