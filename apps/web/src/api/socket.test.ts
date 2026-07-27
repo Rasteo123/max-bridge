@@ -11,6 +11,71 @@ afterEach(() => {
 });
 
 describe("AuthenticatedSocket", () => {
+  it("pauses without expiring auth and resumes once with current init data", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    let initData = "first-signed-data";
+    const authenticate = vi.fn().mockResolvedValue(undefined);
+    const onAuthenticationExpired = vi.fn();
+    const onStatus = vi.fn();
+    const bridge = new AuthenticatedSocket({
+      initData: () => initData,
+      authenticate,
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      reconnectDelayMs: 10,
+      onAuthenticationExpired,
+      onStatus
+    });
+
+    bridge.start();
+    bridge.pause();
+    await vi.runAllTimersAsync();
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]?.close).toHaveBeenCalledWith(1_000, "client_pause");
+    expect(onAuthenticationExpired).not.toHaveBeenCalled();
+    expect(onStatus).toHaveBeenLastCalledWith("disconnected");
+
+    initData = "current-signed-data";
+    await Promise.all([bridge.resume(), bridge.resume()]);
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticate).toHaveBeenCalledWith("current-signed-data");
+    expect(sockets).toHaveLength(2);
+
+    await bridge.resume();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(2);
+    bridge.stop();
+  });
+
+  it("cancels a pending reconnect while paused", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const bridge = new AuthenticatedSocket({
+      initData: () => "signed-live-init-data",
+      authenticate: vi.fn().mockResolvedValue(undefined),
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      reconnectDelayMs: 10
+    });
+
+    bridge.start();
+    sockets[0]?.emitClose(1_006);
+    bridge.pause();
+    await vi.runAllTimersAsync();
+
+    expect(sockets).toHaveLength(1);
+    bridge.stop();
+  });
+
   it("reauthenticates from current Telegram initData without browser tokens", async () => {
     vi.useFakeTimers();
     const sockets: FakeSocket[] = [];
@@ -116,7 +181,7 @@ class FakeSocket {
     }
   }
 
-  close(): void {}
+  close = vi.fn();
 
   emitClose(code: number): void {
     this.closeListener?.({ code } as CloseEvent);

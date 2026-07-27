@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -47,7 +48,30 @@ export function ConnectedMessenger({
   const [actionError, setActionError] = useState<string>();
   const historyCache = useRef(new Map<string, readonly MessengerMessage[]>());
   const historyRequest = useRef(0);
-  useLiveEvents({ store, client, telegram });
+  const refreshCurrentData = useCallback(async () => {
+    const { chats } = await client.listChats();
+    store.replaceChats(chats);
+    const selectedChatId = store.getSnapshot().selectedChatId;
+    if (selectedChatId === undefined) {
+      return;
+    }
+    const requestId = ++historyRequest.current;
+    const history = await client.getHistory(selectedChatId);
+    const messages = toMessengerMessages(history.messages);
+    historyCache.current.set(selectedChatId, messages);
+    if (
+      requestId === historyRequest.current &&
+      store.getSnapshot().selectedChatId === selectedChatId
+    ) {
+      store.replaceCurrentMessages(messages);
+    }
+  }, [client, store]);
+  useLiveEvents({
+    store,
+    client,
+    telegram,
+    onActivatedRefresh: refreshCurrentData
+  });
 
   useEffect(() => {
     const controller = new AbortController();

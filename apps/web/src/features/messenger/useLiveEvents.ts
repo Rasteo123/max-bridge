@@ -15,13 +15,15 @@ type LiveEventsOptions = Readonly<{
   client: Pick<AuthClient, "authenticateTelegram">;
   telegram: TelegramWebApp | null;
   createSocket?: SocketFactory;
+  onActivatedRefresh?(): void | Promise<void>;
 }>;
 
 export function useLiveEvents({
   store,
   client,
   telegram,
-  createSocket
+  createSocket,
+  onActivatedRefresh
 }: LiveEventsOptions): void {
   useEffect(() => {
     if (telegram === null || telegram.initData.length === 0) {
@@ -61,11 +63,46 @@ export function useLiveEvents({
         }
       }
     });
-    socket.start();
+    const activated = () => {
+      void socket.resume()
+        .then((resumed) => {
+          if (!resumed) {
+            return;
+          }
+          return onActivatedRefresh?.();
+        })
+        .catch(() => {
+          // The next explicit activation can retry a transient refresh failure.
+        });
+    };
+    const deactivated = () => {
+      socket.pause();
+    };
+    const hasLifecycleEvents = telegram.onEvent !== undefined &&
+      telegram.offEvent !== undefined;
+    if (hasLifecycleEvents) {
+      telegram.onEvent?.("activated", activated);
+      telegram.onEvent?.("deactivated", deactivated);
+    }
+    if (telegram.isActive === false) {
+      socket.pause();
+    } else {
+      socket.start();
+    }
     return () => {
+      if (hasLifecycleEvents) {
+        telegram.offEvent?.("activated", activated);
+        telegram.offEvent?.("deactivated", deactivated);
+      }
       socket.stop();
     };
-  }, [client, createSocket, store, telegram]);
+  }, [
+    client,
+    createSocket,
+    onActivatedRefresh,
+    store,
+    telegram
+  ]);
 }
 
 function extractEvent(value: unknown): MessengerEvent | null {

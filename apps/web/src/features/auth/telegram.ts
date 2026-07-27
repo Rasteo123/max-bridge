@@ -1,10 +1,43 @@
 export type TelegramThemeParams = Readonly<Record<string, string | undefined>>;
 
+export type TelegramEvent =
+  | "activated"
+  | "deactivated"
+  | "themeChanged";
+
+type TelegramEventCallback = () => void;
+
+type TelegramBackButton = Readonly<{
+  isVisible?: boolean;
+  show(): void;
+  hide(): void;
+  onClick(callback: TelegramEventCallback): void;
+  offClick(callback: TelegramEventCallback): void;
+}>;
+
+type TelegramHapticFeedback = Readonly<{
+  impactOccurred?(
+    style: "light" | "medium" | "heavy" | "rigid" | "soft"
+  ): void;
+  notificationOccurred?(type: "error" | "success" | "warning"): void;
+  selectionChanged?(): void;
+}>;
+
 export interface TelegramWebApp {
   readonly initData: string;
   readonly themeParams: TelegramThemeParams;
+  readonly isActive?: boolean;
+  readonly viewportStableHeight?: number;
+  readonly isFullscreen?: boolean;
+  readonly BackButton?: TelegramBackButton;
+  readonly HapticFeedback?: TelegramHapticFeedback;
   ready(): void;
   expand(): void;
+  onEvent?(eventType: TelegramEvent, callback: TelegramEventCallback): void;
+  offEvent?(eventType: TelegramEvent, callback: TelegramEventCallback): void;
+  isVersionAtLeast?(version: string): boolean;
+  requestFullscreen?(): void;
+  exitFullscreen?(): void;
 }
 
 declare global {

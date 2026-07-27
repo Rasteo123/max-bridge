@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../test-setup.js";
+import type { AuthClient } from "../auth/AuthGate.js";
+import type {
+  TelegramEvent,
+  TelegramWebApp
+} from "../auth/telegram.js";
 import { MediaMessage } from "./MediaMessage.js";
 import { MessengerStore } from "./messenger-store.js";
 import type {
@@ -11,6 +16,7 @@ import type {
   MessengerEvent,
   MessengerMessage
 } from "./types.js";
+import { useLiveEvents } from "./useLiveEvents.js";
 
 afterEach(() => {
   cleanup();
@@ -67,6 +73,94 @@ describe("MessengerStore", () => {
     expect(store.getSnapshot().connection).toBe("reconnecting");
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
+  });
+});
+
+describe("Telegram live-event lifecycle", () => {
+  it("pauses while inactive and refreshes exactly once after current-data auth", async () => {
+    const telegram = telegramLifecycleStub();
+    const sockets: LiveFakeSocket[] = [];
+    const store = new MessengerStore();
+    const authenticateTelegram = vi.fn().mockResolvedValue(undefined);
+    const refreshCurrentData = vi.fn().mockResolvedValue(undefined);
+    const markRead = vi.fn();
+
+    const view = render(
+      <LiveEventsHarness
+        store={store}
+        client={{ authenticateTelegram, markRead }}
+        telegram={telegram.webApp}
+        createSocket={() => {
+          const socket = new LiveFakeSocket();
+          sockets.push(socket);
+          return socket as unknown as WebSocket;
+        }}
+        onActivatedRefresh={refreshCurrentData}
+      />
+    );
+
+    expect(sockets).toHaveLength(1);
+    act(() => {
+      telegram.emit("deactivated");
+    });
+    expect(sockets[0]?.close).toHaveBeenCalledWith(1_000, "client_pause");
+    expect(store.getSnapshot().connection).toBe("disconnected");
+
+    telegram.setInitData("new-current-signed-data");
+    await act(async () => {
+      telegram.emit("activated");
+      telegram.emit("activated");
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+
+    expect(authenticateTelegram).toHaveBeenCalledTimes(1);
+    expect(authenticateTelegram).toHaveBeenCalledWith(
+      "new-current-signed-data"
+    );
+    expect(refreshCurrentData).toHaveBeenCalledTimes(1);
+    expect(markRead).not.toHaveBeenCalled();
+
+    view.unmount();
+    expect(telegram.offEvent).toHaveBeenCalledWith(
+      "activated",
+      telegram.callbacks.get("activated")
+    );
+    expect(telegram.offEvent).toHaveBeenCalledWith(
+      "deactivated",
+      telegram.callbacks.get("deactivated")
+    );
+  });
+
+  it("does not connect while Telegram reports the Mini App inactive", async () => {
+    const telegram = telegramLifecycleStub(false);
+    const createSocket = vi.fn(() =>
+      new LiveFakeSocket() as unknown as WebSocket
+    );
+    const authenticateTelegram = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <LiveEventsHarness
+        store={new MessengerStore()}
+        client={{ authenticateTelegram }}
+        telegram={telegram.webApp}
+        createSocket={createSocket}
+        onActivatedRefresh={vi.fn()}
+      />
+    );
+
+    expect(createSocket).not.toHaveBeenCalled();
+    await act(async () => {
+      telegram.setActive(true);
+      telegram.emit("activated");
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(createSocket).toHaveBeenCalledTimes(1);
+    });
+    expect(authenticateTelegram).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -146,4 +240,59 @@ function messageEvent(messageValue: MessengerMessage): MessengerEvent {
     occurredAt: "2026-07-26T15:00:00.000Z",
     message: messageValue
   };
+}
+
+type LiveEventsHarnessProps = Readonly<{
+  store: MessengerStore;
+  client: Pick<AuthClient, "authenticateTelegram"> &
+    Readonly<{ markRead?: () => void }>;
+  telegram: TelegramWebApp;
+  createSocket: (url: string) => WebSocket;
+  onActivatedRefresh(): Promise<void>;
+}>;
+
+function LiveEventsHarness(props: LiveEventsHarnessProps) {
+  useLiveEvents(props);
+  return null;
+}
+
+function telegramLifecycleStub(initiallyActive = true) {
+  let initData = "initial-signed-data";
+  let active = initiallyActive;
+  const callbacks = new Map<TelegramEvent, () => void>();
+  const offEvent = vi.fn();
+  const webApp: TelegramWebApp = {
+    get initData() {
+      return initData;
+    },
+    get isActive() {
+      return active;
+    },
+    themeParams: {},
+    ready: vi.fn(),
+    expand: vi.fn(),
+    onEvent(event, callback) {
+      callbacks.set(event, callback);
+    },
+    offEvent
+  };
+  return {
+    webApp,
+    callbacks,
+    offEvent,
+    emit(event: TelegramEvent) {
+      callbacks.get(event)?.();
+    },
+    setInitData(value: string) {
+      initData = value;
+    },
+    setActive(value: boolean) {
+      active = value;
+    }
+  };
+}
+
+class LiveFakeSocket {
+  addEventListener(): void {}
+  close = vi.fn();
 }

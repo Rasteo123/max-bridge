@@ -44,13 +44,27 @@ export function AuthGate({
     const controller = new AbortController();
     telegram?.ready();
     telegram?.expand();
+    let removeThemeListener: (() => void) | undefined;
     if (telegram !== null) {
       applyTelegramTheme(telegram.themeParams);
+      if (
+        telegram.onEvent !== undefined &&
+        telegram.offEvent !== undefined
+      ) {
+        const themeChanged = () => {
+          applyTelegramTheme(telegram.themeParams);
+        };
+        telegram.onEvent("themeChanged", themeChanged);
+        removeThemeListener = () => {
+          telegram.offEvent?.("themeChanged", themeChanged);
+        };
+      }
     }
     if (telegram === null || telegram.initData.length === 0) {
       setState("outside");
       return () => {
         controller.abort();
+        removeThemeListener?.();
       };
     }
 
@@ -86,6 +100,7 @@ export function AuthGate({
 
     return () => {
       controller.abort();
+      removeThemeListener?.();
     };
   }, [client, telegram]);
 
