@@ -52,6 +52,22 @@ install -d -o root -g root -m 0700 /etc/maxbridge/credentials
 install -d -o root -g root -m 0755 "$release_dir"
 tar --extract --gzip --file "$archive" --directory "$release_dir" \
   --no-same-owner --no-same-permissions
+
+required_runtime_files=(
+  "apps/api/dist/entrypoint.js"
+  "apps/worker/dist/entrypoint.js"
+  "apps/web/dist/index.html"
+  "packages/core/dist/index.js"
+  "packages/max-adapter/dist/index.js"
+  "packages/protocol/dist/index.js"
+)
+for runtime_file in "${required_runtime_files[@]}"; do
+  if [[ ! -f "$release_dir/$runtime_file" ]]; then
+    echo "release archive is not built: missing $runtime_file" >&2
+    exit 65
+  fi
+done
+
 find "$release_dir" -type d -exec chmod 0755 {} +
 find "$release_dir" -type f -exec chmod 0644 {} +
 find "$release_dir/ops/scripts" -type f -exec chmod 0755 {} +

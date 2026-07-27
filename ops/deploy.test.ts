@@ -80,6 +80,10 @@ describe("hardened deployment artifacts", () => {
     expect(install).toContain("npm ci --omit=dev");
     expect(install).toContain("playwright install chromium");
     expect(install).toContain("cleanup_incomplete_release");
+    expect(install).toContain("required_runtime_files");
+    expect(install).toContain('"apps/api/dist/entrypoint.js"');
+    expect(install).toContain('"apps/worker/dist/entrypoint.js"');
+    expect(install).toContain('"apps/web/dist/index.html"');
     expect(install).toContain('find "$release_dir" -type d -exec chmod 0755');
     expect(install).toContain('find "$release_dir" -type f -exec chmod 0644');
     expect(install).toContain("chmod -R a+rX /opt/maxbridge/browsers");
