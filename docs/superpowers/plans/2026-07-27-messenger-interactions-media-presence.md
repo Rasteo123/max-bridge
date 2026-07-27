@@ -728,11 +728,14 @@ expect(clampTranslation({ x: 500, y: -500 }, {
   viewportHeight: 400,
   mediaWidth: 300,
   mediaHeight: 200
-})).toEqual({ x: 150, y: -100 });
+})).toEqual({ x: 150, y: 0 });
 ```
 
 Also test that unmodified vertical wheel leaves scale unchanged and resetting
-returns `{ scale: 1, x: 0, y: 0 }`.
+returns `{ scale: 1, x: 0, y: 0 }`. Translation limits must use the actual
+scaled-media overflow relative to the viewport:
+`max(0, (mediaSize * scale - viewportSize) / 2)`, so media that still fits a
+viewport on one axis cannot be panned to expose blank space.
 
 - [ ] **Step 2: Run and verify RED**
 
