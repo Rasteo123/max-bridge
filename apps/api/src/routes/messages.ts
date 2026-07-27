@@ -4,7 +4,12 @@ import type {
   FastifyRequest
 } from "fastify";
 
-import { zeroBuffer } from "@maxbridge/core";
+import {
+  zeroBuffer,
+  type ChatAction,
+  type ReactionKey,
+  type StickerSummary
+} from "@maxbridge/core";
 
 import {
   OriginPolicyError,
@@ -30,6 +35,7 @@ export interface MessageGateway {
       chatId: string;
       clientRequestId: string;
       text: Uint8Array;
+      replyToId?: string;
     }>
   ): Promise<MessageRouteResult>;
   retryText(
@@ -39,6 +45,7 @@ export interface MessageGateway {
       chatId: string;
       clientRequestId: string;
       text: Uint8Array;
+      replyToId?: string;
       confirmedByUser: true;
     }>
   ): Promise<MessageRouteResult>;
@@ -49,6 +56,54 @@ export interface MessageGateway {
       clientRequestId: string;
       filePath: string;
       kind: "media" | "file";
+    }>
+  ): Promise<MessageRouteResult>;
+  editMessage(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      text: Uint8Array;
+    }>
+  ): Promise<MessageRouteResult>;
+  deleteMessage(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      confirmedByUser: true;
+    }>
+  ): Promise<MessageRouteResult>;
+  setReaction(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      reaction: ReactionKey | null;
+    }>
+  ): Promise<MessageRouteResult>;
+  chatAction(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      clientRequestId: string;
+      action: ChatAction;
+      confirmedByUser?: true;
+    }>
+  ): Promise<MessageRouteResult>;
+  listStickers(
+    userLookup: string,
+    chatId: string
+  ): Promise<readonly StickerSummary[]>;
+  sendSticker(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      stickerId: string;
+      clientRequestId: string;
     }>
   ): Promise<MessageRouteResult>;
 }
@@ -66,6 +121,7 @@ type TextBody = {
   chatId: string;
   clientRequestId: string;
   text: string;
+  replyToId?: string;
 };
 
 type RetryBody = TextBody & {
@@ -74,6 +130,28 @@ type RetryBody = TextBody & {
 };
 
 type AttachmentParams = { chatId: string };
+type MessageParams = { chatId: string; messageId: string };
+type StickerParams = { chatId: string; stickerId: string };
+type EditMessageBody = {
+  clientRequestId: string;
+  text: string;
+};
+type DeleteMessageBody = {
+  clientRequestId: string;
+  confirmedByUser: boolean;
+};
+type SetReactionBody = {
+  clientRequestId: string;
+  reaction: ReactionKey | null;
+};
+type ChatActionBody = {
+  clientRequestId: string;
+  action: ChatAction;
+  confirmedByUser?: boolean;
+};
+type SendStickerBody = {
+  clientRequestId: string;
+};
 type AttachmentQuery = {
   kind: "media" | "file";
   name: string;
@@ -87,7 +165,24 @@ const commonTextProperties = {
   kind: { type: "string", const: "text" },
   chatId: { type: "string", minLength: 1, maxLength: 512 },
   clientRequestId: { type: "string", minLength: 1, maxLength: 128 },
-  text: { type: "string", minLength: 1, maxLength: 65_536 }
+  text: { type: "string", minLength: 1, maxLength: 65_536 },
+  replyToId: { type: "string", minLength: 1, maxLength: 512 }
+} as const;
+
+const messageParamsSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["chatId", "messageId"],
+  properties: {
+    chatId: { type: "string", minLength: 1, maxLength: 512 },
+    messageId: { type: "string", minLength: 1, maxLength: 512 }
+  }
+} as const;
+
+const clientRequestIdSchema = {
+  type: "string",
+  minLength: 1,
+  maxLength: 128
 } as const;
 
 export const registerMessageRoutes: FastifyPluginCallback<
@@ -128,7 +223,10 @@ export const registerMessageRoutes: FastifyPluginCallback<
         {
           chatId: request.body.chatId,
           clientRequestId: request.body.clientRequestId,
-          text
+          text,
+          ...(request.body.replyToId === undefined
+            ? {}
+            : { replyToId: request.body.replyToId })
         }
       ));
     } finally {
@@ -181,6 +279,9 @@ export const registerMessageRoutes: FastifyPluginCallback<
           chatId: request.body.chatId,
           clientRequestId: request.body.clientRequestId,
           text,
+          ...(request.body.replyToId === undefined
+            ? {}
+            : { replyToId: request.body.replyToId }),
           confirmedByUser: true
         }
       ));
@@ -259,6 +360,264 @@ export const registerMessageRoutes: FastifyPluginCallback<
     }
   });
 
+  app.patch<{
+    Params: MessageParams;
+    Body: EditMessageBody;
+  }>("/api/chats/:chatId/messages/:messageId", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: messageParamsSchema,
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId", "text"],
+        properties: {
+          clientRequestId: clientRequestIdSchema,
+          text: {
+            type: "string",
+            minLength: 1,
+            maxLength: 65_536
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const text = new TextEncoder().encode(request.body.text);
+    try {
+      await reply.send(await options.gateway.editMessage(
+        principal.userLookup,
+        {
+          chatId: request.params.chatId,
+          messageId: request.params.messageId,
+          clientRequestId: request.body.clientRequestId,
+          text
+        }
+      ));
+    } finally {
+      zeroBuffer(text);
+    }
+  });
+
+  app.post<{
+    Params: MessageParams;
+    Body: DeleteMessageBody;
+  }>("/api/chats/:chatId/messages/:messageId/delete", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: messageParamsSchema,
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId", "confirmedByUser"],
+        properties: {
+          clientRequestId: clientRequestIdSchema,
+          confirmedByUser: { type: "boolean" }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    if (!request.body.confirmedByUser) {
+      await reply.code(400).send({
+        code: "delete_confirmation_required"
+      });
+      return;
+    }
+    await reply.send(await options.gateway.deleteMessage(
+      principal.userLookup,
+      {
+        chatId: request.params.chatId,
+        messageId: request.params.messageId,
+        clientRequestId: request.body.clientRequestId,
+        confirmedByUser: true
+      }
+    ));
+  });
+
+  app.put<{
+    Params: MessageParams;
+    Body: SetReactionBody;
+  }>("/api/chats/:chatId/messages/:messageId/reaction", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: messageParamsSchema,
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId", "reaction"],
+        properties: {
+          clientRequestId: clientRequestIdSchema,
+          reaction: {
+            anyOf: [
+              {
+                type: "string",
+                enum: [
+                  "like",
+                  "heart",
+                  "laugh",
+                  "fire",
+                  "cry",
+                  "celebrate"
+                ]
+              },
+              { type: "null" }
+            ]
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply.send(await options.gateway.setReaction(
+      principal.userLookup,
+      {
+        chatId: request.params.chatId,
+        messageId: request.params.messageId,
+        clientRequestId: request.body.clientRequestId,
+        reaction: request.body.reaction
+      }
+    ));
+  });
+
+  app.post<{
+    Params: AttachmentParams;
+    Body: ChatActionBody;
+  }>("/api/chats/:chatId/actions", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["chatId"],
+        properties: {
+          chatId: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      },
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId", "action"],
+        properties: {
+          clientRequestId: clientRequestIdSchema,
+          action: {
+            type: "string",
+            enum: [
+              "pin",
+              "unpin",
+              "mark_unread",
+              "mute",
+              "unmute",
+              "clear",
+              "delete"
+            ]
+          },
+          confirmedByUser: { type: "boolean" }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const destructive = request.body.action === "clear"
+      || request.body.action === "delete";
+    if (destructive && request.body.confirmedByUser !== true) {
+      await reply.code(400).send({
+        code: "chat_action_confirmation_required"
+      });
+      return;
+    }
+    await reply.send(await options.gateway.chatAction(
+      principal.userLookup,
+      {
+        chatId: request.params.chatId,
+        clientRequestId: request.body.clientRequestId,
+        action: request.body.action,
+        ...(request.body.confirmedByUser === true
+          ? { confirmedByUser: true }
+          : {})
+      }
+    ));
+  });
+
+  app.get<{
+    Params: AttachmentParams;
+  }>("/api/chats/:chatId/stickers", {
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["chatId"],
+        properties: {
+          chatId: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeRead(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply
+      .header("cache-control", "no-store")
+      .send({
+        stickers: await options.gateway.listStickers(
+          principal.userLookup,
+          request.params.chatId
+        )
+      });
+  });
+
+  app.post<{
+    Params: StickerParams;
+    Body: SendStickerBody;
+  }>("/api/chats/:chatId/stickers/:stickerId", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["chatId", "stickerId"],
+        properties: {
+          chatId: { type: "string", minLength: 1, maxLength: 512 },
+          stickerId: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      },
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId"],
+        properties: {
+          clientRequestId: clientRequestIdSchema
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply.send(await options.gateway.sendSticker(
+      principal.userLookup,
+      {
+        chatId: request.params.chatId,
+        stickerId: request.params.stickerId,
+        clientRequestId: request.body.clientRequestId
+      }
+    ));
+  });
+
   done();
 };
 
@@ -285,6 +644,18 @@ function authorizeMutation(
     }
     throw error;
   }
+  const principal = options.resolvePrincipal(request);
+  if (principal === null) {
+    void reply.code(401).send({ code: "authentication_required" });
+  }
+  return principal;
+}
+
+function authorizeRead(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: MessageRouteOptions
+): SessionPrincipal | null {
   const principal = options.resolvePrincipal(request);
   if (principal === null) {
     void reply.code(401).send({ code: "authentication_required" });

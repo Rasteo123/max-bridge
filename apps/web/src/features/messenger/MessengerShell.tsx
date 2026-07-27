@@ -8,9 +8,12 @@ import { ChatList } from "./ChatList.js";
 import { Conversation } from "./Conversation.js";
 import type {
   MessengerChat,
+  MessengerChatAction,
   MessengerMessage,
   MessengerPane,
-  MessengerTheme
+  MessengerSticker,
+  MessengerTheme,
+  ReactionKey
 } from "./types.js";
 import { useResponsivePane } from "./useResponsivePane.js";
 import { useSwipeNavigation } from "./useSwipeNavigation.js";
@@ -22,8 +25,14 @@ type MessengerShellProps = Readonly<{
   initialChatId?: string;
   initialPane?: MessengerPane;
   onSelectChat(chatId: string): void;
-  onSend(text: string): void;
+  onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
+  onEditMessage?(messageId: string, text: string): void;
+  onDeleteMessage?(messageId: string): void;
+  onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onChatAction?(chatId: string, action: MessengerChatAction): void;
+  onLoadStickers?(): Promise<readonly MessengerSticker[]>;
+  onSendSticker?(stickerId: string): Promise<void> | void;
   theme?: MessengerTheme;
   onThemeChange?(theme: MessengerTheme): void;
   onLogout?(): void;
@@ -38,6 +47,12 @@ export function MessengerShell({
   onSelectChat,
   onSend,
   onAttach,
+  onEditMessage,
+  onDeleteMessage,
+  onReactMessage,
+  onChatAction,
+  onLoadStickers,
+  onSendSticker,
   theme = "system",
   onThemeChange = () => undefined,
   onLogout,
@@ -61,7 +76,10 @@ export function MessengerShell({
   useEffect(() => {
     if (initialChatId !== undefined) {
       setSelectedChatId(initialChatId);
+      return;
     }
+    setSelectedChatId(undefined);
+    setPane("list");
   }, [initialChatId]);
 
   function selectChat(chatId: string) {
@@ -103,6 +121,7 @@ export function MessengerShell({
             theme={theme}
             onThemeChange={onThemeChange}
             {...(onLogout === undefined ? {} : { onLogout })}
+            {...(onChatAction === undefined ? {} : { onChatAction })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}
@@ -114,6 +133,11 @@ export function MessengerShell({
             }}
             onSend={onSend}
             {...(onAttach === undefined ? {} : { onAttach })}
+            {...(onEditMessage === undefined ? {} : { onEditMessage })}
+            {...(onDeleteMessage === undefined ? {} : { onDeleteMessage })}
+            {...(onReactMessage === undefined ? {} : { onReactMessage })}
+            {...(onLoadStickers === undefined ? {} : { onLoadStickers })}
+            {...(onSendSticker === undefined ? {} : { onSendSticker })}
           />
         </div>
       </section>

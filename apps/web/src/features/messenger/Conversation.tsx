@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Composer } from "./Composer.js";
 import { MessageBubble } from "./MessageBubble.js";
 import type {
   MessengerChat,
-  MessengerMessage
+  MessengerMessage,
+  MessengerSticker,
+  ReactionKey
 } from "./types.js";
 
 type ConversationProps = Readonly<{
@@ -12,9 +14,19 @@ type ConversationProps = Readonly<{
   messages: readonly MessengerMessage[];
   wide: boolean;
   onOpenChats(): void;
-  onSend(text: string): void;
+  onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
   historyLoading?: boolean;
+  onEditMessage?(messageId: string, text: string): void;
+  onDeleteMessage?(messageId: string): void;
+  onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onLoadStickers?(): Promise<readonly MessengerSticker[]>;
+  onSendSticker?(stickerId: string): Promise<void> | void;
+}>;
+
+type ComposerContext = Readonly<{
+  kind: "reply" | "edit";
+  message: MessengerMessage;
 }>;
 
 export function Conversation({
@@ -24,10 +36,22 @@ export function Conversation({
   onOpenChats,
   onSend,
   onAttach,
-  historyLoading = false
+  historyLoading = false,
+  onEditMessage,
+  onDeleteMessage,
+  onReactMessage,
+  onLoadStickers,
+  onSendSticker
 }: ConversationProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [composerContext, setComposerContext] =
+    useState<ComposerContext | null>(null);
+
+  useEffect(() => {
+    setComposerContext(null);
+  }, [chat?.id]);
+
   const visibleMessages = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase("ru-RU");
     if (query.length === 0) {
@@ -132,6 +156,31 @@ export function Conversation({
                   chat.kind !== "direct" &&
                   message.direction === "incoming"
                 }
+                onReply={(selectedMessage) => {
+                  setComposerContext({
+                    kind: "reply",
+                    message: selectedMessage
+                  });
+                }}
+                {...(onEditMessage === undefined ? {} : {
+                  onEdit: (messageId: string) => {
+                    const selectedMessage = messages.find(
+                      (item) => item.id === messageId
+                    );
+                    if (selectedMessage !== undefined) {
+                      setComposerContext({
+                        kind: "edit",
+                        message: selectedMessage
+                      });
+                    }
+                  }
+                })}
+                {...(onDeleteMessage === undefined
+                  ? {}
+                  : { onDelete: onDeleteMessage })}
+                {...(onReactMessage === undefined
+                  ? {}
+                  : { onReact: onReactMessage })}
               />
             ))}
           </>
@@ -141,6 +190,22 @@ export function Conversation({
         disabled={chat === undefined}
         onSend={onSend}
         {...(onAttach === undefined ? {} : { onAttach })}
+        {...(
+          composerContext?.kind === "reply"
+            ? { replyingTo: composerContext.message }
+            : {}
+        )}
+        {...(
+          composerContext?.kind === "edit"
+            ? { editing: composerContext.message }
+            : {}
+        )}
+        {...(onEditMessage === undefined ? {} : { onEdit: onEditMessage })}
+        {...(onLoadStickers === undefined ? {} : { onLoadStickers })}
+        {...(onSendSticker === undefined ? {} : { onSendSticker })}
+        onCancelContext={() => {
+          setComposerContext(null);
+        }}
       />
     </section>
   );

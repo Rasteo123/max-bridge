@@ -141,6 +141,138 @@ describe("BridgeRuntimeGateway", () => {
     expect(receivedA).toEqual([eventA]);
     expect(receivedB).toEqual([eventB]);
   });
+
+  it("routes message and chat mutations through the user's session", async () => {
+    const requests: unknown[] = [];
+    const worker = fakeWorker((request) => {
+      requests.push(request);
+      if (request.operation === "session.open") {
+        return Promise.resolve({ opened: true });
+      }
+      if (request.operation === "stickers.list") {
+        return Promise.resolve({
+          stickers: [{
+            id: "sticker-1",
+            previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+          }]
+        });
+      }
+      return Promise.resolve({
+        state: "confirmed",
+        operationId: `op-${request.operation}`
+      });
+    });
+    const gateway = new BridgeRuntimeGateway({
+      worker,
+      users: fakeUsers()
+    });
+    const userLookup = "u_AbCdEfGhIjKlMnOpQrStUv";
+
+    await gateway.sendText(userLookup, {
+      chatId: "chat-1",
+      clientRequestId: "request-1",
+      text: new TextEncoder().encode("Ответ"),
+      replyToId: "message-0"
+    });
+    await gateway.editMessage(userLookup, {
+      chatId: "chat-1",
+      messageId: "message-1",
+      clientRequestId: "request-2",
+      text: new TextEncoder().encode("Исправлено")
+    });
+    await gateway.deleteMessage(userLookup, {
+      chatId: "chat-1",
+      messageId: "message-1",
+      clientRequestId: "request-3",
+      confirmedByUser: true
+    });
+    await gateway.setReaction(userLookup, {
+      chatId: "chat-1",
+      messageId: "message-2",
+      clientRequestId: "request-4",
+      reaction: "heart"
+    });
+    await gateway.chatAction(userLookup, {
+      chatId: "chat-1",
+      clientRequestId: "request-5",
+      action: "mute"
+    });
+    await expect(gateway.listStickers(userLookup, "chat-1"))
+      .resolves.toHaveLength(1);
+    await gateway.sendSticker(userLookup, {
+      chatId: "chat-1",
+      stickerId: "sticker-1",
+      clientRequestId: "request-6"
+    });
+
+    expect(requests.slice(1)).toEqual([
+      {
+        operation: "message.send",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          clientRequestId: "request-1",
+          text: "Ответ",
+          replyToId: "message-0"
+        }
+      },
+      {
+        operation: "message.edit",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          messageId: "message-1",
+          clientRequestId: "request-2",
+          text: "Исправлено"
+        }
+      },
+      {
+        operation: "message.delete",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          messageId: "message-1",
+          clientRequestId: "request-3",
+          confirmedByUser: true
+        }
+      },
+      {
+        operation: "message.reaction.set",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          messageId: "message-2",
+          clientRequestId: "request-4",
+          reaction: "heart"
+        }
+      },
+      {
+        operation: "chat.action",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          clientRequestId: "request-5",
+          action: "mute"
+        }
+      },
+      {
+        operation: "stickers.list",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1"
+        }
+      },
+      {
+        operation: "sticker.send",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-1",
+          stickerId: "sticker-1",
+          clientRequestId: "request-6"
+        }
+      }
+    ]);
+  });
 });
 
 function messageEvent(id: string, chatId: string): BridgeEvent {

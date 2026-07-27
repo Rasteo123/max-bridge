@@ -110,7 +110,10 @@ export class LiveEventAdapter {
         "editTime",
         "time"
       ) ?? "0";
-      if (!this.markSeen(`upsert:${chatId}:${messageId}:${revision}`)) {
+      const reactions = reactionRevision(messageRecord);
+      if (!this.markSeen(
+        `upsert:${chatId}:${messageId}:${revision}:${reactions}`
+      )) {
         continue;
       }
       const message = adaptWireMessage(value, {
@@ -154,4 +157,27 @@ export class LiveEventAdapter {
     this.sequence += 1;
     return value;
   }
+}
+
+function reactionRevision(message: Readonly<Record<string, unknown>>): string {
+  const values = readWireArray(message, "reactions", "reactionSummary") ?? [];
+  return values.slice(0, 32).map((value) => {
+    const reaction = asWireRecord(value);
+    return [
+      reactionRevisionValue(reaction["key"] ?? reaction["type"]),
+      reactionRevisionValue(reaction["count"] ?? reaction["total"]),
+      reaction["selectedByMe"] === true || reaction["mine"] === true
+        ? "mine"
+        : ""
+    ].join(":");
+  }).join(",");
+}
+
+function reactionRevisionValue(value: unknown): string {
+  return typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "boolean"
+    ? String(value)
+    : "";
 }

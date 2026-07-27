@@ -13,9 +13,12 @@ import {
   MessengerStore
 } from "./messenger-store.js";
 import type {
+  MessengerChatAction,
   MessengerMedia,
   MessengerMessage,
-  MessengerTheme
+  MessengerReaction,
+  MessengerTheme,
+  ReactionKey
 } from "./types.js";
 import { useLiveEvents } from "./useLiveEvents.js";
 
@@ -41,6 +44,7 @@ export function ConnectedMessenger({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [actionError, setActionError] = useState<string>();
   const historyCache = useRef(new Map<string, readonly MessengerMessage[]>());
   const historyRequest = useRef(0);
   useLiveEvents({ store, client, telegram });
@@ -65,7 +69,7 @@ export function ConnectedMessenger({
         setLoaded(true);
         return client.getHistory(first.id)
           .then((history) => {
-            const messages = history.messages.map(toMessengerMessage);
+            const messages = toMessengerMessages(history.messages);
             historyCache.current.set(first.id, messages);
             if (
               !isAborted(controller.signal)
@@ -108,7 +112,7 @@ export function ConnectedMessenger({
     setHistoryLoading(cached === undefined);
     try {
       const history = await client.getHistory(chatId);
-      const messages = history.messages.map(toMessengerMessage);
+      const messages = toMessengerMessages(history.messages);
       historyCache.current.set(chatId, messages);
       if (
         requestId === historyRequest.current &&
@@ -125,16 +129,13 @@ export function ConnectedMessenger({
     }
   }
 
-  async function send(text: string) {
+  async function send(text: string, replyToId?: string) {
     const chatId = store.getSnapshot().selectedChatId;
     if (chatId === undefined) {
       return;
     }
-    await client.sendText(chatId, text);
-    const history = await client.getHistory(chatId);
-    const messages = history.messages.map(toMessengerMessage);
-    historyCache.current.set(chatId, messages);
-    store.mergeHistory(messages);
+    await client.sendText(chatId, text, replyToId);
+    await refreshHistory(chatId);
   }
 
   async function sendAttachment(file: File, kind: "media" | "file") {
@@ -143,10 +144,113 @@ export function ConnectedMessenger({
       return;
     }
     await client.sendAttachment(chatId, file, kind);
+    await refreshHistory(chatId);
+  }
+
+  async function editMessage(messageId: string, text: string) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.editMessage(chatId, messageId, text);
+    await refreshHistory(chatId);
+  }
+
+  async function deleteMessage(messageId: string) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.deleteMessage(chatId, messageId);
+    store.applyEvent({
+      type: "message.deleted",
+      sequence: 0,
+      occurredAt: new Date().toISOString(),
+      chatId,
+      messageId
+    });
+    await refreshHistory(chatId, true);
+  }
+
+  async function reactMessage(
+    messageId: string,
+    reaction: ReactionKey | null
+  ) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.setReaction(chatId, messageId, reaction);
+    await refreshHistory(chatId);
+  }
+
+  async function applyChatAction(
+    chatId: string,
+    action: MessengerChatAction
+  ) {
+    await client.chatAction(chatId, action);
+    const { chats } = await client.listChats();
+    store.replaceChats(chats);
+
+    if (action === "clear" && store.getSnapshot().selectedChatId === chatId) {
+      await refreshHistory(chatId, true);
+      return;
+    }
+    if (action !== "delete") {
+      return;
+    }
+    historyCache.current.delete(chatId);
+    if (store.getSnapshot().selectedChatId !== chatId) {
+      return;
+    }
+    const next = chats[0];
+    if (next === undefined) {
+      store.clearSelection();
+      return;
+    }
+    await selectChat(next.id);
+  }
+
+  async function loadStickers() {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return [];
+    }
+    return (await client.listStickers(chatId)).stickers;
+  }
+
+  async function sendSticker(stickerId: string) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.sendSticker(chatId, stickerId);
+    await refreshHistory(chatId);
+  }
+
+  async function refreshHistory(chatId: string, replace = false) {
     const history = await client.getHistory(chatId);
-    const messages = history.messages.map(toMessengerMessage);
+    const messages = toMessengerMessages(history.messages);
     historyCache.current.set(chatId, messages);
-    store.mergeHistory(messages);
+    if (store.getSnapshot().selectedChatId !== chatId) {
+      return;
+    }
+    if (replace) {
+      store.replaceCurrentMessages(messages);
+    } else {
+      store.mergeHistory(messages);
+    }
+  }
+
+  async function runAction(action: () => Promise<void>) {
+    setActionError(undefined);
+    try {
+      await action();
+    } catch {
+      setActionError(
+        "MAX не подтвердил действие. Повторите попытку."
+      );
+    }
   }
 
   async function logout() {
@@ -186,6 +290,18 @@ export function ConnectedMessenger({
             : "Нет соединения с MAX"}
         </div>
       )}
+      {actionError !== undefined && (
+        <button
+          className="connection-banner action-error"
+          type="button"
+          role="alert"
+          onClick={() => {
+            setActionError(undefined);
+          }}
+        >
+          {actionError}
+        </button>
+      )}
       <MessengerShell
         chats={snapshot.chats}
         messages={snapshot.messages}
@@ -202,15 +318,56 @@ export function ConnectedMessenger({
         onSelectChat={(chatId) => {
           void selectChat(chatId);
         }}
-        onSend={(text) => {
-          void send(text);
+        onSend={(text, replyToId) => {
+          void runAction(() => send(text, replyToId));
         }}
         onAttach={(file, kind) => {
-          void sendAttachment(file, kind);
+          void runAction(() => sendAttachment(file, kind));
+        }}
+        onEditMessage={(messageId, text) => {
+          void runAction(() => editMessage(messageId, text));
+        }}
+        onDeleteMessage={(messageId) => {
+          void runAction(() => deleteMessage(messageId));
+        }}
+        onReactMessage={(messageId, reaction) => {
+          void runAction(() => reactMessage(messageId, reaction));
+        }}
+        onChatAction={(chatId, action) => {
+          void runAction(() => applyChatAction(chatId, action));
+        }}
+        onLoadStickers={loadStickers}
+        onSendSticker={(stickerId) => {
+          return runAction(() => sendSticker(stickerId));
         }}
       />
     </>
   );
+}
+
+function toMessengerMessages(
+  values: readonly unknown[]
+): readonly MessengerMessage[] {
+  const messages = values
+    .filter((value) => !isDeletedMessage(value))
+    .map(toMessengerMessage);
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return messages.map((message) => {
+    if (message.replyToId === undefined) {
+      return message;
+    }
+    const replied = byId.get(message.replyToId);
+    return {
+      ...message,
+      replyPreview: {
+        messageId: message.replyToId,
+        ...(replied?.senderName === undefined
+          ? {}
+          : { senderName: replied.senderName }),
+        text: replied?.text || "Вложение"
+      }
+    };
+  });
 }
 
 function toMessengerMessage(value: unknown): MessengerMessage {
@@ -227,6 +384,7 @@ function toMessengerMessage(value: unknown): MessengerMessage {
     throw new TypeError("Invalid message");
   }
   const kind = messageKind(record["kind"]);
+  const reactions = readReactions(record["reactions"]);
   return {
     id: record["id"],
     ...(typeof record["chatId"] === "string"
@@ -239,10 +397,69 @@ function toMessengerMessage(value: unknown): MessengerMessage {
     ...(typeof record["senderName"] === "string"
       ? { senderName: record["senderName"] }
       : {}),
+    ...(isDeliveryStatus(record["status"])
+      ? { status: record["status"] }
+      : {}),
+    ...(record["edited"] === true ? { edited: true } : {}),
+    ...(typeof record["replyToId"] === "string"
+      ? { replyToId: record["replyToId"] }
+      : {}),
+    ...(typeof record["forwardedFrom"] === "string"
+      ? { forwardedFrom: record["forwardedFrom"] }
+      : {}),
+    ...(reactions.length === 0
+      ? {}
+      : { reactions }),
     ...(isMediaKind(kind) && isMedia(record["media"])
       ? { media: record["media"] }
       : {})
   };
+}
+
+function isDeletedMessage(value: unknown): boolean {
+  return typeof value === "object" && value !== null &&
+    (value as Record<string, unknown>)["deleted"] === true;
+}
+
+function isDeliveryStatus(
+  value: unknown
+): value is NonNullable<MessengerMessage["status"]> {
+  return value === "pending" || value === "sent" ||
+    value === "delivered" || value === "read" || value === "failed";
+}
+
+function readReactions(value: unknown): readonly MessengerReaction[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item): MessengerReaction[] => {
+    if (typeof item !== "object" || item === null) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (
+      !isReactionKey(record["key"]) ||
+      typeof record["emoji"] !== "string" ||
+      typeof record["count"] !== "number" ||
+      !Number.isInteger(record["count"]) ||
+      record["count"] < 1 ||
+      typeof record["selectedByMe"] !== "boolean"
+    ) {
+      return [];
+    }
+    return [{
+      key: record["key"],
+      emoji: record["emoji"],
+      count: record["count"],
+      selectedByMe: record["selectedByMe"]
+    }];
+  });
+}
+
+function isReactionKey(value: unknown): value is ReactionKey {
+  return value === "like" || value === "heart" ||
+    value === "laugh" || value === "fire" ||
+    value === "cry" || value === "celebrate";
 }
 
 function messageKind(value: unknown): NonNullable<MessengerMessage["kind"]> {

@@ -231,6 +231,27 @@ function createServices(store: MemorySessionStore): AppServices {
       retryText: () => Promise.resolve({
         state: "confirmed",
         operationId: "op-retry"
+      }),
+      editMessage: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-edit"
+      }),
+      deleteMessage: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-delete"
+      }),
+      setReaction: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-reaction"
+      }),
+      chatAction: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-chat-action"
+      }),
+      listStickers: () => Promise.resolve([]),
+      sendSticker: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-sticker"
       })
     },
     live: {

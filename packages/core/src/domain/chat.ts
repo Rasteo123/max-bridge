@@ -21,6 +21,20 @@ export const DeliveryStatusSchema = Type.Union([
   Type.Literal("failed")
 ]);
 
+export const CHAT_ACTIONS = [
+  "pin",
+  "unpin",
+  "mark_unread",
+  "mute",
+  "unmute",
+  "clear",
+  "delete"
+] as const;
+
+export const ChatActionSchema = Type.Union(
+  CHAT_ACTIONS.map((action) => Type.Literal(action))
+);
+
 export const ChatSummarySchema = Type.Object({
   id: Type.String(opaqueIdOptions),
   kind: ChatKindSchema,
@@ -29,6 +43,7 @@ export const ChatSummarySchema = Type.Object({
   timestamp: Type.String(isoTimestampOptions),
   unreadCount: Type.Integer({ minimum: 0, maximum: 9999 }),
   muted: Type.Boolean(),
+  pinned: Type.Optional(Type.Boolean()),
   avatarHandle: Type.Optional(Type.String(opaqueIdOptions)),
   avatarUrl: Type.Optional(Type.String({
     minLength: 1,
@@ -39,6 +54,7 @@ export const ChatSummarySchema = Type.Object({
 }, strictObjectOptions);
 
 export type ChatKind = Static<typeof ChatKindSchema>;
+export type ChatAction = Static<typeof ChatActionSchema>;
 export type DeliveryStatus = Static<typeof DeliveryStatusSchema>;
 export type ChatSummary = Static<typeof ChatSummarySchema>;
 

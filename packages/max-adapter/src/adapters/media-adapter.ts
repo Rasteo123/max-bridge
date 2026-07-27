@@ -138,7 +138,11 @@ function attachmentKind(attachment: WireRecord): MediaMessageKind {
     "kind",
     "mediaType"
   )?.toUpperCase();
-  if (raw?.includes("PHOTO") === true || raw?.includes("IMAGE") === true) {
+  if (
+    raw?.includes("PHOTO") === true ||
+    raw?.includes("IMAGE") === true ||
+    raw?.includes("STICKER") === true
+  ) {
     return "image";
   }
   if (raw?.includes("VIDEO") === true) {

@@ -91,6 +91,7 @@ function adaptChatSummary(
       9_999
     ),
     muted: isMuted(chat),
+    pinned: readWireBoolean(chat, "pinned", "isPinned") ?? false,
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
     ...(avatarUrl === undefined ? {} : { avatarUrl })
   };
@@ -145,6 +146,9 @@ function messagePreview(message: WireRecord | undefined): string {
   const type = attachRecord === undefined
     ? undefined
     : readWireString(attachRecord, "_type", "type", "kind")?.toUpperCase();
+  if (type?.includes("STICKER") === true) {
+    return "Стикер";
+  }
   if (type?.includes("PHOTO") === true || type?.includes("IMAGE") === true) {
     return "Изображение";
   }

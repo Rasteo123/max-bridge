@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ChatRow } from "./ChatRow.js";
 import type {
   MessengerChat,
+  MessengerChatAction,
   MessengerTheme
 } from "./types.js";
 
@@ -13,6 +14,7 @@ type ChatListProps = Readonly<{
   theme: MessengerTheme;
   onThemeChange(theme: MessengerTheme): void;
   onLogout?(): void;
+  onChatAction?(chatId: string, action: MessengerChatAction): void;
 }>;
 
 export function ChatList({
@@ -21,7 +23,8 @@ export function ChatList({
   onSelectChat,
   theme,
   onThemeChange,
-  onLogout
+  onLogout,
+  onChatAction
 }: ChatListProps) {
   const [query, setQuery] = useState("");
   const visibleChats = useMemo(() => {
@@ -106,6 +109,7 @@ export function ChatList({
             chat={chat}
             selected={chat.id === selectedChatId}
             onSelect={onSelectChat}
+            {...(onChatAction === undefined ? {} : { onChatAction })}
           />
         ))}
       </div>

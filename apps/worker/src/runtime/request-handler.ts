@@ -1,8 +1,11 @@
 import { zeroBuffer } from "@maxbridge/core";
 import type {
   BridgeEvent,
+  ChatAction,
   ChatSummary,
-  Message
+  Message,
+  ReactionKey,
+  StickerSummary
 } from "@maxbridge/core";
 import type { MaxLoginResult } from "@maxbridge/max-adapter";
 import type {
@@ -23,22 +26,47 @@ export interface RuntimeMaxSession {
   background(): Promise<void>;
   listChats(): Promise<readonly ChatSummary[]>;
   history(chatId: string): Promise<readonly Message[] | null>;
-  sendText(chatId: string, text: string): Promise<Readonly<{
-    state: "confirmed" | "ambiguous";
-    operationId: string;
-    messageId?: string;
-  }>>;
+  sendText(
+    chatId: string,
+    text: string,
+    replyToId?: string
+  ): Promise<RuntimeMutationResult>;
+  editMessage(
+    chatId: string,
+    messageId: string,
+    text: string
+  ): Promise<RuntimeMutationResult>;
+  deleteMessage(
+    chatId: string,
+    messageId: string
+  ): Promise<RuntimeMutationResult>;
+  setReaction(
+    chatId: string,
+    messageId: string,
+    reaction: ReactionKey | null
+  ): Promise<RuntimeMutationResult>;
+  chatAction(
+    chatId: string,
+    action: ChatAction
+  ): Promise<RuntimeMutationResult>;
+  listStickers(chatId: string): Promise<readonly StickerSummary[]>;
+  sendSticker(
+    chatId: string,
+    stickerId: string
+  ): Promise<RuntimeMutationResult>;
   sendAttachment?(input: Readonly<{
     chatId: string;
     filePath: string;
     kind: "media" | "file";
-  }>): Promise<Readonly<{
-    state: "confirmed" | "ambiguous";
-    operationId: string;
-    messageId?: string;
-  }>>;
+  }>): Promise<RuntimeMutationResult>;
   close(): Promise<void>;
 }
+
+export type RuntimeMutationResult = Readonly<{
+  state: "confirmed" | "ambiguous";
+  operationId: string;
+  messageId?: string;
+}>;
 
 export type CaptchaPointerInput = Readonly<{
   phase: "down" | "move" | "up";
@@ -146,7 +174,11 @@ export class WorkerRuntimeRequestHandler {
           const input = readSendText(request.payload);
           return success(
             request,
-            await session.sendText(input.chatId, input.text)
+            await session.sendText(
+              input.chatId,
+              input.text,
+              input.replyToId
+            )
           );
         }
         case "message.sendAttachment": {
@@ -157,6 +189,55 @@ export class WorkerRuntimeRequestHandler {
           return success(
             request,
             await session.sendAttachment(input)
+          );
+        }
+        case "message.edit": {
+          const input = readEditMessage(request.payload);
+          return success(
+            request,
+            await session.editMessage(
+              input.chatId,
+              input.messageId,
+              input.text
+            )
+          );
+        }
+        case "message.delete": {
+          const input = readDeleteMessage(request.payload);
+          return success(
+            request,
+            await session.deleteMessage(input.chatId, input.messageId)
+          );
+        }
+        case "message.reaction.set": {
+          const input = readSetReaction(request.payload);
+          return success(
+            request,
+            await session.setReaction(
+              input.chatId,
+              input.messageId,
+              input.reaction
+            )
+          );
+        }
+        case "chat.action": {
+          const input = readChatAction(request.payload);
+          return success(
+            request,
+            await session.chatAction(input.chatId, input.action)
+          );
+        }
+        case "stickers.list":
+          return success(request, {
+            stickers: await session.listStickers(
+              readOnlyChatId(request.payload)
+            )
+          });
+        case "sticker.send": {
+          const input = readSendSticker(request.payload);
+          return success(
+            request,
+            await session.sendSticker(input.chatId, input.stickerId)
           );
         }
         default:
@@ -361,28 +442,44 @@ function hasControlCharacter(value: string): boolean {
 function readSendText(value: unknown): Readonly<{
   chatId: string;
   text: string;
+  replyToId?: string;
 }> {
   const input = exact(value, [
     "chatId",
     "clientRequestId",
     "text",
+    "replyToId",
     "retryOf",
     "confirmedByUser"
   ]);
   const chatId = readChatId({ chatId: input["chatId"] });
   const text = input["text"];
-  const clientRequestId = input["clientRequestId"];
+  readClientRequestId(input["clientRequestId"]);
+  const replyToId = optionalOpaqueId(input["replyToId"]);
+  const retryOf = input["retryOf"];
+  const confirmedByUser = input["confirmedByUser"];
+  if (retryOf === undefined) {
+    if (confirmedByUser !== undefined) {
+      throw new TypeError("Invalid worker payload");
+    }
+  } else {
+    readClientRequestId(retryOf);
+    if (confirmedByUser !== true) {
+      throw new TypeError("Invalid worker payload");
+    }
+  }
   if (
     typeof text !== "string"
     || text.length < 1
     || text.length > 65_536
-    || typeof clientRequestId !== "string"
-    || clientRequestId.length < 1
-    || clientRequestId.length > 128
   ) {
     throw new TypeError("Invalid worker payload");
   }
-  return { chatId, text };
+  return {
+    chatId,
+    text,
+    ...(replyToId === undefined ? {} : { replyToId })
+  };
 }
 
 function readSendAttachment(value: unknown): Readonly<{
@@ -399,18 +496,191 @@ function readSendAttachment(value: unknown): Readonly<{
   const chatId = readChatId({ chatId: input["chatId"] });
   const filePath = input["filePath"];
   const kind = input["kind"];
-  const clientRequestId = input["clientRequestId"];
+  readClientRequestId(input["clientRequestId"]);
   if (
     typeof filePath !== "string"
     || !filePath.startsWith("/run/maxbridge/media/")
     || filePath.length > 512
     || hasControlCharacter(filePath)
     || (kind !== "media" && kind !== "file")
-    || typeof clientRequestId !== "string"
-    || clientRequestId.length < 1
-    || clientRequestId.length > 128
   ) {
     throw new TypeError("Invalid worker payload");
   }
   return { chatId, filePath, kind };
+}
+
+function readEditMessage(value: unknown): Readonly<{
+  chatId: string;
+  messageId: string;
+  text: string;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "messageId",
+    "clientRequestId",
+    "text"
+  ]);
+  const text = input["text"];
+  if (
+    typeof text !== "string"
+    || text.length < 1
+    || text.length > 65_536
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  readClientRequestId(input["clientRequestId"]);
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    messageId: readOpaqueId(input["messageId"]),
+    text
+  };
+}
+
+function readDeleteMessage(value: unknown): Readonly<{
+  chatId: string;
+  messageId: string;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "messageId",
+    "clientRequestId",
+    "confirmedByUser"
+  ]);
+  readClientRequestId(input["clientRequestId"]);
+  if (input["confirmedByUser"] !== true) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    messageId: readOpaqueId(input["messageId"])
+  };
+}
+
+function readSetReaction(value: unknown): Readonly<{
+  chatId: string;
+  messageId: string;
+  reaction: ReactionKey | null;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "messageId",
+    "clientRequestId",
+    "reaction"
+  ]);
+  readClientRequestId(input["clientRequestId"]);
+  const reaction = readReaction(input["reaction"]);
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    messageId: readOpaqueId(input["messageId"]),
+    reaction
+  };
+}
+
+function readChatAction(value: unknown): Readonly<{
+  chatId: string;
+  action: ChatAction;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "clientRequestId",
+    "action",
+    "confirmedByUser"
+  ]);
+  readClientRequestId(input["clientRequestId"]);
+  const action = readAction(input["action"]);
+  if (
+    (action === "clear" || action === "delete")
+    && input["confirmedByUser"] !== true
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  if (
+    input["confirmedByUser"] !== undefined
+    && typeof input["confirmedByUser"] !== "boolean"
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    action
+  };
+}
+
+function readClientRequestId(value: unknown): string {
+  if (
+    typeof value !== "string"
+    || value.length < 1
+    || value.length > 128
+    || hasControlCharacter(value)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return value;
+}
+
+function readOpaqueId(value: unknown): string {
+  if (
+    typeof value !== "string"
+    || value.length < 1
+    || value.length > 512
+    || hasControlCharacter(value)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return value;
+}
+
+function optionalOpaqueId(value: unknown): string | undefined {
+  return value === undefined ? undefined : readOpaqueId(value);
+}
+
+function readReaction(value: unknown): ReactionKey | null {
+  if (
+    value === null
+    || value === "like"
+    || value === "heart"
+    || value === "laugh"
+    || value === "fire"
+    || value === "cry"
+    || value === "celebrate"
+  ) {
+    return value;
+  }
+  throw new TypeError("Invalid worker payload");
+}
+
+function readAction(value: unknown): ChatAction {
+  if (
+    value === "pin"
+    || value === "unpin"
+    || value === "mark_unread"
+    || value === "mute"
+    || value === "unmute"
+    || value === "clear"
+    || value === "delete"
+  ) {
+    return value;
+  }
+  throw new TypeError("Invalid worker payload");
+}
+
+function readSendSticker(value: unknown): Readonly<{
+  chatId: string;
+  stickerId: string;
+}> {
+  const input = exact(value, [
+    "chatId",
+    "stickerId",
+    "clientRequestId"
+  ]);
+  readClientRequestId(input["clientRequestId"]);
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    stickerId: readOpaqueId(input["stickerId"])
+  };
+}
+
+function readOnlyChatId(value: unknown): string {
+  const input = exact(value, ["chatId"]);
+  return readChatId({ chatId: input["chatId"] });
 }

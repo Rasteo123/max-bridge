@@ -6,6 +6,7 @@ export type MessengerChat = Readonly<{
   formattedTime?: string;
   unreadCount: number;
   muted: boolean;
+  pinned?: boolean;
   kind: "direct" | "group" | "channel";
   avatarUrl?: string;
   deliveryStatus?: "pending" | "sent" | "delivered" | "read" | "failed";
@@ -22,10 +23,49 @@ export type MessengerMessage = Readonly<{
   senderName?: string;
   status?: "pending" | "sent" | "delivered" | "read" | "failed";
   media?: MessengerMedia;
+  edited?: boolean;
+  replyToId?: string;
+  replyPreview?: MessengerReplyPreview;
+  forwardedFrom?: string;
+  reactions?: readonly MessengerReaction[];
 }>;
 
 export type MessengerPane = "list" | "conversation";
 export type MessengerTheme = "system" | "light" | "dark";
+export type MessengerChatAction =
+  | "pin"
+  | "unpin"
+  | "mark_unread"
+  | "mute"
+  | "unmute"
+  | "clear"
+  | "delete";
+
+export type ReactionKey =
+  | "like"
+  | "heart"
+  | "laugh"
+  | "fire"
+  | "cry"
+  | "celebrate";
+
+export type MessengerReaction = Readonly<{
+  key: ReactionKey;
+  emoji: string;
+  count: number;
+  selectedByMe: boolean;
+}>;
+
+export type MessengerReplyPreview = Readonly<{
+  messageId: string;
+  senderName?: string;
+  text: string;
+}>;
+
+export type MessengerSticker = Readonly<{
+  id: string;
+  previewDataUrl: string;
+}>;
 
 export type MessengerMedia = Readonly<{
   handle: string;

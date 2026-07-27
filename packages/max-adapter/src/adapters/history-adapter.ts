@@ -1,7 +1,10 @@
 import {
+  REACTION_KEYS,
   parseMessage,
   type DeliveryStatus,
-  type Message
+  type Message,
+  type MessageReaction,
+  type ReactionKey
 } from "@maxbridge/core";
 
 import { MaxCompatibilityError } from "./errors.js";
@@ -67,6 +70,9 @@ export function adaptWireMessage(
   const senderId = readOpaqueId(message, "sender", "senderId", "authorId")
     ?? "0";
   const deleted = readWireBoolean(message, "deleted", "isDeleted") ?? false;
+  const reactions = adaptReactions(
+    readWireArray(message, "reactions", "reactionSummary")
+  );
   const type = readWireString(message, "type", "messageType")
     ?.toUpperCase();
   const base = {
@@ -91,10 +97,19 @@ export function adaptWireMessage(
     ...(readOpaqueId(message, "replyToId", "replyTo") === undefined
       ? {}
       : { replyToId: readOpaqueId(message, "replyToId", "replyTo") }),
+    ...(readWireString(message, "forwardedFrom") === undefined
+      ? {}
+      : {
+        forwardedFrom: boundedText(
+          readWireString(message, "forwardedFrom"),
+          256
+        )
+      }),
     ...(readWireBoolean(message, "edited", "isEdited") === undefined
       ? {}
       : { edited: readWireBoolean(message, "edited", "isEdited") }),
-    ...(deleted ? { deleted: true } : {})
+    ...(deleted ? { deleted: true } : {}),
+    ...(reactions.length === 0 ? {} : { reactions })
   };
 
   if (deleted) {
@@ -151,6 +166,40 @@ export function adaptWireMessage(
     kind: "text",
     text: text.length === 0 ? "Сообщение" : text
   });
+}
+
+function adaptReactions(
+  values: readonly unknown[] | undefined
+): MessageReaction[] {
+  if (values === undefined) {
+    return [];
+  }
+  return values.slice(0, REACTION_KEYS.length).flatMap((value) => {
+    const reaction = asWireRecord(value);
+    const keyValue = reaction["key"];
+    const emoji = reaction["emoji"];
+    const count = reaction["count"];
+    const selectedByMe = reaction["selectedByMe"];
+    if (
+      typeof keyValue !== "string"
+      || !isReactionKey(keyValue)
+      || typeof emoji !== "string"
+      || emoji.length < 1
+      || emoji.length > 32
+      || typeof count !== "number"
+      || !Number.isSafeInteger(count)
+      || count < 1
+      || count > 999_999
+      || typeof selectedByMe !== "boolean"
+    ) {
+      return [];
+    }
+    return [{ key: keyValue, emoji, count, selectedByMe }];
+  });
+}
+
+function isReactionKey(value: string): value is ReactionKey {
+  return (REACTION_KEYS as readonly string[]).includes(value);
 }
 
 function displayText(value: string | undefined): string | undefined {

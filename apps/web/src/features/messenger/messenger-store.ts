@@ -51,6 +51,24 @@ export class MessengerStore {
     });
   }
 
+  clearSelection(): void {
+    this.update({
+      chats: this.snapshot.chats,
+      messages: [],
+      connection: this.snapshot.connection,
+      authentication: this.snapshot.authentication
+    });
+  }
+
+  replaceCurrentMessages(messages: readonly MessengerMessage[]): void {
+    this.update({
+      ...this.snapshot,
+      messages: deduplicateMessages(messages)
+        .sort(compareMessages)
+        .slice(-MAX_CURRENT_MESSAGES)
+    });
+  }
+
   mergeHistory(messages: readonly MessengerMessage[]): void {
     const merged = deduplicateMessages([
       ...this.snapshot.messages,

@@ -152,6 +152,113 @@ describe("WorkerRuntimeRequestHandler", () => {
       payload: { chats: [] }
     });
   });
+
+  it("routes bounded message and chat mutations", async () => {
+    const session = fakeSession();
+    const sendText = vi.spyOn(session, "sendText");
+    const editMessage = vi.spyOn(session, "editMessage");
+    const deleteMessage = vi.spyOn(session, "deleteMessage");
+    const setReaction = vi.spyOn(session, "setReaction");
+    const chatAction = vi.spyOn(session, "chatAction");
+    const listStickers = vi.spyOn(session, "listStickers");
+    const sendSticker = vi.spyOn(session, "sendSticker");
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve(session),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open"));
+
+    await runtime.handle(request("message.send", {
+      chatId: "chat-1",
+      clientRequestId: "request-1",
+      text: "Ответ",
+      replyToId: "message-0"
+    }));
+    await runtime.handle(request("message.edit", {
+      chatId: "chat-1",
+      messageId: "message-1",
+      clientRequestId: "request-2",
+      text: "Исправлено"
+    }));
+    await runtime.handle(request("message.delete", {
+      chatId: "chat-1",
+      messageId: "message-1",
+      clientRequestId: "request-3",
+      confirmedByUser: true
+    }));
+    await runtime.handle(request("message.reaction.set", {
+      chatId: "chat-1",
+      messageId: "message-2",
+      clientRequestId: "request-4",
+      reaction: "heart"
+    }));
+    await runtime.handle(request("chat.action", {
+      chatId: "chat-1",
+      clientRequestId: "request-5",
+      action: "mute"
+    }));
+    await runtime.handle(request("stickers.list", {
+      chatId: "chat-1"
+    }));
+    await runtime.handle(request("sticker.send", {
+      chatId: "chat-1",
+      stickerId: "sticker-1",
+      clientRequestId: "request-6"
+    }));
+
+    expect(sendText).toHaveBeenCalledWith(
+      "chat-1",
+      "Ответ",
+      "message-0"
+    );
+    expect(editMessage).toHaveBeenCalledWith(
+      "chat-1",
+      "message-1",
+      "Исправлено"
+    );
+    expect(deleteMessage).toHaveBeenCalledWith("chat-1", "message-1");
+    expect(setReaction).toHaveBeenCalledWith(
+      "chat-1",
+      "message-2",
+      "heart"
+    );
+    expect(chatAction).toHaveBeenCalledWith("chat-1", "mute");
+    expect(listStickers).toHaveBeenCalledWith("chat-1");
+    expect(sendSticker).toHaveBeenCalledWith("chat-1", "sticker-1");
+  });
+
+  it("requires explicit confirmation for destructive operations", async () => {
+    const session = fakeSession();
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve(session),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open"));
+
+    await expect(runtime.handle(request("message.delete", {
+      chatId: "chat-1",
+      messageId: "message-1",
+      clientRequestId: "request-1",
+      confirmedByUser: false
+    }))).resolves.toMatchObject({
+      ok: false,
+      errorCode: "worker_failure"
+    });
+    await expect(runtime.handle(request("chat.action", {
+      chatId: "chat-1",
+      clientRequestId: "request-2",
+      action: "clear"
+    }))).resolves.toMatchObject({
+      ok: false,
+      errorCode: "worker_failure"
+    });
+  });
 });
 
 function request(
@@ -187,6 +294,30 @@ function fakeSession(): RuntimeMaxSession {
       state: "confirmed",
       operationId: "1",
       messageId: "2"
+    }),
+    editMessage: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "edit-1"
+    }),
+    deleteMessage: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "delete-1"
+    }),
+    setReaction: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "reaction-1"
+    }),
+    chatAction: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "chat-action-1"
+    }),
+    listStickers: () => Promise.resolve([{
+      id: "sticker-1",
+      previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+    }]),
+    sendSticker: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "sticker-1"
     }),
     close: () => Promise.resolve()
   };

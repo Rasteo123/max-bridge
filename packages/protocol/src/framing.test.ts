@@ -89,6 +89,25 @@ describe("worker protocol validation", () => {
     });
   });
 
+  it.each([
+    "message.edit",
+    "message.delete",
+    "message.reaction.set",
+    "chat.action",
+    "stickers.list",
+    "sticker.send"
+  ] as const)("accepts the %s operation", (operation) => {
+    expect(parseWorkerMessage({
+      ...request,
+      operation,
+      payload: {}
+    })).toEqual({
+      ...request,
+      operation,
+      payload: {}
+    });
+  });
+
   it("rejects client identity fields", () => {
     expect(() => parseWorkerMessage({
       ...request,

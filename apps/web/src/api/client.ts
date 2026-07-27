@@ -1,4 +1,9 @@
-import type { MessengerChat } from "../features/messenger/types.js";
+import type {
+  MessengerChat,
+  MessengerChatAction,
+  MessengerSticker,
+  ReactionKey
+} from "../features/messenger/types.js";
 
 export type UserState =
   | "pending"
@@ -116,6 +121,7 @@ export class ApiClient {
   async sendText(
     chatId: string,
     text: string,
+    replyToId?: string,
     clientRequestId: string = globalThis.crypto.randomUUID()
   ): Promise<MessageSendResult> {
     return this.requestJson("/api/messages", {
@@ -124,9 +130,103 @@ export class ApiClient {
         kind: "text",
         chatId,
         clientRequestId,
-        text
+        text,
+        ...(replyToId === undefined ? {} : { replyToId })
       })
     });
+  }
+
+  async editMessage(
+    chatId: string,
+    messageId: string,
+    text: string,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/messages/` +
+      encodeURIComponent(messageId),
+      {
+        method: "PATCH",
+        body: JSON.stringify({ text, clientRequestId })
+      }
+    );
+  }
+
+  async deleteMessage(
+    chatId: string,
+    messageId: string,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/messages/` +
+      `${encodeURIComponent(messageId)}/delete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          clientRequestId,
+          confirmedByUser: true
+        })
+      }
+    );
+  }
+
+  async setReaction(
+    chatId: string,
+    messageId: string,
+    reaction: ReactionKey | null,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/messages/` +
+      `${encodeURIComponent(messageId)}/reaction`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ reaction, clientRequestId })
+      }
+    );
+  }
+
+  async chatAction(
+    chatId: string,
+    action: MessengerChatAction,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/actions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          clientRequestId,
+          ...(action === "clear" || action === "delete"
+            ? { confirmedByUser: true }
+            : {})
+        })
+      }
+    );
+  }
+
+  async listStickers(chatId: string): Promise<Readonly<{
+    stickers: readonly MessengerSticker[];
+  }>> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/stickers`
+    );
+  }
+
+  async sendSticker(
+    chatId: string,
+    stickerId: string,
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/stickers/` +
+      encodeURIComponent(stickerId),
+      {
+        method: "POST",
+        body: JSON.stringify({ clientRequestId })
+      }
+    );
   }
 
   async sendAttachment(

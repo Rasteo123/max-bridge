@@ -5,6 +5,7 @@ import {
   parseBridgeEvent,
   parseChatSummary,
   parseMessage,
+  parseStickerSummary,
   parseUserRecord,
   USER_STATES
 } from "./index.js";
@@ -60,6 +61,13 @@ describe("chat summary domain", () => {
       ...syntheticChat,
       avatarUrl
     }).avatarUrl).toBe(avatarUrl);
+  });
+
+  it("accepts an optional pinned state", () => {
+    expect(parseChatSummary({
+      ...syntheticChat,
+      pinned: true
+    }).pinned).toBe(true);
   });
 
   it("rejects an avatar URL outside the MAX image host", () => {
@@ -134,6 +142,90 @@ describe("message domain", () => {
       kind: "image",
       sentAt: "2026-07-26T12:01:00.000Z",
       status: "delivered"
+    })).toThrow(DomainValidationError);
+  });
+
+  it("preserves a bounded forwarded-message source", () => {
+    const forwarded = parseMessage({
+      id: "message_forwarded",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "text",
+      text: "Пересланный текст",
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered",
+      forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ"
+    });
+
+    expect(forwarded.forwardedFrom).toBe("ВСЕ ОТКРЫТКИ ТУТ");
+  });
+
+  it("accepts omitted and empty message reactions", () => {
+    const message = {
+      id: "message_reactions",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "text",
+      text: "Синтетический текст",
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered"
+    } as const;
+
+    expect(parseMessage(message)).toEqual(message);
+    expect(parseMessage({
+      ...message,
+      reactions: []
+    }).reactions).toEqual([]);
+    expect(parseMessage({
+      ...message,
+      reactions: [{
+        key: "heart",
+        emoji: "❤️",
+        count: 2,
+        selectedByMe: true
+      }]
+    }).reactions).toEqual([{
+      key: "heart",
+      emoji: "❤️",
+      count: 2,
+      selectedByMe: true
+    }]);
+  });
+
+  it("rejects unknown reaction keys", () => {
+    expect(() => parseMessage({
+      id: "message_reactions",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "text",
+      text: "Синтетический текст",
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered",
+      reactions: [{
+        key: "unknown",
+        emoji: "⭐",
+        count: 1,
+        selectedByMe: false
+      }]
+    })).toThrow(DomainValidationError);
+  });
+
+  it("accepts only bounded image data URLs for sticker previews", () => {
+    const sticker = {
+      id: "sticker-1",
+      previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+    };
+    expect(parseStickerSummary(sticker)).toEqual(sticker);
+    expect(() => parseStickerSummary({
+      id: "sticker-1",
+      previewDataUrl: "https://attacker.invalid/sticker.png"
+    })).toThrow(DomainValidationError);
+    expect(() => parseStickerSummary({
+      id: "sticker-1",
+      previewDataUrl: `data:image/webp;base64,${"A".repeat(41 * 1024)}`
     })).toThrow(DomainValidationError);
   });
 });

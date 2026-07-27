@@ -2,10 +2,14 @@ import {
   parseBridgeEvent,
   parseChatSummary,
   parseMessage,
+  parseStickerSummary,
   zeroBuffer,
   type BridgeEvent,
+  type ChatAction,
   type ChatSummary,
   type Message,
+  type ReactionKey,
+  type StickerSummary,
   type UserRecord,
   type UserState
 } from "@maxbridge/core";
@@ -233,6 +237,7 @@ export class BridgeRuntimeGateway implements
       chatId: string;
       clientRequestId: string;
       text: Uint8Array;
+      replyToId?: string;
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
@@ -242,7 +247,10 @@ export class BridgeRuntimeGateway implements
       payload: {
         chatId: input.chatId,
         clientRequestId: input.clientRequestId,
-        text: new TextDecoder().decode(input.text)
+        text: new TextDecoder().decode(input.text),
+        ...(input.replyToId === undefined
+          ? {}
+          : { replyToId: input.replyToId })
       }
     }));
   }
@@ -254,6 +262,7 @@ export class BridgeRuntimeGateway implements
       chatId: string;
       clientRequestId: string;
       text: Uint8Array;
+      replyToId?: string;
       confirmedByUser: true;
     }>
   ): Promise<MessageRouteResult> {
@@ -265,6 +274,9 @@ export class BridgeRuntimeGateway implements
         chatId: input.chatId,
         clientRequestId: input.clientRequestId,
         text: new TextDecoder().decode(input.text),
+        ...(input.replyToId === undefined
+          ? {}
+          : { replyToId: input.replyToId }),
         retryOf: input.retryOf,
         confirmedByUser: true
       }
@@ -283,6 +295,112 @@ export class BridgeRuntimeGateway implements
     await this.ensureSession(userLookup);
     return parseSendResult(await this.options.worker.request({
       operation: "message.sendAttachment",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
+  }
+
+  async editMessage(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      text: Uint8Array;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "message.edit",
+      sessionHandle: sessionHandle(userLookup),
+      payload: {
+        chatId: input.chatId,
+        messageId: input.messageId,
+        clientRequestId: input.clientRequestId,
+        text: new TextDecoder().decode(input.text)
+      }
+    }));
+  }
+
+  async deleteMessage(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      confirmedByUser: true;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "message.delete",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
+  }
+
+  async setReaction(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      messageId: string;
+      clientRequestId: string;
+      reaction: ReactionKey | null;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "message.reaction.set",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
+  }
+
+  async chatAction(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      clientRequestId: string;
+      action: ChatAction;
+      confirmedByUser?: true;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "chat.action",
+      sessionHandle: sessionHandle(userLookup),
+      payload: input
+    }));
+  }
+
+  async listStickers(
+    userLookup: string,
+    chatId: string
+  ): Promise<readonly StickerSummary[]> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "stickers.list",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { chatId }
+    }));
+    const stickers = response["stickers"];
+    if (!Array.isArray(stickers)) {
+      throw new TypeError("MAX sticker list is invalid");
+    }
+    return stickers.map(parseStickerSummary);
+  }
+
+  async sendSticker(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      stickerId: string;
+      clientRequestId: string;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "sticker.send",
       sessionHandle: sessionHandle(userLookup),
       payload: input
     }));

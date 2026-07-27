@@ -12,7 +12,13 @@ export const WORKER_OPERATIONS = [
   "chats.list",
   "messages.history",
   "message.send",
-  "message.sendAttachment"
+  "message.sendAttachment",
+  "message.edit",
+  "message.delete",
+  "message.reaction.set",
+  "chat.action",
+  "stickers.list",
+  "sticker.send"
 ] as const;
 
 export type WorkerOperation = typeof WORKER_OPERATIONS[number];

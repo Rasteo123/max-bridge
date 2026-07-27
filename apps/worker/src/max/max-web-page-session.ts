@@ -18,6 +18,7 @@ import {
 } from "@maxbridge/max-adapter";
 import type {
   BrowserContext,
+  Locator,
   Page,
   Response,
   WebSocket
@@ -36,11 +37,33 @@ const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
 const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
 const MAX_SESSION_READY_WAIT_MS = 15_000;
+const MAX_ACTION_WAIT_MS = 7_500;
+const MAX_STICKERS_PER_LIST = 12;
+const MAX_STICKER_PREVIEW_DATA_URL_BYTES = 40 * 1024;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
   "textarea"
 ].join(", ");
+
+const MAX_REACTION_ORDER = [
+  "like",
+  "heart",
+  "laugh",
+  "fire",
+  "cry",
+  "celebrate"
+] as const;
+
+type MaxReactionKey = typeof MAX_REACTION_ORDER[number];
+type MaxChatAction =
+  | "pin"
+  | "unpin"
+  | "mark_unread"
+  | "mute"
+  | "unmute"
+  | "clear"
+  | "delete";
 
 type PendingSend = {
   resolve: (messageId?: string) => void;
@@ -326,7 +349,14 @@ export class MaxWebPageSession {
               unreadCount: integer(
                 chat["newMessages"] ?? raw?.["newMessages"]
               ),
-              muted: Boolean(chat["muted"] ?? false)
+              muted: Boolean(chat["muted"] ?? raw?.["muted"] ?? false),
+              pinned: Boolean(
+                chat["pinned"]
+                ?? raw?.["pinned"]
+                ?? chat["isPinned"]
+                ?? raw?.["isPinned"]
+                ?? false
+              )
             };
           }).filter((chat) => chat.id.length > 0)
         };
@@ -452,7 +482,11 @@ export class MaxWebPageSession {
     return adapter.openMessages;
   }
 
-  async sendText(chatId: string, textValue: string): Promise<Readonly<{
+  async sendText(
+    chatId: string,
+    textValue: string,
+    replyToId?: string
+  ): Promise<Readonly<{
     state: "confirmed" | "ambiguous";
     operationId: string;
     messageId?: string;
@@ -462,6 +496,10 @@ export class MaxWebPageSession {
     }
     if (await this.history(chatId) === null) {
       throw new TypeError("Chat is unavailable");
+    }
+    if (replyToId !== undefined) {
+      const dialog = await this.openMessageMenu(chatId, replyToId);
+      await this.clickMenuItem(dialog, "Ответить");
     }
     const operationId = createOperationId();
     const confirmation = new Promise<string | undefined>((resolve) => {
@@ -484,6 +522,247 @@ export class MaxWebPageSession {
       throw new Error("MAX send failed before confirmation");
     }
 
+    const messageId = await confirmation;
+    return messageId === undefined
+      ? { state: "ambiguous", operationId }
+      : { state: "confirmed", operationId, messageId };
+  }
+
+  async editMessage(
+    chatId: string,
+    messageId: string,
+    textValue: string
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+  }>> {
+    if (textValue.length < 1 || textValue.length > 65_536) {
+      throw new TypeError("Message is invalid");
+    }
+    if (await this.history(chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const dialog = await this.openMessageMenu(chatId, messageId);
+    await this.clickMenuItem(dialog, "Редактировать");
+    const editor = this.options.page.locator(MAX_COMPOSER_SELECTOR).last();
+    await editor.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    await editor.fill(textValue);
+    await editor.press("Enter");
+    const confirmed = await this.waitForMessage(
+      chatId,
+      messageId,
+      (message) => message["text"] === textValue
+    );
+    return {
+      state: confirmed ? "confirmed" : "ambiguous",
+      operationId: createOperationId()
+    };
+  }
+
+  async deleteMessage(
+    chatId: string,
+    messageId: string
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+  }>> {
+    if (await this.history(chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const dialog = await this.openMessageMenu(chatId, messageId);
+    await this.clickMenuItem(dialog, "Удалить");
+    await this.confirmDestructiveAction(["Удалить", "Удалить у всех"]);
+    const confirmed = await this.waitForMessage(
+      chatId,
+      messageId,
+      (message) => message["deleted"] === true,
+      true
+    );
+    return {
+      state: confirmed ? "confirmed" : "ambiguous",
+      operationId: createOperationId()
+    };
+  }
+
+  async setReaction(
+    chatId: string,
+    messageId: string,
+    reaction: MaxReactionKey | null
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+  }>> {
+    if (await this.history(chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const dialog = await this.openMessageMenu(chatId, messageId);
+    const reactionButtons = dialog.locator("button.reaction");
+    const count = await reactionButtons.count();
+    if (count < 1) {
+      throw new Error("MAX reactions are unavailable");
+    }
+    const current = await this.readSelectedReaction(chatId, messageId);
+    const requested = reaction ?? current;
+    if (requested === undefined) {
+      await dialog.press("Escape");
+      return {
+        state: "confirmed",
+        operationId: createOperationId()
+      };
+    }
+    const index = MAX_REACTION_ORDER.indexOf(requested);
+    if (index < 0 || index >= count) {
+      await dialog.press("Escape");
+      throw new TypeError("Reaction is unsupported");
+    }
+    await reactionButtons.nth(index).click({ timeout: MAX_ACTION_WAIT_MS });
+    const expected = reaction === null ? undefined : reaction;
+    const confirmed = await this.waitForSelectedReaction(
+      chatId,
+      messageId,
+      expected
+    );
+    return {
+      state: confirmed ? "confirmed" : "ambiguous",
+      operationId: createOperationId()
+    };
+  }
+
+  async chatAction(
+    chatId: string,
+    action: MaxChatAction
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+  }>> {
+    const chats = await this.listChats();
+    const chat = chats.find((candidate) => candidate.id === chatId);
+    if (chat === undefined) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const labels: Record<MaxChatAction, readonly string[]> = {
+      pin: ["Закрепить"],
+      unpin: ["Открепить"],
+      mark_unread: ["Отметить непрочитанным"],
+      mute: ["Отключить уведомления"],
+      unmute: ["Включить уведомления"],
+      clear: ["Стереть переписку"],
+      delete: ["Удалить чат"]
+    };
+    try {
+      const dialog = await this.openChatMenu(chatId, chat.title);
+      await this.clickFirstMenuItem(dialog, labels[action]);
+      if (action === "clear") {
+        await this.confirmDestructiveAction(["Стереть", "Очистить"]);
+      } else if (action === "delete") {
+        await this.confirmDestructiveAction(["Удалить"]);
+      }
+    } finally {
+      const search = this.options.page.getByRole("textbox", {
+        name: "Найти",
+        exact: true
+      });
+      if (await search.count() === 1) {
+        await search.fill("").catch(() => undefined);
+      }
+    }
+    return {
+      state: "confirmed",
+      operationId: createOperationId()
+    };
+  }
+
+  async listStickers(chatId: string): Promise<readonly Readonly<{
+    id: string;
+    previewDataUrl: string;
+  }>[]> {
+    if (await this.history(chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const dialog = await this.openStickerPanel();
+    try {
+      const stickers = dialog.locator(
+        'button.sticker[data-testid^="sticker-"]'
+      );
+      await stickers.first().waitFor({
+        state: "visible",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      const count = Math.min(await stickers.count(), MAX_STICKERS_PER_LIST);
+      const output: Array<{ id: string; previewDataUrl: string }> = [];
+      for (let index = 0; index < count; index += 1) {
+        const sticker = stickers.nth(index);
+        const testId = await sticker.getAttribute("data-testid");
+        const id = testId?.startsWith("sticker-")
+          ? testId.slice("sticker-".length)
+          : undefined;
+        if (id === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(id)) {
+          continue;
+        }
+        const canvas = sticker.locator("canvas");
+        if (await canvas.count() !== 1) {
+          continue;
+        }
+        const previewDataUrl = await canvas.evaluate((element) => {
+          if (!(element instanceof HTMLCanvasElement)) {
+            return "";
+          }
+          return element.toDataURL("image/webp", 0.78);
+        });
+        if (
+          !previewDataUrl.startsWith("data:image/") ||
+          Buffer.byteLength(previewDataUrl, "utf8") >
+            MAX_STICKER_PREVIEW_DATA_URL_BYTES
+        ) {
+          continue;
+        }
+        output.push({
+          id,
+          previewDataUrl
+        });
+      }
+      return output;
+    } finally {
+      await dialog.press("Escape").catch(() => undefined);
+    }
+  }
+
+  async sendSticker(
+    chatId: string,
+    stickerId: string
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/u.test(stickerId)) {
+      throw new TypeError("Sticker is invalid");
+    }
+    if (await this.history(chatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const dialog = await this.openStickerPanel();
+    const sticker = dialog.getByTestId(`sticker-${stickerId}`);
+    if (await sticker.count() !== 1) {
+      await dialog.press("Escape").catch(() => undefined);
+      throw new TypeError("Sticker is unavailable");
+    }
+    const operationId = createOperationId();
+    const confirmation = new Promise<string | undefined>((resolvePending) => {
+      const timeout = setTimeout(() => {
+        this.pendingSend = undefined;
+        resolvePending(undefined);
+      }, MAX_SEND_CONFIRMATION_MS);
+      this.pendingSend = { resolve: resolvePending, timeout };
+    });
+    try {
+      await sticker.click({ timeout: MAX_ACTION_WAIT_MS });
+    } catch (error: unknown) {
+      this.clearPendingSend();
+      throw new Error("MAX sticker send failed before confirmation", {
+        cause: error
+      });
+    }
     const messageId = await confirmation;
     return messageId === undefined
       ? { state: "ambiguous", operationId }
@@ -557,6 +836,266 @@ export class MaxWebPageSession {
     return messageId === undefined
       ? { state: "ambiguous", operationId }
       : { state: "confirmed", operationId, messageId };
+  }
+
+  private async openMessageMenu(
+    chatId: string,
+    messageId: string
+  ): Promise<Locator> {
+    await this.dismissOpenDialog();
+    const messages = await this.readMessages(chatId);
+    const message = messages
+      .map(asRecord)
+      .find((candidate) => opaqueId(candidate?.["id"]) === messageId);
+    const domIndex = message?.["domIndex"];
+    if (
+      typeof domIndex !== "number"
+      || !Number.isSafeInteger(domIndex)
+      || domIndex < 0
+    ) {
+      throw new TypeError("Message is unavailable");
+    }
+    const item = this.options.page.locator(
+      `main [data-index="${String(domIndex)}"]`
+    );
+    await item.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    await item.scrollIntoViewIfNeeded();
+    await item.click({ button: "right", timeout: MAX_ACTION_WAIT_MS });
+    const dialog = this.options.page.getByRole("dialog").last();
+    await dialog.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    return dialog;
+  }
+
+  private async openStickerPanel(): Promise<Locator> {
+    await this.dismissOpenDialog();
+    const trigger = this.options.page.getByRole("button", {
+      name: "Открыть меню стикеров",
+      exact: true
+    });
+    await trigger.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    await trigger.click({ timeout: MAX_ACTION_WAIT_MS });
+    const dialog = this.options.page.getByRole("dialog").last();
+    await dialog.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    const stickersTab = dialog.getByRole("button", {
+      name: "Стикеры",
+      exact: true
+    });
+    if (await stickersTab.count() === 1) {
+      await stickersTab.click({ timeout: MAX_ACTION_WAIT_MS });
+    }
+    return dialog;
+  }
+
+  private async openChatMenu(
+    chatId: string,
+    title: string
+  ): Promise<Locator> {
+    await this.dismissOpenDialog();
+    const domIndex = await this.readChatDomIndex(chatId);
+    let more = domIndex === undefined
+      ? this.options.page.locator("[data-maxbridge-never]")
+      : this.options.page.locator(
+          `[data-index="${String(domIndex)}"] button[aria-label="Еще"]`
+        );
+    if (await more.count() !== 1) {
+      const search = this.options.page.getByRole("textbox", {
+        name: "Найти",
+        exact: true
+      });
+      await search.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+      await search.fill(title);
+      const cell = this.options.page.locator("button.cell").filter({
+        has: this.options.page.getByRole("heading", {
+          name: title,
+          exact: true
+        })
+      });
+      await cell.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+      more = cell.locator("..").getByRole("button", {
+        name: "Еще",
+        exact: true
+      });
+    }
+    if (await more.count() !== 1) {
+      throw new Error("MAX chat menu is unavailable");
+    }
+    await more.click({ timeout: MAX_ACTION_WAIT_MS });
+    const dialog = this.options.page.getByRole("dialog").last();
+    await dialog.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
+    return dialog;
+  }
+
+  private async dismissOpenDialog(): Promise<void> {
+    const dialogs = this.options.page.getByRole("dialog");
+    if (await dialogs.count() > 0) {
+      await dialogs.last().press("Escape").catch(() => undefined);
+    }
+  }
+
+  private async clickMenuItem(
+    dialog: Locator,
+    label: string
+  ): Promise<void> {
+    await this.clickFirstMenuItem(dialog, [label]);
+  }
+
+  private async clickFirstMenuItem(
+    dialog: Locator,
+    labels: readonly string[]
+  ): Promise<void> {
+    for (const label of labels) {
+      const item = dialog.getByRole("menuitem", {
+        name: label,
+        exact: true
+      });
+      if (await item.count() === 1) {
+        await item.click({ timeout: MAX_ACTION_WAIT_MS });
+        return;
+      }
+    }
+    await dialog.press("Escape").catch(() => undefined);
+    throw new Error("MAX action is unavailable");
+  }
+
+  private async confirmDestructiveAction(
+    labels: readonly string[]
+  ): Promise<void> {
+    const deadline = Date.now() + Math.min(MAX_ACTION_WAIT_MS, 3_000);
+    while (Date.now() <= deadline) {
+      for (const label of labels) {
+        const buttons = this.options.page.getByRole("button", {
+          name: label,
+          exact: true
+        });
+        const count = await buttons.count();
+        if (count > 0) {
+          const button = buttons.last();
+          if (await button.isVisible()) {
+            await button.click({ timeout: MAX_ACTION_WAIT_MS });
+            return;
+          }
+        }
+      }
+      const dialogs = this.options.page.getByRole("dialog");
+      if (await dialogs.count() < 1) {
+        return;
+      }
+      await this.options.page.waitForTimeout(100);
+    }
+    const dialogs = this.options.page.getByRole("dialog");
+    const confirmation = dialogs.last();
+    await confirmation.press("Escape").catch(() => undefined);
+    throw new Error("MAX confirmation is unavailable");
+  }
+
+  private async waitForMessage(
+    chatId: string,
+    messageId: string,
+    predicate: (message: Record<string, unknown>) => boolean,
+    acceptMissing = false
+  ): Promise<boolean> {
+    const deadline = Date.now() + MAX_ACTION_WAIT_MS;
+    while (Date.now() <= deadline) {
+      const messages = await this.readMessages(chatId);
+      const message = messages
+        .map(asRecord)
+        .find((candidate) => opaqueId(candidate?.["id"]) === messageId);
+      if (message === undefined) {
+        if (acceptMissing) {
+          return true;
+        }
+      } else if (predicate(message)) {
+        return true;
+      }
+      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
+    }
+    return false;
+  }
+
+  private async readSelectedReaction(
+    chatId: string,
+    messageId: string
+  ): Promise<MaxReactionKey | undefined> {
+    const messages = await this.readMessages(chatId);
+    const message = messages
+      .map(asRecord)
+      .find((candidate) => opaqueId(candidate?.["id"]) === messageId);
+    const reactions = Array.isArray(message?.["reactions"])
+      ? message["reactions"] as unknown[]
+      : [];
+    for (const value of reactions) {
+      const reaction = asRecord(value);
+      const key = reaction?.["key"];
+      if (
+        reaction?.["selectedByMe"] === true
+        && typeof key === "string"
+        && isMaxReactionKey(key)
+      ) {
+        return key;
+      }
+    }
+    return undefined;
+  }
+
+  private async waitForSelectedReaction(
+    chatId: string,
+    messageId: string,
+    expected: MaxReactionKey | undefined
+  ): Promise<boolean> {
+    const deadline = Date.now() + MAX_ACTION_WAIT_MS;
+    while (Date.now() <= deadline) {
+      if (
+        await this.readSelectedReaction(chatId, messageId)
+        === expected
+      ) {
+        return true;
+      }
+      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
+    }
+    return false;
+  }
+
+  private readChatDomIndex(
+    chatId: string
+  ): Promise<number | undefined> {
+    return this.options.page.evaluate((input) => {
+      const accessorValue = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(input.accessorKey)];
+      if (typeof accessorValue !== "function") {
+        return undefined;
+      }
+      const accessor = accessorValue as () => {
+        viewer?: { folders?: { all?: { chats?: unknown } } };
+      };
+      const chats = accessor().viewer?.folders?.all?.chats;
+      const values = chats !== null
+        && typeof chats === "object"
+        && Symbol.iterator in chats
+        ? Array.from(chats as Iterable<unknown>)
+        : [];
+      const index = values.findIndex((entry) => {
+        const tuple: unknown[] | undefined = Array.isArray(entry)
+          ? entry as unknown[]
+          : undefined;
+        const value: unknown = tuple?.length === 2 ? tuple[1] : entry;
+        const candidate = value !== null && typeof value === "object"
+          ? value as Record<string, unknown>
+          : undefined;
+        const raw = candidate?.["$"] !== null
+          && typeof candidate?.["$"] === "object"
+          ? candidate["$"] as Record<string, unknown>
+          : undefined;
+        const tupleId: unknown = tuple?.[0];
+        const id: unknown = candidate?.["id"] ?? raw?.["id"] ?? tupleId;
+        return (
+          typeof id === "string"
+          || typeof id === "number"
+          || typeof id === "bigint"
+        ) && String(id) === input.chatId;
+      });
+      return index < 0 ? undefined : index;
+    }, { accessorKey: MAX_SESSION_ACCESSOR_KEY, chatId });
   }
 
   async close(): Promise<void> {
@@ -665,9 +1204,13 @@ export class MaxWebPageSession {
         throw new Error("binding");
       }
       const accessor = accessorValue as () => {
-        viewer?: { folders?: { all?: { chats?: unknown } } };
+        viewer?: {
+          id?: unknown;
+          folders?: { all?: { chats?: unknown } };
+        };
       };
       const session = accessor();
+      const viewerId = safeOpaque(session.viewer?.id);
       const source = session.viewer?.folders?.all?.chats;
       const entries = source !== null
         && typeof source === "object"
@@ -706,6 +1249,14 @@ export class MaxWebPageSession {
         number,
         Array<{ url: string; type: "PHOTO" | "VIDEO" | "AUDIO" }>
       >();
+      const reactionsByIndex = new Map<
+        number,
+        Array<{ count: number; selectedByMe: boolean }>
+      >();
+      const forwardedByIndex = new Map<
+        number,
+        { sourceName: string; text?: string }
+      >();
       for (const item of document.querySelectorAll<HTMLElement>(
         "main [data-index]"
       )) {
@@ -715,7 +1266,10 @@ export class MaxWebPageSession {
         }
         const urls = Array.from(item.querySelectorAll(
           "img[src], video[src], audio[src], a[href]"
-        )).map((element) => ({
+        )).filter((element) =>
+          element.closest(".avatarComposition") === null &&
+          element.closest('button[aria-label="Перейти в канал"]') === null
+        ).map((element) => ({
           url: element instanceof HTMLAnchorElement
             ? element.href
             : element.getAttribute("src") ?? "",
@@ -728,6 +1282,34 @@ export class MaxWebPageSession {
         if (urls.length > 0) {
           mediaByIndex.set(index, urls);
         }
+        const renderedReactions = Array.from(
+          item.querySelectorAll<HTMLButtonElement>("button.reaction")
+        ).map((button) => ({
+          count: integer(button.textContent),
+          selectedByMe: button.classList.contains("reaction--active")
+        }));
+        if (renderedReactions.length > 0) {
+          reactionsByIndex.set(index, renderedReactions);
+        }
+        const forwarded = Array.from(
+          item.querySelectorAll<HTMLElement>("span")
+        ).some((element) => element.textContent.trim() === "Переслано:");
+        if (forwarded) {
+          const sourceName = item.querySelector<HTMLElement>(
+            'button[aria-label="Перейти в канал"]'
+          )?.textContent.replace(/\s+/gu, " ").trim().slice(0, 256);
+          if (sourceName !== undefined && sourceName.length > 0) {
+            const forwardedText = item.querySelector<HTMLElement>(
+              ".bubbleContent > span.text"
+            )?.textContent.replace(/\s+/gu, " ").trim().slice(0, 65_536);
+            forwardedByIndex.set(index, {
+              sourceName,
+              ...(forwardedText === undefined || forwardedText.length === 0
+                ? {}
+                : { text: forwardedText })
+            });
+          }
+        }
       }
       const messageOffset = Math.max(0, values.length - 200);
       return values.slice(-200).map((value, messageIndex) => {
@@ -737,21 +1319,59 @@ export class MaxWebPageSession {
         const candidate = asRecord(tuple?.length === 2 ? tuple[1] : value);
         const raw = asRecord(candidate?.["$"]);
         const message = candidate ?? {};
+        const forwardedRecord = asRecord(
+          message["forwarded"]
+          ?? raw?.["forwarded"]
+          ?? message["forwardedMessage"]
+          ?? raw?.["forwardedMessage"]
+          ?? message["forwardInfo"]
+          ?? raw?.["forwardInfo"]
+        );
+        const forwardedSender = asRecord(
+          forwardedRecord?.["sender"]
+          ?? forwardedRecord?.["author"]
+          ?? forwardedRecord?.["source"]
+        );
         const text = readableText(
           message["text"],
           raw?.["text"],
           message["message"],
           raw?.["message"],
           message["caption"],
-          raw?.["caption"]
+          raw?.["caption"],
+          forwardedRecord?.["text"],
+          forwardedRecord?.["message"],
+          forwardedRecord?.["caption"]
         );
         const sender = message["sender"] ?? raw?.["sender"];
         const normalizedAttaches = normalizeAttaches(
           message["attaches"] ?? raw?.["attaches"]
         );
-        const mediaUrls = mediaByIndex.get(messageOffset + messageIndex) ?? [];
+        const domIndex = messageOffset + messageIndex;
+        const mediaUrls = mediaByIndex.get(domIndex) ?? [];
+        const renderedReactions = reactionsByIndex.get(domIndex) ?? [];
+        const forwarded = forwardedByIndex.get(domIndex);
+        const forwardedFrom = forwarded?.sourceName ?? readableText(
+          message["forwardedFrom"],
+          raw?.["forwardedFrom"],
+          forwardedRecord?.["sourceName"],
+          forwardedRecord?.["authorName"],
+          forwardedRecord?.["title"],
+          forwardedRecord?.["name"],
+          forwardedSender?.["fullName"],
+          forwardedSender?.["name"]
+        );
+        const reply = message["replyToId"]
+          ?? raw?.["replyToId"]
+          ?? message["replyTo"]
+          ?? raw?.["replyTo"];
+        const replyRecord = asRecord(reply);
+        const replyToId = safeOptionalOpaque(
+          replyRecord?.["id"] ?? replyRecord?.["messageId"] ?? reply
+        );
         return {
           id: safeOpaque(message["id"] ?? raw?.["id"] ?? tuple?.[0]),
+          domIndex,
           sender: safeOpaque(message["senderId"] ?? raw?.["senderId"]),
           senderName: sender !== null && typeof sender === "object"
             ? (sender as Record<string, unknown>)["fullName"]
@@ -760,8 +1380,32 @@ export class MaxWebPageSession {
             ? String(message["time"] ?? raw?.["time"])
             : message["time"] ?? raw?.["time"] ?? Date.now(),
           type: message["type"] ?? raw?.["type"] ?? "MESSAGE",
-          text: typeof text === "string" ? text : undefined,
-          attaches: attachDomMediaUrls(normalizedAttaches, mediaUrls)
+          text: typeof text === "string" ? text : forwarded?.text,
+          attaches: attachDomMediaUrls(normalizedAttaches, mediaUrls),
+          ...(typeof forwardedFrom !== "string" || forwardedFrom.length === 0
+            ? {}
+            : { forwardedFrom: forwardedFrom.slice(0, 256) }),
+          ...(replyToId === undefined ? {} : { replyToId }),
+          edited: Boolean(
+            message["edited"]
+            ?? raw?.["edited"]
+            ?? message["isEdited"]
+            ?? raw?.["isEdited"]
+          ),
+          deleted: Boolean(
+            message["deleted"]
+            ?? raw?.["deleted"]
+            ?? message["isDeleted"]
+            ?? raw?.["isDeleted"]
+          ),
+          reactions: normalizeReactions(
+            message["reactions"]
+            ?? raw?.["reactions"]
+            ?? message["reactionSummary"]
+            ?? raw?.["reactionSummary"],
+            renderedReactions,
+            viewerId
+          )
         };
       });
 
@@ -841,7 +1485,7 @@ export class MaxWebPageSession {
           if (attachment === undefined || rendered === undefined) {
             return value;
           }
-          const renderedType = type.includes("STICKER") || type.length === 0
+          const renderedType = type.length === 0
             ? rendered.type
             : typeValue;
           return renderedType === undefined
@@ -873,6 +1517,181 @@ export class MaxWebPageSession {
         return undefined;
       }
 
+      function integer(value: unknown): number {
+        const numeric = typeof value === "number"
+          ? value
+          : typeof value === "string" && value.trim().length > 0
+            ? Number(value)
+            : 0;
+        return Number.isFinite(numeric)
+          ? Math.max(0, Math.trunc(numeric))
+          : 0;
+      }
+
+      function normalizeReactions(
+        value: unknown,
+        rendered: readonly {
+          count: number;
+          selectedByMe: boolean;
+        }[],
+        currentViewerId: string
+      ): Array<{
+        key: string;
+        emoji: string;
+        count: number;
+        selectedByMe: boolean;
+      }> {
+        const container = asRecord(value);
+        const rawContainer = asRecord(container?.["$"]);
+        const source = container?.["items"]
+          ?? container?.["reactions"]
+          ?? rawContainer?.["items"]
+          ?? rawContainer?.["reactions"]
+          ?? value;
+        const values = Array.isArray(source)
+          ? source
+          : source !== null
+              && typeof source === "object"
+              && Symbol.iterator in source
+            ? Array.from(source as Iterable<unknown>)
+            : [];
+        const normalized = values.slice(0, 32).flatMap((entry, index) => {
+          const tuple: unknown[] | undefined = Array.isArray(entry)
+            ? entry as unknown[]
+            : undefined;
+          const tupleValue: unknown = tuple?.length === 2 ? tuple[1] : entry;
+          const reaction = asRecord(tupleValue);
+          const raw = asRecord(reaction?.["$"]);
+          const key = normalizeReactionKey(
+            reaction?.["key"]
+            ?? raw?.["key"]
+            ?? reaction?.["type"]
+            ?? raw?.["type"]
+            ?? reaction?.["reaction"]
+            ?? raw?.["reaction"]
+            ?? tuple?.[0]
+            ?? index
+          );
+          if (key === undefined) {
+            return [];
+          }
+          const authors = reaction?.["authors"]
+            ?? raw?.["authors"]
+            ?? reaction?.["users"]
+            ?? raw?.["users"];
+          const authorValues = Array.isArray(authors)
+            ? authors
+            : authors !== null
+                && typeof authors === "object"
+                && Symbol.iterator in authors
+              ? Array.from(authors as Iterable<unknown>)
+              : [];
+          const renderedReaction = rendered[index];
+          return [{
+            key,
+            emoji: reactionEmoji(key),
+            count: integer(
+              reaction?.["count"]
+              ?? raw?.["count"]
+              ?? reaction?.["total"]
+              ?? raw?.["total"]
+              ?? renderedReaction?.count
+              ?? (authorValues.length || 1)
+            ),
+            selectedByMe: Boolean(
+              reaction?.["selectedByMe"]
+              ?? raw?.["selectedByMe"]
+              ?? reaction?.["mine"]
+              ?? raw?.["mine"]
+              ?? renderedReaction?.selectedByMe
+              ?? authorValues.some((author) =>
+                safeOptionalOpaque(
+                  asRecord(author)?.["id"] ?? author
+                ) === currentViewerId
+              )
+            )
+          }];
+        });
+        if (normalized.length > 0) {
+          return normalized.filter((reaction) => reaction.count > 0);
+        }
+        return rendered.slice(0, 6).flatMap((reaction, index) => {
+          const key = normalizeReactionKey(index);
+          return key === undefined || reaction.count < 1
+            ? []
+            : [{
+                key,
+                emoji: reactionEmoji(key),
+                count: reaction.count,
+                selectedByMe: reaction.selectedByMe
+              }];
+        });
+      }
+
+      function normalizeReactionKey(value: unknown): string | undefined {
+        const normalized = typeof value === "string"
+          ? value.toUpperCase()
+          : typeof value === "number" && Number.isSafeInteger(value)
+            ? String(value)
+            : "";
+        if (
+          normalized === "0"
+          || normalized.includes("LIKE")
+          || normalized.includes("THUMB")
+        ) {
+          return "like";
+        }
+        if (
+          normalized === "1"
+          || normalized.includes("HEART")
+          || normalized.includes("LOVE")
+        ) {
+          return "heart";
+        }
+        if (
+          normalized === "2"
+          || normalized.includes("LAUGH")
+          || normalized.includes("LOL")
+          || normalized.includes("JOY")
+        ) {
+          return "laugh";
+        }
+        if (normalized === "3" || normalized.includes("FIRE")) {
+          return "fire";
+        }
+        if (
+          normalized === "4"
+          || normalized.includes("CRY")
+          || normalized.includes("SAD")
+          || normalized.includes("TEAR")
+        ) {
+          return "cry";
+        }
+        if (
+          normalized === "5"
+          || normalized.includes("CELEBR")
+          || normalized.includes("PARTY")
+          || normalized.includes("WOW")
+        ) {
+          return "celebrate";
+        }
+        return undefined;
+      }
+
+      function reactionEmoji(key: string): string {
+        return key === "like"
+          ? "👍"
+          : key === "heart"
+            ? "❤️"
+            : key === "laugh"
+              ? "😂"
+              : key === "fire"
+                ? "🔥"
+                : key === "cry"
+                  ? "😭"
+                  : "🎉";
+      }
+
       function isAllowedMediaUrl(value: string): boolean {
         try {
           const url = new URL(value);
@@ -892,6 +1711,14 @@ export class MaxWebPageSession {
           || typeof value === "number"
           || typeof value === "bigint"
         ) ? String(value) : "0";
+      }
+
+      function safeOptionalOpaque(value: unknown): string | undefined {
+        return (
+          typeof value === "string"
+          || typeof value === "number"
+          || typeof value === "bigint"
+        ) ? String(value) : undefined;
       }
     }, { accessorKey: MAX_SESSION_ACCESSOR_KEY, chatId });
   }
@@ -994,6 +1821,10 @@ export class MaxWebPageSession {
   }
 }
 
+function isMaxReactionKey(value: string): value is MaxReactionKey {
+  return (MAX_REACTION_ORDER as readonly string[]).includes(value);
+}
+
 function createOperationId(): string {
   const suffix = randomBytes(8).readBigUInt64BE();
   return (
@@ -1017,9 +1848,22 @@ function historyFingerprint(messages: readonly unknown[]): string {
     const attachments = Array.isArray(message?.["attaches"])
       ? message["attaches"] as unknown[]
       : [];
+    const reactions = Array.isArray(message?.["reactions"])
+      ? message["reactions"] as unknown[]
+      : [];
     return [
       opaqueId(message?.["id"]) ?? "",
       typeof message?.["text"] === "string" ? message["text"] : "",
+      message?.["edited"] === true ? "edited" : "",
+      message?.["deleted"] === true ? "deleted" : "",
+      ...reactions.map((reaction) => {
+        const record = asRecord(reaction);
+        return [
+          typeof record?.["key"] === "string" ? record["key"] : "",
+          typeof record?.["count"] === "number" ? record["count"] : "",
+          record?.["selectedByMe"] === true ? "mine" : ""
+        ].join(":");
+      }),
       ...attachments.map((attachment) => {
         const record = asRecord(attachment);
         return [

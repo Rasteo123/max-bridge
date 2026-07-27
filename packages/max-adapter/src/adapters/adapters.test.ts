@@ -82,6 +82,20 @@ describe("MAX history and media adapters", () => {
     expect(unsafe.metadata.sourceUrl).toBeUndefined();
   });
 
+  it("renders MAX stickers as images instead of generic files", () => {
+    const adapted = new RuntimeMediaAdapter().adaptAttachment({
+      _type: "STICKER",
+      url: "https://i.oneme.ru/i?r=sticker"
+    }, {
+      chatId: "1001",
+      messageId: "sticker-message",
+      index: 0
+    });
+
+    expect(adapted.kind).toBe("image");
+    expect(adapted.metadata.mimeType).toBe("image/jpeg");
+  });
+
   it("adapts text, image, video, voice, file and system messages", () => {
     const media = new RuntimeMediaAdapter();
 
@@ -128,6 +142,51 @@ describe("MAX history and media adapters", () => {
     expect(page.hasMore).toBe(true);
   });
 
+  it("preserves validated reactions and reply metadata", () => {
+    const page = adaptHistoryPage({
+      messages: [{
+        id: "reaction-message",
+        senderId: fixture.viewerId,
+        time: "2026-07-27T00:00:00.000Z",
+        text: "Ответ",
+        replyToId: "previous-message",
+        forwardedFrom: "Исходный канал",
+        edited: true,
+        reactions: [
+          {
+            key: "like",
+            emoji: "👍",
+            count: 2,
+            selectedByMe: true
+          },
+          {
+            key: "not-supported",
+            emoji: "?",
+            count: 1,
+            selectedByMe: false
+          }
+        ]
+      }]
+    }, {
+      chatId: "1001",
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+
+    expect(page.messages[0]).toMatchObject({
+      replyToId: "previous-message",
+      forwardedFrom: "Исходный канал",
+      edited: true,
+      reactions: [{
+        key: "like",
+        emoji: "👍",
+        count: 2,
+        selectedByMe: true
+      }]
+    });
+    expect(() => parseMessage(page.messages[0])).not.toThrow();
+  });
+
   it("keeps media descriptors only in bounded memory and zeros previews", () => {
     const media = new RuntimeMediaAdapter({ maxEntries: 10 });
     const page = adaptHistoryPage(fixture.history, {
@@ -168,6 +227,60 @@ describe("MAX live event adapter", () => {
     });
     expect(duplicate).toEqual([]);
     expect(adapter.reconnectCursor).toBe("4001");
+  });
+
+  it("does not suppress a reaction update with the same message time", () => {
+    const adapter = new LiveEventAdapter({
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+    const base = {
+      chatId: "1001",
+      message: {
+        id: "reaction-live",
+        senderId: fixture.viewerId,
+        time: "2026-07-27T00:00:00.000Z",
+        text: "Сообщение"
+      }
+    };
+
+    const first = adapter.adapt({
+      ...base,
+      message: {
+        ...base.message,
+        reactions: [{
+          key: "like",
+          emoji: "👍",
+          count: 1,
+          selectedByMe: false
+        }]
+      }
+    });
+    const changed = adapter.adapt({
+      ...base,
+      message: {
+        ...base.message,
+        reactions: [{
+          key: "like",
+          emoji: "👍",
+          count: 2,
+          selectedByMe: true
+        }]
+      }
+    });
+
+    expect(first).toHaveLength(1);
+    expect(changed).toHaveLength(1);
+    expect(changed[0]).toMatchObject({
+      type: "message.upsert",
+      message: {
+        reactions: [{
+          key: "like",
+          count: 2,
+          selectedByMe: true
+        }]
+      }
+    });
   });
 
   it("adapts deletions and rejects unknown shapes with a public error", () => {

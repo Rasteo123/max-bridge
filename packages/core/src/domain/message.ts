@@ -13,6 +13,35 @@ export const MessageDirectionSchema = Type.Union([
   Type.Literal("outgoing")
 ]);
 
+export const REACTION_KEYS = [
+  "like",
+  "heart",
+  "laugh",
+  "fire",
+  "cry",
+  "celebrate"
+] as const;
+
+export const ReactionKeySchema = Type.Union(
+  REACTION_KEYS.map((key) => Type.Literal(key))
+);
+
+export const MessageReactionSchema = Type.Object({
+  key: ReactionKeySchema,
+  emoji: Type.String({ minLength: 1, maxLength: 32 }),
+  count: Type.Integer({ minimum: 1, maximum: 999_999 }),
+  selectedByMe: Type.Boolean()
+}, strictObjectOptions);
+
+export const StickerSummarySchema = Type.Object({
+  id: Type.String(opaqueIdOptions),
+  previewDataUrl: Type.String({
+    minLength: 32,
+    maxLength: 40 * 1024,
+    pattern: "^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$"
+  })
+}, strictObjectOptions);
+
 export const MediaMetadataSchema = Type.Object({
   handle: Type.String(opaqueIdOptions),
   mimeType: Type.String({ minLength: 1, maxLength: 255 }),
@@ -33,8 +62,16 @@ const MessageBaseProperties = {
   sentAt: Type.String(isoTimestampOptions),
   status: DeliveryStatusSchema,
   replyToId: Type.Optional(Type.String(opaqueIdOptions)),
+  forwardedFrom: Type.Optional(Type.String({
+    minLength: 1,
+    maxLength: 256
+  })),
   edited: Type.Optional(Type.Boolean()),
-  deleted: Type.Optional(Type.Boolean())
+  deleted: Type.Optional(Type.Boolean()),
+  reactions: Type.Optional(Type.Array(
+    MessageReactionSchema,
+    { maxItems: REACTION_KEYS.length }
+  ))
 } as const;
 
 const TextMessageSchema = Type.Object({
@@ -61,9 +98,16 @@ export const MessageSchema = Type.Union([
 ]);
 
 export type MessageDirection = Static<typeof MessageDirectionSchema>;
+export type ReactionKey = Static<typeof ReactionKeySchema>;
+export type MessageReaction = Static<typeof MessageReactionSchema>;
+export type StickerSummary = Static<typeof StickerSummarySchema>;
 export type MediaMetadata = Static<typeof MediaMetadataSchema>;
 export type Message = Static<typeof MessageSchema>;
 
 export function parseMessage(value: unknown): Message {
   return parseSchema(MessageSchema, value);
+}
+
+export function parseStickerSummary(value: unknown): StickerSummary {
+  return parseSchema(StickerSummarySchema, value);
 }
