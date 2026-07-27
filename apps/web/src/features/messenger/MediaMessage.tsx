@@ -3,14 +3,17 @@ import {
   useState
 } from "react";
 
-import { requestTelegramMediaFullscreen } from "../auth/telegram.js";
+import {
+  requestTelegramMediaFullscreen,
+  type TelegramMediaFullscreenLease
+} from "../auth/telegram.js";
 import type { MessengerMedia } from "./types.js";
 
 export type MediaOpenInput = Readonly<{
   kind: "image" | "video";
   url: string;
   alt: string;
-  telegramFullscreenRequested: boolean;
+  telegramFullscreenLease: TelegramMediaFullscreenLease | null;
 }>;
 
 type MediaMessageProps = Readonly<{
@@ -29,6 +32,7 @@ export function MediaMessage({
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
     let createdUrl: string | null = null;
     setObjectUrl(null);
     setFailed(false);
@@ -42,6 +46,12 @@ export function MediaMessage({
     }
     void resolveMediaUrl(media, controller.signal)
       .then((resolved) => {
+        if (!active) {
+          if (resolved.revoke) {
+            URL.revokeObjectURL(resolved.url);
+          }
+          return;
+        }
         createdUrl = resolved.revoke ? resolved.url : null;
         setFailed(false);
         setObjectUrl(resolved.url);
@@ -52,6 +62,7 @@ export function MediaMessage({
         }
       });
     return () => {
+      active = false;
       controller.abort();
       if (createdUrl !== null) {
         URL.revokeObjectURL(createdUrl);
@@ -77,13 +88,13 @@ export function MediaMessage({
           data-no-swipe
           aria-label="Открыть изображение"
           onClick={() => {
-            const telegramFullscreenRequested =
+            const telegramFullscreenLease =
               requestTelegramMediaFullscreen();
             onOpen({
               kind,
               url: objectUrl,
               alt: "Изображение",
-              telegramFullscreenRequested
+              telegramFullscreenLease
             });
           }}
         >
@@ -103,13 +114,13 @@ export function MediaMessage({
           data-no-swipe
           aria-label="Открыть видео"
           onClick={() => {
-            const telegramFullscreenRequested =
+            const telegramFullscreenLease =
               requestTelegramMediaFullscreen();
             onOpen({
               kind,
               url: objectUrl,
               alt: "Видео",
-              telegramFullscreenRequested
+              telegramFullscreenLease
             });
           }}
         >

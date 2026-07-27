@@ -19,7 +19,10 @@ import {
 } from "vitest";
 
 import "../../test-setup.js";
-import { mediaGalleryForConversation } from "./Conversation.js";
+import {
+  Conversation,
+  mediaGalleryForConversation
+} from "./Conversation.js";
 import {
   MediaViewer,
   type MediaViewerItem
@@ -98,6 +101,81 @@ describe("MediaViewer", () => {
     ]);
 
     expect(gallery.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
+  it("keeps the opened message selected across prepends and closes if removed", async () => {
+    const chat = {
+      id: "chat-1",
+      title: "Чат",
+      preview: "",
+      timestamp: "",
+      unreadCount: 0,
+      muted: false,
+      kind: "direct" as const
+    };
+    const first = message("first", "chat-1", "image", {
+      handle: "first",
+      mimeType: "image/jpeg",
+      size: 10,
+      sourceUrl: "https://i.oneme.ru/first.jpg"
+    });
+    const selected = message("selected", "chat-1", "image", {
+      handle: "selected",
+      mimeType: "image/jpeg",
+      size: 10,
+      sourceUrl: "https://i.oneme.ru/selected.jpg"
+    });
+    const prepended = message("prepended", "chat-1", "image", {
+      handle: "prepended",
+      mimeType: "image/jpeg",
+      size: 10,
+      sourceUrl: "https://i.oneme.ru/prepended.jpg"
+    });
+    const view = render(
+      <Conversation
+        chat={chat}
+        messages={[first, selected]}
+        wide={false}
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    const openButtons = await screen.findAllByRole("button", {
+      name: "Открыть изображение"
+    });
+    fireEvent.click(openButtons[1] as HTMLButtonElement);
+    expect(screen.getByTestId("media-viewer-image")).toHaveAttribute(
+      "src",
+      "https://i.oneme.ru/selected.jpg"
+    );
+
+    view.rerender(
+      <Conversation
+        chat={chat}
+        messages={[prepended, first, selected]}
+        wide={false}
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("media-viewer-image")).toHaveAttribute(
+      "src",
+      "https://i.oneme.ru/selected.jpg"
+    );
+
+    view.rerender(
+      <Conversation
+        chat={chat}
+        messages={[prepended, first]}
+        wide={false}
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("opens an accessible image dialog, zooms, closes, and restores focus", () => {
@@ -179,6 +257,36 @@ describe("MediaViewer", () => {
     });
   });
 
+  it("clamps zoom using rendered image size rather than natural pixels", () => {
+    render(
+      <MediaViewer
+        items={items}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    const stage = screen.getByTestId("media-viewer-stage");
+    const image = screen.getByTestId("media-viewer-image");
+    mockRect(stage, { width: 300, height: 400 });
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 4_000 },
+      naturalHeight: { configurable: true, value: 3_000 },
+      clientWidth: { configurable: true, value: 300 },
+      clientHeight: { configurable: true, value: 225 }
+    });
+    fireEvent.load(image);
+    fireEvent.doubleClick(image);
+    fireEvent.pointerDown(image, pointer(1, 100, 100));
+    fireEvent.pointerMove(image, pointer(1, 1_000, 1_000));
+
+    expect(image).toHaveStyle({
+      "--media-scale": "2",
+      "--media-x": "150px",
+      "--media-y": "25px"
+    });
+  });
+
   it("renders native video controls without the image zoom toolbar", () => {
     render(
       <MediaViewer
@@ -222,38 +330,23 @@ describe("MediaViewer", () => {
   });
 
   it("exits Telegram fullscreen only when the opening click owns it", async () => {
-    const requestFullscreen = vi.fn();
-    const exitFullscreen = vi.fn(() =>
-      Promise.reject(new Error("already closed"))
-    );
-    vi.stubGlobal("Telegram", {
-      WebApp: {
-        initData: "",
-        themeParams: {},
-        ready: vi.fn(),
-        expand: vi.fn(),
-        isVersionAtLeast: vi.fn(() => true),
-        requestFullscreen,
-        exitFullscreen
-      }
-    });
+    const release = vi.fn();
     const view = render(
       <MediaViewer
         items={items}
         index={0}
         onIndexChange={vi.fn()}
         onClose={vi.fn()}
-        telegramFullscreenRequested
+        telegramFullscreenLease={{ release }}
       />
     );
 
     expect(
       screen.getByRole("dialog", { name: "Просмотр изображения" })
     ).toBeVisible();
-    expect(requestFullscreen).not.toHaveBeenCalled();
     view.unmount();
     await waitFor(() => {
-      expect(exitFullscreen).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
     });
 
     render(
@@ -264,20 +357,11 @@ describe("MediaViewer", () => {
         onClose={vi.fn()}
       />
     ).unmount();
-    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it("keeps owned fullscreen through StrictMode replay and releases it once", async () => {
-    const exitFullscreen = vi.fn();
-    vi.stubGlobal("Telegram", {
-      WebApp: {
-        initData: "",
-        themeParams: {},
-        ready: vi.fn(),
-        expand: vi.fn(),
-        exitFullscreen
-      }
-    });
+    const release = vi.fn();
     const onClose = vi.fn();
     const view = render(
       <StrictMode>
@@ -286,7 +370,7 @@ describe("MediaViewer", () => {
           index={0}
           onIndexChange={vi.fn()}
           onClose={onClose}
-          telegramFullscreenRequested
+          telegramFullscreenLease={{ release }}
         />
       </StrictMode>
     );
@@ -296,13 +380,13 @@ describe("MediaViewer", () => {
         window.setTimeout(resolve, 0);
       });
     });
-    expect(exitFullscreen).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", {
       name: "Закрыть просмотр"
     }));
     expect(onClose).toHaveBeenCalledOnce();
-    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
 
     view.unmount();
     await act(async () => {
@@ -310,7 +394,7 @@ describe("MediaViewer", () => {
         window.setTimeout(resolve, 0);
       });
     });
-    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it("navigates by swipe, arrows, and buttons and announces the position", () => {

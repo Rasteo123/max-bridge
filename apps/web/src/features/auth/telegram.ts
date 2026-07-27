@@ -40,6 +40,10 @@ export interface TelegramWebApp {
   exitFullscreen?(): void | Promise<void>;
 }
 
+export type TelegramMediaFullscreenLease = Readonly<{
+  release(): void;
+}>;
+
 declare global {
   interface Window {
     Telegram?: Readonly<{
@@ -52,37 +56,61 @@ export function currentTelegramWebApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null;
 }
 
-export function requestTelegramMediaFullscreen(): boolean {
+export function requestTelegramMediaFullscreen():
+TelegramMediaFullscreenLease | null {
   const webApp = currentTelegramWebApp();
   if (
     webApp?.requestFullscreen === undefined ||
     webApp.isVersionAtLeast === undefined
   ) {
-    return false;
+    return null;
   }
   try {
     if (!webApp.isVersionAtLeast("8.0") || webApp.isFullscreen === true) {
-      return false;
+      return null;
     }
-    void Promise.resolve(webApp.requestFullscreen()).catch(() => undefined);
-    return true;
+    let acquired = false;
+    let released = false;
+    let exited = false;
+    const exitIfReleased = () => {
+      if (
+        !acquired ||
+        !released ||
+        exited ||
+        webApp.exitFullscreen === undefined
+      ) {
+        return;
+      }
+      exited = true;
+      try {
+        void Promise.resolve(webApp.exitFullscreen()).catch(() => undefined);
+      } catch {
+        // Telegram may already be closing the host.
+      }
+    };
+    const result = webApp.requestFullscreen();
+    if (result === undefined) {
+      acquired = true;
+    } else {
+      void Promise.resolve(result).then(
+        () => {
+          acquired = true;
+          exitIfReleased();
+        },
+        () => undefined
+      );
+    }
+    return {
+      release(): void {
+        if (released) {
+          return;
+        }
+        released = true;
+        exitIfReleased();
+      }
+    };
   } catch {
-    return false;
-  }
-}
-
-export function exitOwnedTelegramMediaFullscreen(owned: boolean): void {
-  if (!owned) {
-    return;
-  }
-  const webApp = currentTelegramWebApp();
-  if (webApp?.exitFullscreen === undefined) {
-    return;
-  }
-  try {
-    void Promise.resolve(webApp.exitFullscreen()).catch(() => undefined);
-  } catch {
-    // Telegram may already be closing the host.
+    return null;
   }
 }
 

@@ -8,7 +8,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { exitOwnedTelegramMediaFullscreen } from "../auth/telegram.js";
+import type {
+  TelegramMediaFullscreenLease
+} from "../auth/telegram.js";
 import {
   resolveMediaUrl,
   safeMaxMediaUrl
@@ -29,7 +31,7 @@ type MediaViewerProps = Readonly<{
   index: number;
   onIndexChange(index: number): void;
   onClose(): void;
-  telegramFullscreenRequested?: boolean;
+  telegramFullscreenLease?: TelegramMediaFullscreenLease | null;
 }>;
 
 type ResolvedEntry =
@@ -74,7 +76,7 @@ function MediaViewerDialog({
   onIndexChange,
   onClose,
   firstItem,
-  telegramFullscreenRequested = false
+  telegramFullscreenLease = null
 }: MediaViewerProps & Readonly<{ firstItem: MediaViewerItem }>) {
   const safeIndex = Math.min(
     Math.max(0, index),
@@ -179,12 +181,12 @@ function MediaViewerDialog({
   function releaseOwnedFullscreen(): void {
     if (
       fullscreenReleased.current ||
-      !telegramFullscreenRequested
+      telegramFullscreenLease === null
     ) {
       return;
     }
     fullscreenReleased.current = true;
-    exitOwnedTelegramMediaFullscreen(true);
+    telegramFullscreenLease.release();
   }
 
   function onDocumentKeyDown(event: globalThis.KeyboardEvent): void {
@@ -324,11 +326,13 @@ function MediaViewerDialog({
                   ),
                   mediaWidth: Math.max(
                     1,
-                    image.naturalWidth || image.clientWidth
+                    image.clientWidth ||
+                      image.getBoundingClientRect().width
                   ),
                   mediaHeight: Math.max(
                     1,
-                    image.naturalHeight || image.clientHeight
+                    image.clientHeight ||
+                      image.getBoundingClientRect().height
                   )
                 });
               }

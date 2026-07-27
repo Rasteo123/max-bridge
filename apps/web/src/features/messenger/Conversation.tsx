@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
+import type {
+  TelegramMediaFullscreenLease
+} from "../auth/telegram.js";
 import { Composer } from "./Composer.js";
 import {
   MediaViewer,
@@ -38,6 +41,12 @@ type ComposerContext = Readonly<{
   message: MessengerMessage;
 }>;
 
+type OpenMedia = Readonly<{
+  chatId: string;
+  itemId: string;
+  telegramFullscreenLease: TelegramMediaFullscreenLease | null;
+}>;
+
 export function Conversation({
   chat,
   messages,
@@ -55,9 +64,7 @@ export function Conversation({
   const [searchQuery, setSearchQuery] = useState("");
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
-  const [openMediaIndex, setOpenMediaIndex] = useState<number | null>(null);
-  const [telegramMediaFullscreenRequested, setTelegramMediaFullscreenRequested] =
-    useState(false);
+  const [openMedia, setOpenMedia] = useState<OpenMedia | null>(null);
   const now = useMinuteAlignedNow(
     active && chat?.kind === "direct" &&
       chat.presence === "offline" &&
@@ -69,22 +76,22 @@ export function Conversation({
 
   useEffect(() => {
     setComposerContext(null);
-    setOpenMediaIndex(null);
-    setTelegramMediaFullscreenRequested(false);
+    setOpenMedia(null);
   }, [chat?.id]);
 
   const mediaGallery = useMemo<readonly MediaViewerItem[]>(() => {
     return mediaGalleryForConversation(chat, messages);
   }, [chat, messages]);
 
+  const openMediaIndex = openMedia !== null && openMedia.chatId === chat?.id
+    ? mediaGallery.findIndex((item) => item.id === openMedia.itemId)
+    : -1;
+
   useEffect(() => {
-    if (
-      openMediaIndex !== null &&
-      openMediaIndex >= mediaGallery.length
-    ) {
-      setOpenMediaIndex(null);
+    if (openMedia !== null && openMediaIndex < 0) {
+      setOpenMedia(null);
     }
-  }, [mediaGallery.length, openMediaIndex]);
+  }, [openMedia, openMediaIndex]);
 
   const visibleMessages = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase("ru-RU");
@@ -230,10 +237,13 @@ export function Conversation({
                     (item) => item.id === selectedMessage.id
                   );
                   if (nextIndex >= 0) {
-                    setTelegramMediaFullscreenRequested(
-                      input.telegramFullscreenRequested
-                    );
-                    setOpenMediaIndex(nextIndex);
+                    setOpenMedia({
+                      chatId: chat.id,
+                      itemId: selectedMessage.id,
+                      telegramFullscreenLease: input.telegramFullscreenLease
+                    });
+                  } else {
+                    input.telegramFullscreenLease?.release();
                   }
                 }}
               />
@@ -263,15 +273,21 @@ export function Conversation({
         }}
       />
       </section>
-      {openMediaIndex !== null && mediaGallery.length > 0 && (
+      {openMedia !== null && openMediaIndex >= 0 && (
         <MediaViewer
           items={mediaGallery}
           index={openMediaIndex}
-          onIndexChange={setOpenMediaIndex}
-          telegramFullscreenRequested={telegramMediaFullscreenRequested}
+          onIndexChange={(nextIndex) => {
+            const nextItem = mediaGallery[nextIndex];
+            if (nextItem !== undefined) {
+              setOpenMedia((current) => current === null
+                ? null
+                : { ...current, itemId: nextItem.id });
+            }
+          }}
+          telegramFullscreenLease={openMedia.telegramFullscreenLease}
           onClose={() => {
-            setOpenMediaIndex(null);
-            setTelegramMediaFullscreenRequested(false);
+            setOpenMedia(null);
           }}
         />
       )}
