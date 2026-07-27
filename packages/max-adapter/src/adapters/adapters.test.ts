@@ -172,7 +172,7 @@ describe("MAX history and media adapters", () => {
   it.each([
     ["PENDING", "pending"],
     ["SENT", "sent"],
-    ["ACKNOWLEDGED", "sent"],
+    ["ACKNOWLEDGED", "delivered"],
     ["DELIVERED", "delivered"],
     ["SEEN", "read"],
     ["READ", "read"],

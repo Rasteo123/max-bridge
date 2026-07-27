@@ -17,8 +17,7 @@ import {
   readWireBoolean,
   readWireString,
   requireOpaqueId,
-  toIsoTimestamp,
-  type WireRecord
+  toIsoTimestamp
 } from "./wire-values.js";
 
 export type HistoryPage = Readonly<{
@@ -217,8 +216,8 @@ export function normalizeDeliveryStatus(
     case "PENDING":
       return "pending";
     case "SENT":
-    case "ACKNOWLEDGED":
       return "sent";
+    case "ACKNOWLEDGED":
     case "DELIVERED":
       return "delivered";
     case "SEEN":
