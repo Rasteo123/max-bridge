@@ -115,6 +115,25 @@ Videos use native playback controls, seeking, volume, picture-in-picture where
 the host permits it, and the browser's system full-screen action. Pinch zoom is
 limited to images so it cannot conflict with video controls.
 
+The viewer is also an ordered image/video gallery for the current chat.
+
+- Dragging from left to right reveals and selects the previous media item.
+- Dragging from right to left reveals and selects the next media item.
+- The current slide and its neighbor follow the pointer. Release beyond the
+  distance/velocity threshold completes a short Telegram-style slide
+  transition; otherwise both slides spring back.
+- At the beginning/end, resisted overscroll returns to the current slide.
+- Image gallery navigation is disabled while scale is above 1x, so the same
+  gesture pans the zoomed image. Returning to 1x re-enables slide navigation.
+- The lower native-control strip of a video keeps priority for seeking and
+  volume. A horizontal drag elsewhere on the video or viewer navigates.
+- Left/Right arrow keys and accessible Previous/Next buttons provide the same
+  operation on desktop.
+- Changing slides pauses the previous video, resets image transform, updates
+  the position announcement, and preloads adjacent images.
+- `prefers-reduced-motion` removes the sliding animation without changing
+  navigation.
+
 ### Conversation and chat-list identity
 
 The conversation header places the selected chat avatar immediately before the

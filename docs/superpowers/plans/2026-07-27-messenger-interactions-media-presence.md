@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add swipe-to-reply, a full-screen image/video viewer, direct-contact presence and last-seen time, outgoing delivery receipts, header avatars, and reliable desktop/mobile attachment sending.
+**Goal:** Add swipe-to-reply, a full-screen image/video gallery, direct-contact presence and last-seen time, outgoing delivery receipts, header avatars, and reliable desktop/mobile attachment sending.
 
 **Architecture:** Keep MAX as the source of truth. The worker extracts presence, direction, acknowledgement state, and performs attachment UI automation; core schemas and adapters normalize that data; the React client renders it and owns only transient interaction state. New gesture and media-transform logic live in focused hooks so message navigation, context menus, and media controls remain isolated and testable. MAX Bridge is not called because this Mini App runs inside Telegram, and MAX Bot API is not treated as personal-account access. MAX UI components and design tokens may be reused in presentation tasks when they preserve the approved messenger behavior.
 
@@ -787,12 +787,14 @@ git add apps/web/src/features/messenger/useMediaTransform.ts apps/web/src/featur
 git commit -m "feat: add image transform controls"
 ```
 
-## Task 6: Add the accessible full-screen media viewer
+## Task 6: Add the accessible full-screen media viewer and gallery
 
 **Files:**
 
 - Create: `apps/web/src/features/messenger/MediaViewer.tsx`
 - Create: `apps/web/src/features/messenger/MediaViewer.test.tsx`
+- Create: `apps/web/src/features/messenger/useMediaCarousel.ts`
+- Create: `apps/web/src/features/messenger/useMediaCarousel.test.ts`
 - Modify: `apps/web/src/features/messenger/MediaMessage.tsx`
 - Modify: `apps/web/src/features/messenger/MediaMessage.test.ts`
 - Modify: `apps/web/src/features/messenger/MessageBubble.tsx`
@@ -818,12 +820,26 @@ Add pinch pointer tests, control-wheel, double click, panning at scale > 1,
 reset on source change, focus restoration, and a video test that finds native
 controls but no image zoom toolbar.
 
+Add carousel tests with three ordered mixed image/video items:
+
+- a 72 px left-to-right drag follows the pointer and selects the previous item;
+- a 72 px right-to-left drag selects the next item;
+- a short drag and resisted first/last overscroll snap back;
+- a fast, shorter horizontal flick can complete, while vertical intent cannot;
+- navigation is disabled for a zoomed image and re-enabled at 1x;
+- the bottom 64 px of the current video is reserved for native controls, while
+  a horizontal drag above it navigates;
+- ArrowLeft/ArrowRight and Previous/Next buttons share the same bounds;
+- a slide change pauses the previous video, resets image transform, announces
+  `N из M`, and adjacent images are preloaded;
+- reduced-motion mode changes the transition, not the selected item.
+
 - [ ] **Step 2: Run and verify RED**
 
 Run:
 
 ```bash
-npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.test.ts
+npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/useMediaCarousel.test.ts apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.test.ts
 ```
 
 Expected: FAIL because no viewer exists.
@@ -843,10 +859,15 @@ onOpen?: (input: Readonly<{
 Render image/video thumbnails as buttons marked `data-no-swipe`. Keep inline
 voice and file behavior unchanged.
 
+`Conversation` derives a stable ordered gallery from the current chat's
+messages, including only normalized `image` and `video` items with usable media
+URLs. Every item has the source message ID, kind, URL, and accessible label.
+Opening one item records its gallery index.
+
 `Conversation` owns:
 
 ```ts
-const [openMedia, setOpenMedia] = useState<ViewerMedia | null>(null);
+const [openMediaIndex, setOpenMediaIndex] = useState<number | null>(null);
 ```
 
 Render `MediaViewer` with `createPortal(..., document.body)`. The viewer sets
@@ -854,6 +875,20 @@ Render `MediaViewer` with `createPortal(..., document.body)`. The viewer sets
 overflow, and stops pointer/wheel propagation. Render `<video controls
 playsInline>` for videos. Render the transformed `<img draggable={false}>` and
 zoom controls for images.
+
+`useMediaCarousel` owns one primary pointer, horizontal/vertical axis lock,
+offset, resisted edge overscroll, velocity, and bounded previous/next
+selection. Use a 72 px completion threshold, an 8 px axis lock, and a bounded
+fast-flick threshold. The viewer renders current and adjacent slides on a
+transforming track so the content follows the pointer. The selected item stays
+the single source of truth; slide change resets `useMediaTransform`, pauses the
+old video, and updates an `aria-live` position label.
+
+For video, ignore a pointer that starts in the bottom 64 px of the rendered
+video bounds so native controls retain seeking/volume gestures. Image carousel
+drag is disabled whenever its scale is greater than 1. Provide bounded
+Previous/Next buttons and ArrowLeft/ArrowRight keyboard actions. Preload only
+adjacent image URLs. Do not autoplay adjacent videos.
 
 When `Telegram.WebApp.isVersionAtLeast("8.0")` and `requestFullscreen` are
 available, the viewer may request Telegram full-screen mode from the user's
@@ -866,7 +901,7 @@ full-screen for native video playback, browser full-screen, zoom, or dismissal.
 Run:
 
 ```bash
-npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/swipe-to-reply.test.tsx
+npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/useMediaCarousel.test.ts apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/swipe-to-reply.test.tsx
 ```
 
 Expected: PASS and media controls do not trigger reply.
@@ -874,7 +909,7 @@ Expected: PASS and media controls do not trigger reply.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/features/messenger/MediaViewer.tsx apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/auth/telegram.ts apps/web/src/features/messenger/messenger.css
+git add apps/web/src/features/messenger/MediaViewer.tsx apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/useMediaCarousel.ts apps/web/src/features/messenger/useMediaCarousel.test.ts apps/web/src/features/messenger/MediaMessage.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/auth/telegram.ts apps/web/src/features/messenger/messenger.css
 git commit -m "feat: add full screen media viewer"
 ```
 
@@ -1371,13 +1406,19 @@ Use the Mini App to check:
 1. right-to-left message drag follows the finger and arms after 56 px;
 2. left-to-right conversation drag still returns to the chat list;
 3. image pinch, pan, double tap, and reset;
-4. video play, seek, and full screen;
-5. gallery and document pickers both expose local files and send one item.
-6. theme changes apply without reopening, safe areas protect the composer, and
+4. with the image at 1x, drag right to the previous media and left to the next;
+   require the current/neighbor slides to follow the finger, a short drag to
+   return, and a completed drag to settle without a flash;
+5. after zooming the image above 1x, require the same horizontal gesture to pan
+   the image instead of changing slides;
+6. video play, seek, and full screen; require a swipe above the native controls
+   to change slides and a swipe on the lower control strip to seek normally;
+7. gallery and document pickers both expose local files and send one item.
+8. theme changes apply without reopening, safe areas protect the composer, and
    Telegram's native BackButton returns from a selected chat to the list;
-7. minimizing the Mini App closes the live socket, and returning reauthenticates,
+9. minimizing the Mini App closes the live socket, and returning reauthenticates,
    reconnects, and refreshes without an endless “reconnecting” banner.
-8. forwarded captions/links remain visible, source navigation works, and the
+10. forwarded captions/links remain visible, source navigation works, and the
    context-menu forward picker can send to one selected destination.
 
 Expected: no text selection during the reply gesture and no indefinite
