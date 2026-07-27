@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { DeliveryIndicator } from "./DeliveryIndicator.js";
 import {
   PressContextMenu,
   type ContextMenuAction,
@@ -95,11 +96,14 @@ export function ChatRow({
           onSelect(chat.id);
         }}
       >
-        <span className="chat-row__avatar" aria-hidden="true">
+        <span className="chat-row__avatar">
           {chat.avatarUrl === undefined ? (
-            initials
+            <span aria-hidden="true">{initials}</span>
           ) : (
-            <img src={chat.avatarUrl} alt="" />
+            <img src={chat.avatarUrl} alt={chat.title} />
+          )}
+          {chat.kind === "direct" && chat.presence === "online" && (
+            <span className="presence-dot" aria-label="В сети" />
           )}
         </span>
         <span className="chat-row__content">
@@ -112,10 +116,9 @@ export function ChatRow({
             )}
           </span>
           <span className="chat-row__preview" title={chat.preview}>
-            {chat.deliveryStatus !== undefined && (
-              <span className="chat-row__delivery" aria-hidden="true">
-                {chat.deliveryStatus === "read" ? "✓✓" : "✓"}
-              </span>
+            {chat.lastMessageDirection === "outgoing" &&
+              chat.deliveryStatus !== undefined && (
+              <DeliveryIndicator status={chat.deliveryStatus} preview />
             )}
             {chat.preview}
           </span>

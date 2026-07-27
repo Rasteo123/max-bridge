@@ -46,6 +46,57 @@ describe("ChatRow", () => {
 
     expect(screen.getByTitle(preview)).toHaveClass("chat-row__preview");
   });
+
+  it("renders the avatar, direct-contact online dot, and outgoing read receipt", () => {
+    render(
+      <ChatRow
+        chat={{
+          ...chat(),
+          avatarUrl: "https://i.oneme.ru/avatar",
+          presence: "online",
+          lastMessageDirection: "outgoing",
+          deliveryStatus: "read"
+        }}
+        selected={false}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("img", { name: "Ольга" }))
+      .toHaveAttribute("src", "https://i.oneme.ru/avatar");
+    expect(screen.getByLabelText("В сети")).toBeVisible();
+    expect(screen.getByLabelText("Последнее сообщение прочитано"))
+      .toHaveTextContent("✓✓");
+  });
+
+  it("does not expose personal presence for a group or receipts for incoming previews", () => {
+    const { rerender } = render(
+      <ChatRow
+        chat={{
+          ...chat(),
+          kind: "group",
+          presence: "online"
+        }}
+        selected={false}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByLabelText("В сети")).toBeNull();
+
+    rerender(
+      <ChatRow
+        chat={{
+          ...chat(),
+          lastMessageDirection: "incoming",
+          deliveryStatus: "read"
+        }}
+        selected={false}
+        onSelect={vi.fn()}
+      />
+    );
+    expect(screen.queryByLabelText("Последнее сообщение прочитано")).toBeNull();
+  });
 });
 
 function chat(): MessengerChat {

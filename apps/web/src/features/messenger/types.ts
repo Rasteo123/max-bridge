@@ -1,3 +1,10 @@
+export type DeliveryStatus =
+  | "pending"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed";
+
 export type MessengerChat = Readonly<{
   id: string;
   title: string;
@@ -9,7 +16,10 @@ export type MessengerChat = Readonly<{
   pinned?: boolean;
   kind: "direct" | "group" | "channel";
   avatarUrl?: string;
-  deliveryStatus?: "pending" | "sent" | "delivered" | "read" | "failed";
+  presence?: "online" | "offline" | "recently" | "long_ago" | "unknown";
+  lastSeenAt?: number;
+  lastMessageDirection?: "incoming" | "outgoing";
+  deliveryStatus?: DeliveryStatus;
 }>;
 
 export type MessengerMessage = Readonly<{
@@ -21,7 +31,7 @@ export type MessengerMessage = Readonly<{
   sentAt: string;
   formattedTime?: string;
   senderName?: string;
-  status?: "pending" | "sent" | "delivered" | "read" | "failed";
+  status?: DeliveryStatus;
   media?: MessengerMedia;
   edited?: boolean;
   replyToId?: string;

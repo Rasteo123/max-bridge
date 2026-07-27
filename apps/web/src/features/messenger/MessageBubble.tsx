@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { DeliveryIndicator } from "./DeliveryIndicator.js";
 import { MediaMessage } from "./MediaMessage.js";
 import {
   PressContextMenu,
@@ -143,6 +144,9 @@ export function MessageBubble({
           <time dateTime={message.sentAt}>
             {message.formattedTime ?? formatMessageTime(message.sentAt)}
           </time>
+          {message.direction === "outgoing" && message.status !== undefined && (
+            <DeliveryIndicator status={message.status} />
+          )}
         </div>
         {reactions.length > 0 && (
           <div className="message__reactions" aria-label="Реакции на сообщение">

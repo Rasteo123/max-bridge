@@ -7,9 +7,11 @@ import {
   render,
   screen
 } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../../test-setup.js";
+import type { TelegramWebApp } from "../auth/telegram.js";
 import { MessengerShell } from "./MessengerShell.js";
 import type {
   MessengerChat,
@@ -156,6 +158,57 @@ describe("narrow messenger gestures", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
     expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("uses Telegram BackButton with exact callback cleanup", () => {
+    const callbacks = new Set<() => void>();
+    const backButton = {
+      show: vi.fn(),
+      hide: vi.fn(),
+      onClick: vi.fn((callback: () => void) => {
+        callbacks.add(callback);
+      }),
+      offClick: vi.fn((callback: () => void) => {
+        callbacks.delete(callback);
+      })
+    };
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "signed",
+        themeParams: {},
+        ready: vi.fn(),
+        expand: vi.fn(),
+        BackButton: backButton
+      } satisfies TelegramWebApp
+    });
+
+    const view = renderShell("conversation");
+    expect(backButton.show).toHaveBeenCalled();
+    const callback = backButton.onClick.mock.calls[0]?.[0];
+    expect(callback).toBeTypeOf("function");
+
+    act(() => {
+      callback?.();
+    });
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
+    expect(backButton.offClick).toHaveBeenCalledWith(callback);
+    expect(callbacks).not.toContain(callback);
+    expect(backButton.hide).toHaveBeenCalled();
+
+    view.unmount();
+    expect(callbacks).toHaveLength(0);
+  });
+
+  it("uses Telegram stable viewport and safe-area variables", () => {
+    const css = readFileSync(
+      "apps/web/src/features/messenger/messenger.css",
+      "utf8"
+    );
+
+    expect(css).toContain("--tg-viewport-stable-height");
+    expect(css).toContain("--tg-safe-area-inset-bottom");
+    expect(css).toContain("--tg-content-safe-area-inset-bottom");
   });
 });
 

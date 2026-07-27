@@ -13,6 +13,7 @@ type ConversationProps = Readonly<{
   chat?: MessengerChat;
   messages: readonly MessengerMessage[];
   wide: boolean;
+  active?: boolean;
   onOpenChats(): void;
   onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
@@ -32,8 +33,7 @@ type ComposerContext = Readonly<{
 export function Conversation({
   chat,
   messages,
-  wide,
-  onOpenChats,
+  active = true,
   onSend,
   onAttach,
   historyLoading = false,
@@ -47,6 +47,14 @@ export function Conversation({
   const [searchQuery, setSearchQuery] = useState("");
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
+  const now = useMinuteAlignedNow(
+    active && chat?.kind === "direct" &&
+      chat.presence === "offline" &&
+      validLastSeenAt(chat.lastSeenAt, Date.now())
+      ? chat.lastSeenAt
+      : undefined
+  );
+  const subtitle = conversationSubtitle(chat, now);
 
   useEffect(() => {
     setComposerContext(null);
@@ -71,20 +79,23 @@ export function Conversation({
       aria-label={chat === undefined ? "Переписка" : `Переписка с ${chat.title}`}
     >
       <header className="conversation__header">
-        {!wide && (
-          <button
-            className="conversation__back"
-            type="button"
-            onClick={onOpenChats}
-            aria-label="Открыть список чатов"
-          >
-            <span aria-hidden="true">‹</span>
-            <span>Чаты</span>
-          </button>
-        )}
-        <div className="conversation__identity">
-          <strong>{chat?.title ?? "Выберите чат"}</strong>
-          {chat !== undefined && <span>MAX</span>}
+        <div className="conversation__contact">
+          {chat !== undefined && (
+            <span className="conversation__avatar">
+              {chat.avatarUrl === undefined ? (
+                <span aria-hidden="true">{initialsFor(chat.title)}</span>
+              ) : (
+                <img src={chat.avatarUrl} alt={chat.title} />
+              )}
+              {chat.kind === "direct" && chat.presence === "online" && (
+                <span className="presence-dot" aria-label="В сети" />
+              )}
+            </span>
+          )}
+          <div className="conversation__identity">
+            <strong>{chat?.title ?? "Выберите чат"}</strong>
+            {chat !== undefined && <span>{subtitle}</span>}
+          </div>
         </div>
         <div className="conversation__actions">
           <button
@@ -209,4 +220,114 @@ export function Conversation({
       />
     </section>
   );
+}
+
+function useMinuteAlignedNow(lastSeenAt: number | undefined): number {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (lastSeenAt === undefined) {
+      return;
+    }
+    let timer: number | undefined;
+    const schedule = () => {
+      const remainder = Date.now() % 60_000;
+      const delay = remainder === 0 ? 60_000 : 60_000 - remainder;
+      timer = window.setTimeout(() => {
+        setTick((value) => value + 1);
+        schedule();
+      }, delay);
+    };
+    schedule();
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [lastSeenAt]);
+
+  return Date.now();
+}
+
+function conversationSubtitle(
+  chat: MessengerChat | undefined,
+  now: number
+): string {
+  if (chat === undefined || chat.kind !== "direct") {
+    return "MAX";
+  }
+  if (chat.presence === "online") {
+    return "В сети";
+  }
+  if (chat.presence === "recently") {
+    return "Был(-а) недавно";
+  }
+  if (chat.presence === "long_ago") {
+    return "Был(-а) давно";
+  }
+  if (
+    chat.presence !== "offline" ||
+    !validLastSeenAt(chat.lastSeenAt, now)
+  ) {
+    return "MAX";
+  }
+  return formatLastSeen(chat.lastSeenAt, now);
+}
+
+function formatLastSeen(lastSeenAt: number, now: number): string {
+  const age = Math.max(0, now - lastSeenAt);
+  if (age < 60_000) {
+    return "Только что";
+  }
+  if (age < 60 * 60_000) {
+    return `${String(Math.floor(age / 60_000))} мин назад`;
+  }
+  if (age < 24 * 60 * 60_000) {
+    return `${String(Math.floor(age / (60 * 60_000)))} ч назад`;
+  }
+  const seen = new Date(lastSeenAt);
+  if (localDayNumber(new Date(now)) - localDayNumber(seen) === 1) {
+    return `Вчера, ${formatTime(seen)}`;
+  }
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: seen.getFullYear() === new Date(now).getFullYear()
+      ? undefined
+      : "numeric"
+  }).format(seen);
+}
+
+function validLastSeenAt(
+  value: number | undefined,
+  now: number
+): value is number {
+  return value !== undefined &&
+    Number.isSafeInteger(value) &&
+    value >= 946_684_800_000 &&
+    value <= 4_102_444_800_000 &&
+    value <= now + 5 * 60_000;
+}
+
+function localDayNumber(value: Date): number {
+  return Math.floor(Date.UTC(
+    value.getFullYear(),
+    value.getMonth(),
+    value.getDate()
+  ) / (24 * 60 * 60_000));
+}
+
+function formatTime(value: Date): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(value);
+}
+
+function initialsFor(title: string): string {
+  return title
+    .split(/\s+/u)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase("ru-RU") ?? "")
+    .join("");
 }

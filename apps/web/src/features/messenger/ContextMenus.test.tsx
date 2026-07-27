@@ -166,6 +166,269 @@ describe("message context menu", () => {
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
   });
+
+  it.each([
+    ["pending", "Отправляется", "◷"],
+    ["sent", "Отправлено", "✓"],
+    ["delivered", "Доставлено", "✓"],
+    ["read", "Прочитано", "✓✓"],
+    ["failed", "Не отправлено", "!"]
+  ] as const)(
+    "shows %s delivery only for outgoing messages",
+    (status, label, glyph) => {
+      const { rerender } = render(
+        <MessageBubble message={{ ...outgoingMessage(), status }} />
+      );
+
+      expect(screen.getByLabelText(label)).toHaveTextContent(glyph);
+
+      rerender(
+        <MessageBubble message={{ ...incomingMessage(), status }} />
+      );
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+  );
+});
+
+describe("conversation identity and last seen", () => {
+  it.each([
+    [5 * 60_000, "5 мин назад"],
+    [2 * 60 * 60_000, "2 ч назад"]
+  ] as const)("shows trusted offline time %s ms ago", (age, label) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-27T10:00:30.000Z"));
+    render(
+      <Conversation
+        chat={{
+          ...chat(),
+          avatarUrl: "https://i.oneme.ru/avatar",
+          presence: "offline",
+          lastSeenAt: Date.now() - age
+        }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    const avatar = screen.getByRole("img", { name: "Даниил" });
+    const title = screen.getByText("Даниил");
+    expect(avatar.compareDocumentPosition(title) &
+      Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(screen.getByText(label)).toBeVisible();
+  });
+
+  it.each([
+    ["recently", "Был(-а) недавно"],
+    ["long_ago", "Был(-а) давно"]
+  ] as const)("shows MAX privacy state %s", (presence, label) => {
+    render(
+      <Conversation
+        chat={{ ...chat(), presence }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(label)).toBeVisible();
+  });
+
+  it("updates on the next minute boundary only while active", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-27T10:00:50.000Z"));
+    const lastSeenAt = Date.now() - 59_000;
+    const view = render(
+      <Conversation
+        chat={{
+          ...chat(),
+          presence: "offline",
+          lastSeenAt
+        }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Только что")).toBeVisible();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText("1 мин назад")).toBeVisible();
+
+    view.rerender(
+      <Conversation
+        chat={{
+          ...chat(),
+          presence: "offline",
+          lastSeenAt
+        }}
+        messages={[]}
+        wide
+        active={false}
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText("1 мин назад")).toBeVisible();
+  });
+
+  it("uses yesterday with time and then a calendar date", () => {
+    vi.useFakeTimers();
+    const now = new Date(2026, 6, 27, 10, 0);
+    vi.setSystemTime(now);
+    const yesterday = new Date(2026, 6, 26, 9, 15).getTime();
+    const older = new Date(2026, 6, 24, 9, 15).getTime();
+    const view = render(
+      <Conversation
+        chat={{
+          ...chat(),
+          presence: "offline",
+          lastSeenAt: yesterday
+        }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Вчера, 09:15")).toBeVisible();
+    view.rerender(
+      <Conversation
+        chat={{
+          ...chat(),
+          presence: "offline",
+          lastSeenAt: older
+        }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+    expect(screen.getByText(new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit"
+    }).format(older))).toBeVisible();
+  });
+
+  it("clears its minute timer on inactivity and unmount", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-27T10:00:30.000Z"));
+    const clearTimeout = vi.spyOn(window, "clearTimeout");
+    const props = {
+      chat: {
+        ...chat(),
+        presence: "offline" as const,
+        lastSeenAt: Date.now() - 5 * 60_000
+      },
+      messages: [],
+      wide: true,
+      onOpenChats: vi.fn(),
+      onSend: vi.fn()
+    };
+    const view = render(<Conversation {...props} active />);
+
+    view.rerender(<Conversation {...props} active={false} />);
+    expect(clearTimeout).toHaveBeenCalled();
+    const afterDeactivation = clearTimeout.mock.calls.length;
+
+    view.rerender(<Conversation {...props} active />);
+    view.unmount();
+    expect(clearTimeout.mock.calls.length).toBeGreaterThan(
+      afterDeactivation
+    );
+  });
+
+  it("shows online state only for a direct contact", () => {
+    const view = render(
+      <Conversation
+        chat={{ ...chat(), presence: "online" }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("В сети")).toBeVisible();
+    expect(screen.getByText("В сети")).toBeVisible();
+
+    view.rerender(
+      <Conversation
+        chat={{ ...chat(), kind: "group", presence: "online" }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+    expect(screen.queryByLabelText("В сети")).toBeNull();
+    expect(screen.queryByText("В сети")).toBeNull();
+    expect(screen.getByText("MAX")).toBeVisible();
+  });
+
+  it.each([
+    [{ presence: "online" as const, lastSeenAt: Date.now() - 60_000 }],
+    [{ presence: "unknown" as const, lastSeenAt: Date.now() - 60_000 }],
+    [{ presence: "offline" as const, lastSeenAt: Number.NaN }],
+    [{ presence: "offline" as const, lastSeenAt: Date.now() + 10 * 60_000 }],
+    [{
+      kind: "group" as const,
+      presence: "offline" as const,
+      lastSeenAt: Date.now() - 60_000
+    }],
+    [{
+      kind: "channel" as const,
+      presence: "offline" as const,
+      lastSeenAt: Date.now() - 60_000
+    }]
+  ])("does not infer an offline subtitle from ineligible data %#", (fields) => {
+    render(
+      <Conversation
+        chat={{ ...chat(), ...fields }}
+        messages={[]}
+        wide
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText(/назад|Был\(-а\)/u)).toBeNull();
+  });
+
+  it("does not render the old visible chats button", () => {
+    render(
+      <Conversation
+        chat={chat()}
+        messages={[]}
+        wide={false}
+        active
+        onOpenChats={vi.fn()}
+        onSend={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("button", {
+      name: "Открыть список чатов"
+    })).toBeNull();
+  });
 });
 
 describe("reply and edit composer state", () => {

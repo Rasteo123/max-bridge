@@ -17,6 +17,7 @@ const MAX_CURRENT_MESSAGES = 400;
 
 export class MessengerStore {
   private listeners = new Set<() => void>();
+  private presenceInvalidated = false;
   private snapshot: MessengerSnapshot = {
     chats: [],
     messages: [],
@@ -34,9 +35,12 @@ export class MessengerStore {
   };
 
   replaceChats(chats: readonly MessengerChat[]): void {
+    const normalized = deduplicateChats(chats).slice(0, MAX_CHATS);
     this.update({
       ...this.snapshot,
-      chats: deduplicateChats(chats).slice(0, MAX_CHATS)
+      chats: this.presenceInvalidated
+        ? invalidatePresence(normalized)
+        : normalized
     });
   }
 
@@ -101,7 +105,14 @@ export class MessengerStore {
         }
         return;
       case "connection.state":
-        this.update({ ...this.snapshot, connection: event.state });
+        this.presenceInvalidated = event.state !== "connected";
+        this.update({
+          ...this.snapshot,
+          connection: event.state,
+          chats: this.presenceInvalidated
+            ? invalidatePresence(this.snapshot.chats)
+            : this.snapshot.chats
+        });
         return;
       case "authentication.state":
         this.update({ ...this.snapshot, authentication: event.state });
@@ -146,6 +157,25 @@ export class MessengerStore {
       listener();
     }
   }
+}
+
+function invalidatePresence(
+  chats: readonly MessengerChat[]
+): readonly MessengerChat[] {
+  return chats.map((chat) => {
+    if (
+      chat.kind !== "direct" ||
+      chat.presence === undefined && chat.lastSeenAt === undefined
+    ) {
+      return chat;
+    }
+    const sanitized: MessengerChat & { lastSeenAt?: number } = {
+      ...chat,
+      presence: "unknown"
+    };
+    Reflect.deleteProperty(sanitized, "lastSeenAt");
+    return sanitized;
+  });
 }
 
 function deduplicateChats(

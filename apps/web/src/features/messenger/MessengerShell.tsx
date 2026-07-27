@@ -1,9 +1,11 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState
 } from "react";
 
+import { currentTelegramWebApp } from "../auth/telegram.js";
 import { ChatList } from "./ChatList.js";
 import { Conversation } from "./Conversation.js";
 import type {
@@ -59,6 +61,8 @@ export function MessengerShell({
   historyLoading = false
 }: MessengerShellProps) {
   const wide = useResponsivePane();
+  const telegram = useMemo(() => currentTelegramWebApp(), []);
+  const [active, setActive] = useState(telegram?.isActive !== false);
   const [selectedChatId, setSelectedChatId] = useState(initialChatId);
   const [pane, setPane] = useState<MessengerPane>(
     initialPane ?? (initialChatId === undefined ? "list" : "conversation")
@@ -67,11 +71,15 @@ export function MessengerShell({
     () => chats.find((chat) => chat.id === selectedChatId),
     [chats, selectedChatId]
   );
+  const hasSelectedChat = selectedChat !== undefined;
   const swipe = useSwipeNavigation({
     pane,
     setPane,
     disabled: wide
   });
+  const openChats = useCallback(() => {
+    setPane("list");
+  }, []);
 
   useEffect(() => {
     if (initialChatId !== undefined) {
@@ -81,6 +89,44 @@ export function MessengerShell({
     setSelectedChatId(undefined);
     setPane("list");
   }, [initialChatId]);
+
+  useEffect(() => {
+    if (
+      telegram?.onEvent === undefined ||
+      telegram.offEvent === undefined
+    ) {
+      return;
+    }
+    const activated = () => {
+      setActive(true);
+    };
+    const deactivated = () => {
+      setActive(false);
+    };
+    telegram.onEvent("activated", activated);
+    telegram.onEvent("deactivated", deactivated);
+    return () => {
+      telegram.offEvent?.("activated", activated);
+      telegram.offEvent?.("deactivated", deactivated);
+    };
+  }, [telegram]);
+
+  useEffect(() => {
+    const backButton = telegram?.BackButton;
+    if (backButton === undefined) {
+      return;
+    }
+    if (wide || pane !== "conversation" || !hasSelectedChat) {
+      backButton.hide();
+      return;
+    }
+    backButton.onClick(openChats);
+    backButton.show();
+    return () => {
+      backButton.offClick(openChats);
+      backButton.hide();
+    };
+  }, [hasSelectedChat, openChats, pane, telegram, wide]);
 
   function selectChat(chatId: string) {
     setSelectedChatId(chatId);
@@ -128,9 +174,8 @@ export function MessengerShell({
             messages={messages}
             historyLoading={historyLoading}
             wide={wide}
-            onOpenChats={() => {
-              setPane("list");
-            }}
+            active={active}
+            onOpenChats={openChats}
             onSend={onSend}
             {...(onAttach === undefined ? {} : { onAttach })}
             {...(onEditMessage === undefined ? {} : { onEditMessage })}

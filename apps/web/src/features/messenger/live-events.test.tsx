@@ -61,19 +61,40 @@ describe("MessengerStore", () => {
       ?.unreadCount).toBe(2);
   });
 
-  it("exposes reconnect state without persisting browser storage", () => {
-    const store = new MessengerStore();
-    store.applyEvent({
-      type: "connection.state",
-      sequence: 4,
-      occurredAt: "2026-07-26T15:00:00.000Z",
-      state: "reconnecting"
-    });
+  it.each(["reconnecting", "disconnected"] as const)(
+    "hides stale presence while %s without persisting browser storage",
+    (state) => {
+      const store = new MessengerStore();
+      store.replaceChats([{
+        ...chat(),
+        presence: "offline",
+        lastSeenAt: 1_785_146_400_000
+      }]);
+      store.applyEvent({
+        type: "connection.state",
+        sequence: 4,
+        occurredAt: "2026-07-26T15:00:00.000Z",
+        state
+      });
 
-    expect(store.getSnapshot().connection).toBe("reconnecting");
-    expect(localStorage).toHaveLength(0);
-    expect(sessionStorage).toHaveLength(0);
-  });
+      expect(store.getSnapshot().connection).toBe(state);
+      expect(store.getSnapshot().chats[0]).toMatchObject({
+        presence: "unknown"
+      });
+      expect(store.getSnapshot().chats[0]).not.toHaveProperty("lastSeenAt");
+
+      store.replaceChats([{
+        ...chat(),
+        presence: "online"
+      }]);
+      expect(store.getSnapshot().chats[0]).toMatchObject({
+        presence: "unknown"
+      });
+
+      expect(localStorage).toHaveLength(0);
+      expect(sessionStorage).toHaveLength(0);
+    }
+  );
 });
 
 describe("Telegram live-event lifecycle", () => {
