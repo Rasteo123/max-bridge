@@ -315,6 +315,8 @@ git commit -m "feat: capture MAX presence and acknowledgements"
 - Modify: `apps/web/src/api/socket.test.ts`
 - Modify: `apps/web/src/features/messenger/useLiveEvents.ts`
 - Modify: `apps/web/src/features/messenger/live-events.test.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.test.tsx`
 
 - [ ] **Step 1: Write failing host-lifecycle tests**
 
@@ -339,7 +341,7 @@ Keep the existing server-side HMAC and `auth_date` tests unchanged: signed
 Run:
 
 ```bash
-npx vitest run --config vitest.workspace.ts apps/web/src/features/auth/telegram.test.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/live-events.test.tsx
+npx vitest run --config vitest.workspace.ts apps/web/src/features/auth/telegram.test.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/live-events.test.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx
 ```
 
 Expected: FAIL because the Telegram interface has no event methods and the live
@@ -361,7 +363,9 @@ timers and close the current socket without expiring authentication. Resume must
 reauthenticate once before reconnecting. In `useLiveEvents`, subscribe to
 `deactivated` and `activated`; deactivate pauses the socket, and activate
 resumes it and requests a fresh chat/history snapshot through an injected
-callback. Remove both listeners and stop the socket on unmount.
+callback. Wire that callback in `ConnectedMessenger` to refresh the chat list
+and currently selected chat history exactly once without marking messages read.
+Remove both listeners and stop the socket on unmount.
 
 Do not keep a live connection while Telegram reports the Mini App inactive.
 Do not automatically mark MAX messages read as part of activation or refresh.
@@ -379,7 +383,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/features/auth/telegram.test.ts apps/web/src/features/auth/telegram.ts apps/web/src/features/auth/AuthGate.tsx apps/web/src/api/socket.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/useLiveEvents.ts apps/web/src/features/messenger/live-events.test.tsx
+git add apps/web/src/features/auth/telegram.test.ts apps/web/src/features/auth/telegram.ts apps/web/src/features/auth/AuthGate.tsx apps/web/src/api/socket.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/useLiveEvents.ts apps/web/src/features/messenger/live-events.test.tsx apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx
 git commit -m "fix: follow Telegram Mini App lifecycle"
 ```
 
