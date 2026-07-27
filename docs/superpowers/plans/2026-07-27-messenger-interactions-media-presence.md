@@ -39,10 +39,15 @@ boundary instead of silently changing product semantics.
 - `apps/web/src/features/messenger/useMediaTransform.ts` — image scale/translation math and pointer tracking.
 - `apps/web/src/features/messenger/MediaViewer.tsx` — accessible image/video modal.
 - `apps/web/src/features/messenger/MediaViewer.test.tsx` — viewer interaction coverage.
+- `apps/web/src/features/messenger/RichMessageText.tsx` — safe caption text and link rendering.
+- `apps/web/src/features/messenger/RichMessageText.test.tsx` — caption/link/emoji coverage.
+- `apps/web/src/features/messenger/ForwardMessagePicker.tsx` — searchable forward destination picker.
+- `apps/web/src/features/messenger/ForwardMessagePicker.test.tsx` — selection and confirmation coverage.
 
 **Modify**
 
 - `packages/core/src/domain/chat.ts` — strict presence and last-message direction fields.
+- `packages/core/src/domain/message.ts` — strict forwarded source and rich-caption fields.
 - `packages/core/src/domain/domain.test.ts` — schema acceptance/rejection.
 - `packages/max-adapter/src/adapters/chat-list-adapter.ts` — normalized presence, direction, and last-message status.
 - `packages/max-adapter/src/adapters/history-adapter.ts` — normalize additional MAX acknowledgement variants.
@@ -69,6 +74,10 @@ boundary instead of silently changing product semantics.
 - `apps/web/src/features/messenger/messenger.css` — gesture, modal, header, presence, receipts, and upload styles.
 - `apps/api/src/routes/messages.test.ts` — attachment isolation and cleanup assertions.
 - `apps/worker/src/runtime/request-handler.test.ts` — attachment request remains session-scoped.
+- `packages/protocol/src/commands.ts` — session-scoped message-forward operation.
+- `packages/protocol/src/messages.ts` — strict forward request/response payload.
+- `apps/api/src/runtime/bridge-runtime-gateway.ts` — per-user forward routing.
+- `apps/api/src/routes/messages.ts` — authenticated forward endpoint.
 
 ## Task 1: Extend strict chat and message normalization
 
@@ -767,6 +776,205 @@ git add apps/web/src/features/messenger/MediaViewer.tsx apps/web/src/features/me
 git commit -m "feat: add full screen media viewer"
 ```
 
+## Task 6A: Preserve rich forwarded messages and navigate to their source
+
+**Files:**
+
+- Modify: `packages/core/src/domain/message.ts`
+- Modify: `packages/core/src/domain/domain.test.ts`
+- Modify: `packages/max-adapter/src/adapters/history-adapter.ts`
+- Modify: `packages/max-adapter/src/adapters/adapters.test.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.test.ts`
+- Modify: `apps/web/src/features/messenger/types.ts`
+- Create: `apps/web/src/features/messenger/RichMessageText.tsx`
+- Create: `apps/web/src/features/messenger/RichMessageText.test.tsx`
+- Modify: `apps/web/src/features/messenger/MessageBubble.tsx`
+- Modify: `apps/web/src/features/messenger/ContextMenus.test.tsx`
+- Modify: `apps/web/src/features/messenger/Conversation.tsx`
+- Modify: `apps/web/src/features/messenger/MessengerShell.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.test.tsx`
+- Modify: `apps/web/src/features/messenger/messenger-store.ts`
+- Modify: `apps/web/src/features/messenger/messenger.css`
+
+- [ ] **Step 1: Inspect the real forwarded record and write failing fixtures**
+
+In the authenticated `web.max.ru` page, inspect one forwarded image with a
+caption/link/emoji and one forwarded video. Record only field names, element
+roles/classes, attachment kinds, and safe synthetic examples in tests. Never
+copy real message bodies, session data, phone numbers, or cookies.
+
+Add failing worker/adapter/core tests that require:
+
+- a strict `forwardedSource` containing bounded `title`, trusted `chatId`, and
+  `kind: "direct" | "group" | "channel"` when MAX exposes them;
+- the full caption text including emoji;
+- safe link information from MAX text entities or rendered anchors;
+- forwarded PHOTO and VIDEO attachments to keep their real media kind and
+  caption;
+- sticker/voice/file forwarding to keep the attachment type;
+- an unrecognized attachment to become an explicit unsupported-attachment
+  presentation, not a generic text message containing “Сообщение”.
+
+Add web tests that click the forwarded source, preserve a safe caption link,
+render emoji, and show an actionable error if the source cannot be opened.
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+Run:
+
+```bash
+npx vitest run --config vitest.workspace.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/adapters.test.ts apps/worker/src/max/max-web-page-session.test.ts apps/web/src/features/messenger/RichMessageText.test.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx
+```
+
+Expected: FAIL because forwarded source identity, rich caption links, and some
+forwarded media kinds are discarded and the source title is not interactive.
+
+- [ ] **Step 3: Extend strict message normalization**
+
+Add a strict forwarded-source object to the message schema. Keep
+`forwardedFrom` temporarily for backward compatibility, but derive it from the
+source title when the new object exists.
+
+Preserve the complete bounded caption text. Normalize only link entities
+actually present in MAX data or the rendered message DOM. Represent links in a
+strict, bounded shape that cannot contain `javascript:`, `data:`, credentials,
+or a non-HTTPS external URL. Malformed ranges/segments fall back to plain text.
+Emoji must remain intact; never slice inside a surrogate pair.
+
+Extend the worker's history snapshot to extract source ID/kind from raw
+forwarding records and, when necessary, from the numeric path of the rendered
+“Перейти в канал” control. Preserve caption/entity data and all bounded
+attachment records before the media adapter runs.
+
+Teach the history adapter to use `caption` aliases for media text and to map
+PHOTO/VIDEO/STICKER/AUDIO/FILE correctly. An unknown type produces an explicit
+unsupported attachment/message state and a non-sensitive diagnostic category.
+
+- [ ] **Step 4: Add safe rendering and in-app source navigation**
+
+`RichMessageText` renders plain text and allowlisted HTTPS links without
+`dangerouslySetInnerHTML`; external links use `rel="noreferrer noopener"`.
+
+Render the forwarded source title as a real button. Pass an
+`onOpenForwardedSource` callback through Conversation/MessengerShell. When the
+source chat already exists, select it and load history. When it is not in the
+list, create a transient chat summary only from the normalized source object,
+select it, and request history through the current authenticated client. On
+404/inaccessible source, return to the original chat and show an error instead
+of silently doing nothing.
+
+- [ ] **Step 5: Run focused and regression tests**
+
+Run the Step 2 command plus:
+
+```bash
+npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/MediaViewer.test.tsx
+```
+
+Expected: PASS. Forwarded image/video captions render below the media, source
+navigation works, and no false “Сообщение” placeholder remains.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/core/src/domain/message.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/history-adapter.ts packages/max-adapter/src/adapters/adapters.test.ts apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-page-session.test.ts apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/RichMessageText.tsx apps/web/src/features/messenger/RichMessageText.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx apps/web/src/features/messenger/messenger-store.ts apps/web/src/features/messenger/messenger.css
+git commit -m "fix: preserve rich forwarded messages"
+```
+
+## Task 6B: Forward messages from the context menu
+
+**Files:**
+
+- Modify: `packages/protocol/src/commands.ts`
+- Modify: `packages/protocol/src/messages.ts`
+- Modify: `packages/protocol/src/protocol.test.ts`
+- Modify: `packages/max-adapter/src/max-session.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.ts`
+- Modify: `apps/worker/src/max/max-web-page-session.test.ts`
+- Modify: `apps/worker/src/runtime/request-handler.ts`
+- Modify: `apps/worker/src/runtime/request-handler.test.ts`
+- Modify: `apps/api/src/runtime/bridge-runtime-gateway.ts`
+- Modify: `apps/api/src/runtime/bridge-runtime-gateway.test.ts`
+- Modify: `apps/api/src/routes/messages.ts`
+- Modify: `apps/api/src/routes/messages.test.ts`
+- Modify: `apps/web/src/api/client.ts`
+- Modify: `apps/web/src/features/messenger/types.ts`
+- Create: `apps/web/src/features/messenger/ForwardMessagePicker.tsx`
+- Create: `apps/web/src/features/messenger/ForwardMessagePicker.test.tsx`
+- Modify: `apps/web/src/features/messenger/MessageBubble.tsx`
+- Modify: `apps/web/src/features/messenger/ContextMenus.test.tsx`
+- Modify: `apps/web/src/features/messenger/Conversation.tsx`
+- Modify: `apps/web/src/features/messenger/MessengerShell.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.tsx`
+- Modify: `apps/web/src/features/messenger/ConnectedMessenger.test.tsx`
+- Modify: `apps/web/src/features/messenger/messenger.css`
+
+- [ ] **Step 1: Inspect MAX's native forwarding flow and write failing tests**
+
+Using the authenticated MAX page, record the accessible sequence for
+right-click/long-press “Переслать”, destination search/selection, confirmation,
+and completion. Store only selectors and synthetic fixtures.
+
+Add failing tests for:
+
+- “Переслать” appearing on eligible incoming and outgoing message menus;
+- a searchable picker with chat/channel rows and explicit confirmation;
+- no action with zero selected destinations;
+- cancel returning focus to the source message;
+- protocol/API/worker payloads containing source chat ID, source message ID,
+  destination IDs, and client request ID only;
+- worker selection of the exact source message and native MAX forward action;
+- confirmed and ambiguous results with no automatic retry;
+- user A's gateway/session handle never serving user B's forward request.
+
+- [ ] **Step 2: Run and verify RED**
+
+Run:
+
+```bash
+npx vitest run --config vitest.workspace.ts packages/protocol/src/protocol.test.ts apps/worker/src/max/max-web-page-session.test.ts apps/worker/src/runtime/request-handler.test.ts apps/api/src/runtime/bridge-runtime-gateway.test.ts apps/api/src/routes/messages.test.ts apps/web/src/features/messenger/ForwardMessagePicker.test.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx
+```
+
+Expected: FAIL because no forward operation or picker exists.
+
+- [ ] **Step 3: Add strict session-scoped forwarding**
+
+Add `message.forward` to the protocol with bounded opaque IDs, 1–10 unique
+destination IDs, and a client request ID. Reject duplicates, extra identity
+fields, session handles, URLs, text, and attachment bodies.
+
+The API derives `userLookup` exclusively from the authenticated Telegram
+principal and forwards the strict payload to that user's gateway/session.
+
+The worker verifies the source chat, opens the exact source message's native
+context menu, selects MAX's forward action, selects only the requested
+destinations in the native picker, confirms once, and waits for bounded MAX
+confirmation. Never fall back to copying/reuploading media and never retry an
+ambiguous result.
+
+- [ ] **Step 4: Add the web picker and action state**
+
+Add a context-menu action labelled “Переслать”. The picker filters the current
+normalized chat/channel list, supports 1–10 selections, has Cancel and Forward
+buttons, traps focus, and restores focus after close. Show sending, confirmed,
+failed, and ambiguous states. Disable duplicate submission and require an
+explicit user retry after failure/ambiguity.
+
+- [ ] **Step 5: Run focused and isolation tests**
+
+Run the Step 2 command.
+
+Expected: PASS with no cross-user session, source, or destination leakage.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/protocol/src/commands.ts packages/protocol/src/messages.ts packages/protocol/src/protocol.test.ts packages/max-adapter/src/max-session.ts apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-page-session.test.ts apps/worker/src/runtime/request-handler.ts apps/worker/src/runtime/request-handler.test.ts apps/api/src/runtime/bridge-runtime-gateway.ts apps/api/src/runtime/bridge-runtime-gateway.test.ts apps/api/src/routes/messages.ts apps/api/src/routes/messages.test.ts apps/web/src/api/client.ts apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/ForwardMessagePicker.tsx apps/web/src/features/messenger/ForwardMessagePicker.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx apps/web/src/features/messenger/messenger.css
+git commit -m "feat: forward MAX messages"
+```
+
 ## Task 7: Target the correct MAX attachment control
 
 **Files:**
@@ -1045,6 +1253,11 @@ Using the existing signed-in `web.max.ru` tab:
 4. Inspect one online and one offline direct chat and compare the normalized
    presence.
 5. Send an outgoing message, observe one check, have it read, and observe two.
+6. Open a forwarded image and video with captions, links, and emoji; require the
+   caption and media to remain together and the source button to open its
+   chat/channel.
+7. Forward one message from its context menu to Saved Messages and one other
+   test chat; require exactly one native MAX forward in each destination.
 
 Do not print session tokens, cookies, phone numbers, message bodies, or raw
 private chat payloads.
@@ -1062,6 +1275,8 @@ Use the Mini App to check:
    Telegram's native BackButton returns from a selected chat to the list;
 7. minimizing the Mini App closes the live socket, and returning reauthenticates,
    reconnects, and refreshes without an endless “reconnecting” banner.
+8. forwarded captions/links remain visible, source navigation works, and the
+   context-menu forward picker can send to one selected destination.
 
 Expected: no text selection during the reply gesture and no indefinite
 “reconnecting” state.

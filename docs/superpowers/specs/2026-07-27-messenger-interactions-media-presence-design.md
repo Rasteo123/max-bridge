@@ -12,6 +12,8 @@ The release adds:
 - online presence for direct contacts;
 - avatars in the conversation header;
 - outgoing delivery/read receipts in messages and chat previews;
+- complete forwarded-message captions, links, emoji, media, and source navigation;
+- forwarding an existing message from its context menu;
 - reliable image, video, and file sending from desktop and mobile browsers.
 
 ## Scope decisions
@@ -143,6 +145,44 @@ uploading state in the composer. While a file is in progress, duplicate
 submission is disabled. A failed upload produces a human-readable error and a
 retry action that reuses the still-local `File` object; cancelling or selecting
 another chat clears that retry state.
+
+### Rich forwarded messages
+
+A forwarded message is rendered as one coherent message, not as a media-only
+card plus a generic “Сообщение” placeholder.
+
+- The worker preserves the source title, trusted source chat/channel ID and
+  kind, complete caption text, safe link entities, emoji, and the supported
+  attachment type.
+- Image, video, sticker, voice, and file attachments retain their caption.
+- Safe `https` links in captions are interactive; unsupported schemes and
+  malformed entity ranges render as plain text.
+- The forwarded source title is a button. Activating it opens the corresponding
+  chat or channel inside the Mini App. If it is absent from the current list,
+  the client creates a transient summary from the signed MAX snapshot and asks
+  the requesting user's worker to open that trusted ID. A missing or inaccessible
+  source produces a visible error instead of a silent no-op.
+- Unknown attachment types render a descriptive unsupported-attachment state
+  and diagnostic category, never the misleading generic word “Сообщение”.
+
+The source identifier is accepted only from the authenticated MAX snapshot; it
+is never taken from a client-supplied URL.
+
+### Forward from the context menu
+
+Every eligible message context menu includes “Переслать”.
+
+1. The action opens a searchable chat/channel picker in the Mini App.
+2. The user selects one or more destinations and explicitly confirms.
+3. The API sends only source chat ID, source message ID, selected destination
+   IDs, and a client request ID to that authenticated Telegram user's worker.
+4. The worker uses MAX's native forward UI/action so attribution, caption,
+   links, emoji, and media stay attached to the original message.
+5. Each destination is confirmed once. An ambiguous result is displayed and is
+   never automatically retried.
+
+The operation cannot forward across worker sessions and cannot accept a session
+handle or Telegram user identity from the request body.
 
 ## Data model and flow
 
