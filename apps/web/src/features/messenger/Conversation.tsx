@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Composer } from "./Composer.js";
+import {
+  MediaViewer,
+  type MediaViewerItem
+} from "./MediaViewer.js";
+import {
+  mediaPath,
+  safeMaxMediaUrl
+} from "./MediaMessage.js";
 import { MessageBubble } from "./MessageBubble.js";
 import type {
   MessengerChat,
@@ -47,6 +55,7 @@ export function Conversation({
   const [searchQuery, setSearchQuery] = useState("");
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
+  const [openMediaIndex, setOpenMediaIndex] = useState<number | null>(null);
   const now = useMinuteAlignedNow(
     active && chat?.kind === "direct" &&
       chat.presence === "offline" &&
@@ -58,7 +67,21 @@ export function Conversation({
 
   useEffect(() => {
     setComposerContext(null);
+    setOpenMediaIndex(null);
   }, [chat?.id]);
+
+  const mediaGallery = useMemo<readonly MediaViewerItem[]>(() => {
+    return mediaGalleryForConversation(chat, messages);
+  }, [chat, messages]);
+
+  useEffect(() => {
+    if (
+      openMediaIndex !== null &&
+      openMediaIndex >= mediaGallery.length
+    ) {
+      setOpenMediaIndex(null);
+    }
+  }, [mediaGallery.length, openMediaIndex]);
 
   const visibleMessages = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase("ru-RU");
@@ -73,7 +96,8 @@ export function Conversation({
   }, [messages, searchQuery]);
 
   return (
-    <section
+    <>
+      <section
       className="conversation"
       data-testid="conversation"
       aria-label={chat === undefined ? "Переписка" : `Переписка с ${chat.title}`}
@@ -198,6 +222,14 @@ export function Conversation({
                 {...(onReactMessage === undefined
                   ? {}
                   : { onReact: onReactMessage })}
+                onOpenMedia={(selectedMessage) => {
+                  const nextIndex = mediaGallery.findIndex(
+                    (item) => item.id === selectedMessage.id
+                  );
+                  if (nextIndex >= 0) {
+                    setOpenMediaIndex(nextIndex);
+                  }
+                }}
               />
             ))}
           </>
@@ -224,8 +256,54 @@ export function Conversation({
           setComposerContext(null);
         }}
       />
-    </section>
+      </section>
+      {openMediaIndex !== null && mediaGallery.length > 0 && (
+        <MediaViewer
+          items={mediaGallery}
+          index={openMediaIndex}
+          onIndexChange={setOpenMediaIndex}
+          onClose={() => {
+            setOpenMediaIndex(null);
+          }}
+        />
+      )}
+    </>
   );
+}
+
+export function mediaGalleryForConversation(
+  chat: MessengerChat | undefined,
+  messages: readonly MessengerMessage[]
+): readonly MediaViewerItem[] {
+  if (chat === undefined) {
+    return [];
+  }
+  return messages.flatMap((message) => {
+    const kind = message.kind;
+    const media = message.media;
+    if (
+      (kind !== "image" && kind !== "video") ||
+      media === undefined ||
+      (
+        message.chatId !== undefined &&
+        message.chatId !== chat.id
+      ) ||
+      (
+        safeMaxMediaUrl(media.sourceUrl) === null &&
+        mediaPath(media.handle) === null
+      )
+    ) {
+      return [];
+    }
+    return [{
+      id: message.id,
+      kind,
+      media,
+      alt: kind === "image"
+        ? `Изображение в сообщении ${message.id}`
+        : `Видео в сообщении ${message.id}`
+    }];
+  });
 }
 
 function useMinuteAlignedNow(lastSeenAt: number | undefined): number {

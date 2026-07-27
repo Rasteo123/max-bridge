@@ -1,7 +1,10 @@
 import { useState } from "react";
 
 import { DeliveryIndicator } from "./DeliveryIndicator.js";
-import { MediaMessage } from "./MediaMessage.js";
+import {
+  MediaMessage,
+  type MediaOpenInput
+} from "./MediaMessage.js";
 import {
   PressContextMenu,
   type ContextMenuAction,
@@ -22,6 +25,7 @@ type MessageBubbleProps = Readonly<{
   onEdit?(messageId: string, text: string): void;
   onDelete?(messageId: string): void;
   onReact?(messageId: string, reaction: ReactionKey | null): void;
+  onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
 }>;
 
 const REACTIONS: readonly Readonly<{
@@ -43,7 +47,8 @@ export function MessageBubble({
   onReply,
   onEdit,
   onDelete,
-  onReact
+  onReact,
+  onOpenMedia
 }: MessageBubbleProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
   const replySwipe = useSwipeToReply({
@@ -172,7 +177,20 @@ export function MessageBubble({
         )}
         {isMedia && message.media !== undefined && (
           <div data-no-swipe>
-            <MediaMessage kind={kind} media={message.media} />
+            <MediaMessage
+              kind={kind}
+              media={message.media}
+              {...(
+                (kind === "image" || kind === "video") &&
+                onOpenMedia !== undefined
+                  ? {
+                    onOpen: (input: MediaOpenInput) => {
+                      onOpenMedia(message, input);
+                    }
+                  }
+                  : {}
+              )}
+            />
           </div>
         )}
         {message.text.length > 0 && <p>{message.text}</p>}

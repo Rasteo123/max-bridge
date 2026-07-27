@@ -36,8 +36,8 @@ export interface TelegramWebApp {
   onEvent?(eventType: TelegramEvent, callback: TelegramEventCallback): void;
   offEvent?(eventType: TelegramEvent, callback: TelegramEventCallback): void;
   isVersionAtLeast?(version: string): boolean;
-  requestFullscreen?(): void;
-  exitFullscreen?(): void;
+  requestFullscreen?(): void | Promise<void>;
+  exitFullscreen?(): void | Promise<void>;
 }
 
 declare global {

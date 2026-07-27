@@ -5,14 +5,22 @@ import {
 
 import type { MessengerMedia } from "./types.js";
 
+export type MediaOpenInput = Readonly<{
+  kind: "image" | "video";
+  url: string;
+  alt: string;
+}>;
+
 type MediaMessageProps = Readonly<{
   kind: "image" | "video" | "voice" | "file";
   media: MessengerMedia;
+  onOpen?(input: MediaOpenInput): void;
 }>;
 
 export function MediaMessage({
   kind,
-  media
+  media,
+  onOpen
 }: MediaMessageProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -20,6 +28,8 @@ export function MediaMessage({
   useEffect(() => {
     const controller = new AbortController();
     let createdUrl: string | null = null;
+    setObjectUrl(null);
+    setFailed(false);
     const directUrl = safeMaxMediaUrl(media.sourceUrl);
     if (directUrl !== null) {
       setFailed(false);
@@ -28,29 +38,11 @@ export function MediaMessage({
         controller.abort();
       };
     }
-    const path = mediaPath(media.handle);
-    if (path === null) {
-      setFailed(true);
-      return () => {
-        controller.abort();
-      };
-    }
-    void fetch(path, {
-      credentials: "include",
-      cache: "no-store",
-      signal: controller.signal,
-      headers: { accept: media.mimeType }
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("media_unavailable");
-        }
-        const blob = await response.blob();
-        if (blob.size > Math.max(media.size, 1) + 1_024) {
-          throw new Error("media_size_mismatch");
-        }
-        createdUrl = URL.createObjectURL(blob);
-        setObjectUrl(createdUrl);
+    void resolveMediaUrl(media, controller.signal)
+      .then((resolved) => {
+        createdUrl = resolved.revoke ? resolved.url : null;
+        setFailed(false);
+        setObjectUrl(resolved.url);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -72,13 +64,53 @@ export function MediaMessage({
     return <span className="media-loading" aria-busy="true">Загрузка…</span>;
   }
   switch (kind) {
-    case "image":
-      return <img className="message-media" src={objectUrl} alt="Изображение" />;
+    case "image": {
+      const image = (
+        <img className="message-media" src={objectUrl} alt="Изображение" />
+      );
+      return onOpen === undefined ? image : (
+        <button
+          className="message-media-button"
+          type="button"
+          data-no-swipe
+          aria-label="Открыть изображение"
+          onClick={() => {
+            onOpen({ kind, url: objectUrl, alt: "Изображение" });
+          }}
+        >
+          {image}
+        </button>
+      );
+    }
     case "video":
-      return (
-        <video className="message-media" src={objectUrl} controls>
+      return onOpen === undefined ? (
+        <video className="message-media" src={objectUrl} controls playsInline>
           Видео недоступно
         </video>
+      ) : (
+        <button
+          className="message-media-button message-media-button--video"
+          type="button"
+          data-no-swipe
+          aria-label="Открыть видео"
+          onClick={() => {
+            onOpen({ kind, url: objectUrl, alt: "Видео" });
+          }}
+        >
+          <video
+            className="message-media"
+            src={objectUrl}
+            muted
+            playsInline
+            preload="metadata"
+            tabIndex={-1}
+          >
+            Видео недоступно
+          </video>
+          <span className="message-media-button__play" aria-hidden="true">
+            ▶
+          </span>
+        </button>
       );
     case "voice":
       return <audio className="message-audio" src={objectUrl} controls />;
@@ -89,6 +121,49 @@ export function MediaMessage({
         </a>
       );
   }
+}
+
+export type ResolvedMediaUrl = Readonly<{
+  url: string;
+  revoke: boolean;
+}>;
+
+export async function resolveMediaUrl(
+  media: MessengerMedia,
+  signal?: AbortSignal
+): Promise<ResolvedMediaUrl> {
+  const directUrl = safeMaxMediaUrl(media.sourceUrl);
+  if (directUrl !== null) {
+    return { url: directUrl, revoke: false };
+  }
+  const path = mediaPath(media.handle);
+  if (path === null) {
+    throw new Error("media_handle_invalid");
+  }
+  const response = await fetch(path, {
+    credentials: "include",
+    cache: "no-store",
+    ...(signal === undefined ? {} : { signal }),
+    headers: { accept: media.mimeType }
+  });
+  if (!response.ok) {
+    throw new Error("media_unavailable");
+  }
+  const blob = await response.blob();
+  if (blob.size > Math.max(media.size, 1) + 1_024) {
+    throw new Error("media_size_mismatch");
+  }
+  const expectedMime = normalizedMime(media.mimeType);
+  const actualMime = normalizedMime(
+    blob.type || response.headers.get("content-type") || ""
+  );
+  if (expectedMime.length === 0 || actualMime !== expectedMime) {
+    throw new Error("media_mime_mismatch");
+  }
+  return {
+    url: URL.createObjectURL(blob),
+    revoke: true
+  };
 }
 
 export function mediaPath(handle: string): string | null {
@@ -114,4 +189,8 @@ export function safeMaxMediaUrl(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizedMime(value: string): string {
+  return value.split(";", 1)[0]?.trim().toLocaleLowerCase("en-US") ?? "";
 }
