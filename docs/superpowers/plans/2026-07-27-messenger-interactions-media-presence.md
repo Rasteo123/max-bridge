@@ -398,24 +398,31 @@ git commit -m "fix: follow Telegram Mini App lifecycle"
 - Modify: `apps/worker/src/max/max-web-page-session.ts`
 - Modify: `apps/worker/src/max/max-web-page-session.test.ts`
 
-- [ ] **Step 1: Inspect the real MAX field and write failing tests**
+- [ ] **Step 1: Record the inspected MAX contract and write failing tests**
 
-In the authenticated `web.max.ru` page, inspect one explicitly offline direct
-contact for the recipient field and unit used by MAX for last seen. Record only
-the field path, scalar type/unit, and a synthetic timestamp fixture. Never
-record the contact identity, phone number, cookies, tokens, or message data.
+The current public `web.max.ru` client model was inspected without reading
+private content. It defines:
+
+- `recipient.presence.status`: `0` offline, `1` online, `2` was recently,
+  `3` was long ago;
+- `recipient.presence.isOnline`: explicit boolean derived from status `1`;
+- `recipient.presence.seen`: epoch milliseconds;
+- `recipient.presence.$.seen`: epoch seconds, converted by MAX with `* 1000`.
 
 Add failing core/adapter/worker tests that require:
 
 - `lastSeenAt` is accepted only as a finite epoch-millisecond number within
   reasonable bounds;
-- it is omitted for online, unknown, group, and channel summaries;
-- it is read only from the authenticated recipient record path confirmed in
-  MAX, including its observed raw `$` form if present;
+- presence status `0/1/2/3` normalizes to
+  `offline/online/recently/long_ago`;
+- `lastSeenAt` is omitted for online, recently, long-ago, unknown, group, and
+  channel summaries;
+- it is read only from the authenticated `recipient.presence.seen` path or its
+  observed raw `recipient.presence.$.seen` seconds form;
 - message timestamps, preview timestamps, open-chat state, and local clock
   receipt time never populate it;
-- seconds are converted to milliseconds only when the inspected MAX field is
-  proven to use seconds; ambiguous units are rejected.
+- only the verified raw `$` field is converted from seconds; ambiguous units
+  and boolean-like strings are rejected.
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
@@ -430,13 +437,16 @@ adapter, or worker snapshot.
 
 - [ ] **Step 3: Implement the smallest trusted projection**
 
-Add optional `lastSeenAt` to `ChatSummary`. The adapter keeps it only for an
+Extend `PresenceSchema` with `recently` and `long_ago`; add optional
+`lastSeenAt` to `ChatSummary`. The adapter keeps the timestamp only for an
 explicitly offline direct chat and rejects non-finite, negative, future-skewed,
 or implausibly old values.
 
-Extend the page-side snapshot with the single MAX recipient field path and unit
-verified in Step 1. Do not enumerate or clone the full recipient object, do not
-fall back to DOM text, and do not infer last seen from any message field.
+Extend the page-side snapshot with a bounded projection of the exact MAX
+presence fields listed in Step 1. Preserve existing explicit boolean aliases as
+compatibility inputs, but prefer the observed nested presence object. Do not
+enumerate or clone the full recipient object, do not fall back to DOM text, and
+do not infer last seen from any message field.
 
 - [ ] **Step 4: Run focused and regression tests**
 
@@ -496,7 +506,8 @@ case and assert no receipt.
 
 Add conversation-header tests with a fixed clock. For an offline direct chat
 whose trusted `lastSeenAt` is five minutes or two hours old, assert visible
-localized subtitles `5 мин. назад` and `2 ч. назад`. Advance the fake clock
+localized subtitles `5 мин назад` and `2 ч назад`. Assert the explicit privacy
+states render `Был(-а) недавно` and `Был(-а) давно`. Advance the fake clock
 across a minute boundary and assert the value updates while active. Assert no
 last-seen subtitle for online/unknown presence, groups, channels, malformed
 timestamps, or reconnecting/disconnected state.
@@ -528,7 +539,7 @@ button behavior.
 Add fields to `MessengerChat`:
 
 ```ts
-presence?: "online" | "offline" | "unknown";
+presence?: "online" | "offline" | "recently" | "long_ago" | "unknown";
 lastSeenAt?: number;
 lastMessageDirection?: "incoming" | "outgoing";
 ```
@@ -564,10 +575,12 @@ otherwise create a component dependency cycle.
 Replace the narrow back button with avatar/identity markup. Keep
 `onOpenChats()` available for the pane gesture but do not render the old button.
 For an explicitly offline direct chat with a trusted `lastSeenAt`, render a
-localized relative subtitle below the title. Update it on a minute-aligned
-timer while the Mini App is active and clear that timer on deactivate or
-unmount. Use a deterministic formatter with Russian minute/hour/day forms;
-never derive the timestamp from a message.
+localized relative subtitle below the title using MAX's current thresholds:
+`Только что`, `N мин назад`, `N ч назад`, yesterday with time, then date.
+Render `Был(-а) недавно` and `Был(-а) давно` for the corresponding explicit MAX
+privacy states. Update timestamp-based labels on a minute-aligned timer while
+the Mini App is active and clear that timer on deactivate or unmount. Never
+derive the timestamp from a message.
 Mirror the selected narrow-pane state to Telegram's native `BackButton` through
 capability-guarded `show`, `hide`, `onClick`, and `offClick` calls. Use
 `--tg-viewport-stable-height`, `--tg-safe-area-inset-*`, and

@@ -122,11 +122,18 @@ title. If a direct contact is online, a green presence dot appears at the
 avatar's bottom-right corner. The same dot is used on the contact's avatar in
 the chat list.
 
+The current MAX web model exposes contact presence as
+`recipient.presence.status`, with `presence.seen` returning milliseconds from
+the raw seconds value at `presence.$.seen`. Its four documented-in-client
+states are offline, online, was recently, and was long ago.
+
 If a direct contact is explicitly offline and MAX exposes a trusted last-seen
-timestamp, the conversation subtitle shows a localized relative value such as
-`5 мин. назад` or `2 ч. назад`. It updates while the Mini App is active without
-changing the underlying timestamp. Groups and channels never show a personal
-last-seen value.
+timestamp, the conversation subtitle follows MAX's current display behavior:
+`Только что` below one minute, `N мин назад` below one hour, `N ч назад` on the
+same day, then yesterday/date forms. It updates while the Mini App is active
+without changing the underlying timestamp. MAX's privacy states render
+`Был(-а) недавно` and `Был(-а) давно` without fabricating a timestamp. Groups
+and channels never show a personal last-seen value.
 
 If presence or last-seen data is unavailable, stale, malformed, or the bridge
 is reconnecting, no dot or relative last-seen value is shown. Offline is
@@ -197,7 +204,8 @@ handle or Telegram user identity from the request body.
 
 `ChatSummary` gains:
 
-- `presence: "online" | "offline" | "unknown"` for direct chats;
+- `presence: "online" | "offline" | "recently" | "long_ago" | "unknown"` for
+  direct chats;
 - `lastSeenAt?: number`, an authenticated MAX epoch-millisecond timestamp for
   explicitly offline direct contacts;
 - `lastMessageDirection?: "incoming" | "outgoing"`;
