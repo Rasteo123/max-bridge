@@ -83,10 +83,37 @@ describe("chat summary domain", () => {
     });
   });
 
+  it.each(["online", "offline", "unknown"] as const)(
+    "accepts the %s presence",
+    (presence) => {
+      expect(parseChatSummary({
+        ...syntheticChat,
+        presence
+      }).presence).toBe(presence);
+    }
+  );
+
+  it.each(["incoming", "outgoing"] as const)(
+    "accepts the %s last-message direction",
+    (lastMessageDirection) => {
+      expect(parseChatSummary({
+        ...syntheticChat,
+        lastMessageDirection
+      }).lastMessageDirection).toBe(lastMessageDirection);
+    }
+  );
+
   it("rejects an unknown presence", () => {
     expect(() => parseChatSummary({
       ...syntheticChat,
       presence: "maybe"
+    })).toThrow(DomainValidationError);
+  });
+
+  it("rejects an unknown last-message direction", () => {
+    expect(() => parseChatSummary({
+      ...syntheticChat,
+      lastMessageDirection: "sideways"
     })).toThrow(DomainValidationError);
   });
 

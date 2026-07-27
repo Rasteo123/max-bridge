@@ -80,6 +80,101 @@ describe("MAX chat list adapter", () => {
       deliveryStatus: "read"
     });
   });
+
+  it.each([
+    ["false", { recipient: { online: false } }, "offline"],
+    ["absent", {}, "unknown"],
+    ["non-boolean", { recipient: { online: "true" } }, "unknown"],
+    [
+      "activity metadata",
+      {
+        recipient: {
+          lastSeen: "2026-07-27T10:00:00.000Z",
+          lastSeenAt: 1_785_146_400_000,
+          timestamp: 1_785_146_400_000,
+          open: true,
+          isOpen: true
+        },
+        lastSeen: "2026-07-27T10:00:00.000Z",
+        lastActivity: 1_785_146_400_000,
+        openChat: true
+      },
+      "unknown"
+    ]
+  ] as const)(
+    "normalizes direct presence with %s input to %s",
+    (_label, fields, expected) => {
+      const page = adaptChatList({
+        chats: [{
+          id: `presence-${_label}`,
+          type: "DIALOG",
+          title: "Граница присутствия",
+          ...fields
+        }]
+      }, { media: new RuntimeMediaAdapter() });
+
+      expect(page.chats[0]?.presence).toBe(expected);
+    }
+  );
+
+  it.each([
+    [
+      "recipient",
+      {
+        recipient: {
+          online: false,
+          view: { online: true }
+        },
+        view: { online: true },
+        online: true
+      }
+    ],
+    [
+      "recipient view",
+      {
+        recipient: {
+          view: { online: false }
+        },
+        view: { online: true },
+        online: true
+      }
+    ],
+    [
+      "chat view",
+      {
+        recipient: {},
+        view: { online: false },
+        online: true
+      }
+    ]
+  ] as const)("gives %s presence precedence", (_source, fields) => {
+    const page = adaptChatList({
+      chats: [{
+        id: `presence-precedence-${_source}`,
+        type: "DIALOG",
+        title: "Приоритет присутствия",
+        ...fields
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]?.presence).toBe("offline");
+  });
+
+  it("omits presence from group chats even with an online flag", () => {
+    const page = adaptChatList({
+      chats: [{
+        id: "presence-group",
+        type: "CHAT",
+        title: "Группа",
+        recipient: { online: true },
+        view: { online: true },
+        online: true
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]?.kind).toBe("group");
+    expect(page.chats[0]).not.toHaveProperty("presence");
+  });
 });
 
 describe("MAX history and media adapters", () => {
@@ -180,6 +275,8 @@ describe("MAX history and media adapters", () => {
     ["FAILURE", "failed"],
     ["ERROR", "failed"],
     ["REJECTED", "failed"],
+    ["CANCELED", "failed"],
+    ["CANCELLED", "failed"],
     ["UNKNOWN", "sent"]
   ] as const)("normalizes %s delivery status to %s", (status, expected) => {
     const page = adaptHistoryPage({
