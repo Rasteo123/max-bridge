@@ -1,3 +1,6 @@
+import { access, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -16,9 +19,11 @@ const principal: SessionPrincipal = {
 let app: FastifyInstance;
 let gateway: FakeMessageGateway;
 let authenticated = true;
+let currentPrincipal = principal;
 
 beforeEach(async () => {
   authenticated = true;
+  currentPrincipal = principal;
   gateway = new FakeMessageGateway();
   app = Fastify({
     logger: false,
@@ -31,7 +36,8 @@ beforeEach(async () => {
   await app.register(registerMessageRoutes, {
     gateway,
     allowedOrigins: new Set([allowedOrigin]),
-    resolvePrincipal: () => authenticated ? principal : null
+    mediaRoot: tmpdir(),
+    resolvePrincipal: () => authenticated ? currentPrincipal : null
   });
 });
 
@@ -284,6 +290,66 @@ describe("message routes", () => {
     expect(unauthenticated.statusCode).toBe(401);
   });
 
+  it("isolates attachment files by principal and removes every temporary file", async () => {
+    currentPrincipal = {
+      userLookup: "user-a",
+      userState: "active"
+    };
+    const first = await sendAttachment(
+      "chat-a",
+      "a.bin",
+      "request-a",
+      Buffer.from([0x11, 0x12, 0x13])
+    );
+    currentPrincipal = {
+      userLookup: "user-b",
+      userState: "active"
+    };
+    const second = await sendAttachment(
+      "chat-b",
+      "b.bin",
+      "request-b",
+      Buffer.from([0x21, 0x22, 0x23])
+    );
+
+    expect(first.statusCode, first.body).toBe(200);
+    expect(second.statusCode, second.body).toBe(200);
+    expect(gateway.attachmentCalls).toEqual([
+      expect.objectContaining({
+        userLookup: "user-a",
+        chatId: "chat-a",
+        bytes: [0x11, 0x12, 0x13]
+      }),
+      expect.objectContaining({
+        userLookup: "user-b",
+        chatId: "chat-b",
+        bytes: [0x21, 0x22, 0x23]
+      })
+    ]);
+    expect(gateway.attachmentCalls[0]?.filePath).not.toBe(
+      gateway.attachmentCalls[1]?.filePath
+    );
+    for (const call of gateway.attachmentCalls) {
+      await expect(access(call.filePath)).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+    }
+
+    gateway.rejectAttachments = true;
+    const failed = await sendAttachment(
+      "chat-b",
+      "failed.bin",
+      "request-failed",
+      Buffer.from([0x31])
+    );
+    expect(failed.statusCode).toBe(500);
+    const failedCall = gateway.attachmentCalls.at(-1);
+    expect(failedCall).toBeDefined();
+    await expect(access(failedCall?.filePath ?? "")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   it.each([
     {
       method: "PATCH" as const,
@@ -344,6 +410,28 @@ function sendText(origin = allowedOrigin) {
   });
 }
 
+function sendAttachment(
+  chatId: string,
+  name: string,
+  clientRequestId: string,
+  payload: Buffer
+) {
+  const query = new URLSearchParams({
+    kind: "file",
+    name,
+    clientRequestId
+  });
+  return app.inject({
+    method: "POST",
+    url: `/api/chats/${encodeURIComponent(chatId)}/attachments?${query}`,
+    headers: {
+      origin: allowedOrigin,
+      "content-type": "application/octet-stream"
+    },
+    payload
+  });
+}
+
 class FakeMessageGateway implements MessageGateway {
   sendCalls = 0;
   retryCalls = 0;
@@ -356,6 +444,13 @@ class FakeMessageGateway implements MessageGateway {
   reactions: Array<string | null> = [];
   chatActions: string[] = [];
   stickersSent: string[] = [];
+  attachmentCalls: Array<{
+    userLookup: string;
+    chatId: string;
+    filePath: string;
+    bytes: number[];
+  }> = [];
+  rejectAttachments = false;
 
   sendText(
     _userLookup: string,
@@ -382,6 +477,31 @@ class FakeMessageGateway implements MessageGateway {
       state: "confirmed",
       operationId: "op-2"
     });
+  }
+
+  async sendAttachment(
+    userLookup: string,
+    input: Readonly<{
+      chatId: string;
+      clientRequestId: string;
+      filePath: string;
+      kind: "media" | "file";
+    }>
+  ): Promise<Readonly<{ state: "confirmed"; operationId: string }>> {
+    const bytes = [...await readFile(input.filePath)];
+    this.attachmentCalls.push({
+      userLookup,
+      chatId: input.chatId,
+      filePath: input.filePath,
+      bytes
+    });
+    if (this.rejectAttachments) {
+      throw new Error("synthetic attachment failure");
+    }
+    return {
+      state: "confirmed",
+      operationId: input.clientRequestId
+    };
   }
 
   editMessage(

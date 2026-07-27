@@ -1280,7 +1280,7 @@ git commit -m "feat: show attachment progress and retry"
 - Modify: `apps/api/src/runtime/bridge-runtime-gateway.test.ts`
 - Modify: `apps/web/src/features/messenger/live-events.test.tsx`
 
-- [ ] **Step 1: Add failing isolation and cleanup assertions**
+- [x] **Step 1: Add failing isolation and cleanup assertions**
 
 In `messages.test.ts`, send distinct byte buffers as two authenticated
 principals and assert gateway calls retain their matching `userLookup` and
@@ -1301,7 +1301,7 @@ In gateway tests, assert the session handle for user A is never used for user
 B. In live-event tests, emit online/read updates into two stores and assert each
 store sees only its own event.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run:
 
@@ -1312,7 +1312,7 @@ npx vitest run --config vitest.workspace.ts apps/api/src/routes/messages.test.ts
 Expected: at least the new presence/status event assertions fail until all
 fields are preserved and stale presence is cleared.
 
-- [ ] **Step 3: Make the minimum boundary fixes**
+- [x] **Step 3: Make the minimum boundary fixes**
 
 Keep `principal.userLookup` as the only source of user identity in attachment
 routes. Preserve normalized presence/status fields in WebSocket events. If any
@@ -1325,13 +1325,13 @@ const cacheKey = `${userLookup}\u0000${chatId}\u0000${messageId}`;
 Do not accept user identity in query strings, bodies, media handles, or client
 request IDs.
 
-- [ ] **Step 4: Run and verify GREEN**
+- [x] **Step 4: Run and verify GREEN**
 
 Run the Step 2 command.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/routes/messages.test.ts apps/api/src/runtime/bridge-runtime-gateway.test.ts apps/web/src/features/messenger/live-events.test.tsx

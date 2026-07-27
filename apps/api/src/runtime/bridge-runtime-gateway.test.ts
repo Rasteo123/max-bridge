@@ -199,6 +199,62 @@ describe("BridgeRuntimeGateway", () => {
     ]);
   });
 
+  it("routes each attachment through only its owner's opaque session", async () => {
+    const requests: unknown[] = [];
+    const worker = fakeWorker((request) => {
+      requests.push(request);
+      if (request.operation === "session.open") {
+        return Promise.resolve({ opened: true });
+      }
+      return Promise.resolve({
+        state: "confirmed",
+        operationId: "attachment"
+      });
+    });
+    const gateway = new BridgeRuntimeGateway({
+      worker,
+      users: fakeUsers()
+    });
+
+    await gateway.sendAttachment("u_AbCdEfGhIjKlMnOpQrStUv", {
+      chatId: "chat-a",
+      clientRequestId: "request-a",
+      filePath: "/private/tmp/user-a/file-a.bin",
+      kind: "file"
+    });
+    await gateway.sendAttachment("u_ZyXwVuTsRqPoNmLkJiHgFe", {
+      chatId: "chat-b",
+      clientRequestId: "request-b",
+      filePath: "/private/tmp/user-b/file-b.jpg",
+      kind: "media"
+    });
+
+    expect(requests.filter((value) => (
+      value as { operation?: string }
+    ).operation === "message.sendAttachment")).toEqual([
+      {
+        operation: "message.sendAttachment",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          chatId: "chat-a",
+          clientRequestId: "request-a",
+          filePath: "/private/tmp/user-a/file-a.bin",
+          kind: "file"
+        }
+      },
+      {
+        operation: "message.sendAttachment",
+        sessionHandle: "s_ZyXwVuTsRqPoNmLkJiHgFe",
+        payload: {
+          chatId: "chat-b",
+          clientRequestId: "request-b",
+          filePath: "/private/tmp/user-b/file-b.jpg",
+          kind: "media"
+        }
+      }
+    ]);
+  });
+
   it("routes message and chat mutations through the user's session", async () => {
     const requests: unknown[] = [];
     const worker = fakeWorker((request) => {

@@ -120,6 +120,7 @@ export interface MessageGateway {
 export type MessageRouteOptions = Readonly<{
   gateway: MessageGateway;
   allowedOrigins: ReadonlySet<string>;
+  mediaRoot?: string;
   resolvePrincipal: (
     request: FastifyRequest
   ) => SessionPrincipal | null;
@@ -172,7 +173,7 @@ type AttachmentQuery = {
 };
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-const MEDIA_ROOT = "/run/maxbridge/media";
+const DEFAULT_MEDIA_ROOT = "/run/maxbridge/media";
 
 const commonTextProperties = {
   kind: { type: "string", const: "text" },
@@ -349,8 +350,9 @@ export const registerMessageRoutes: FastifyPluginCallback<
       return;
     }
     const safeName = safeAttachmentName(request.query.name);
-    await mkdir(MEDIA_ROOT, { recursive: true, mode: 0o700 });
-    const directory = await mkdtemp(join(MEDIA_ROOT, "upload-"));
+    const mediaRoot = options.mediaRoot ?? DEFAULT_MEDIA_ROOT;
+    await mkdir(mediaRoot, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(mediaRoot, "upload-"));
     const filePath = join(directory, safeName);
     try {
       await writeFile(filePath, request.body, {

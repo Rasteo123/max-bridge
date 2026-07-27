@@ -183,6 +183,112 @@ describe("Telegram live-event lifecycle", () => {
     });
     expect(authenticateTelegram).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps presence and read events inside each user's socket and store", () => {
+    const storeA = new MessengerStore();
+    const storeB = new MessengerStore();
+    storeA.replaceChats([{ ...chat(), id: "chat-a", title: "Альфа" }]);
+    storeB.replaceChats([{ ...chat(), id: "chat-b", title: "Бета" }]);
+    storeA.selectChat("chat-a");
+    storeB.selectChat("chat-b");
+    const socketA = new LiveFakeSocket();
+    const socketB = new LiveFakeSocket();
+
+    render(
+      <>
+        <LiveEventsHarness
+          store={storeA}
+          client={{ authenticateTelegram: vi.fn() }}
+          telegram={telegramLifecycleStub().webApp}
+          createSocket={() => socketA as unknown as WebSocket}
+          onActivatedRefresh={vi.fn()}
+        />
+        <LiveEventsHarness
+          store={storeB}
+          client={{ authenticateTelegram: vi.fn() }}
+          telegram={telegramLifecycleStub().webApp}
+          createSocket={() => socketB as unknown as WebSocket}
+          onActivatedRefresh={vi.fn()}
+        />
+      </>
+    );
+
+    act(() => {
+      socketA.emit("open", {});
+      socketB.emit("open", {});
+      socketA.emitEvent({
+        type: "chat.upsert",
+        sequence: 1,
+        occurredAt: "2026-07-27T10:00:00.000Z",
+        chat: {
+          ...chat(),
+          id: "chat-a",
+          title: "Альфа",
+          presence: "online"
+        }
+      });
+      socketA.emitEvent({
+        type: "message.upsert",
+        sequence: 2,
+        occurredAt: "2026-07-27T10:01:00.000Z",
+        message: {
+          ...message("message-a", "Прочитано A"),
+          chatId: "chat-a",
+          direction: "outgoing",
+          status: "read"
+        }
+      });
+      socketB.emitEvent({
+        type: "chat.upsert",
+        sequence: 1,
+        occurredAt: "2026-07-27T10:00:00.000Z",
+        chat: {
+          ...chat(),
+          id: "chat-b",
+          title: "Бета",
+          presence: "offline",
+          lastSeenAt: 1_785_146_400_000
+        }
+      });
+      socketB.emitEvent({
+        type: "message.upsert",
+        sequence: 2,
+        occurredAt: "2026-07-27T10:01:00.000Z",
+        message: {
+          ...message("message-b", "Доставлено B"),
+          chatId: "chat-b",
+          direction: "outgoing",
+          status: "delivered"
+        }
+      });
+    });
+
+    expect(storeA.getSnapshot().chats).toEqual([
+      expect.objectContaining({
+        id: "chat-a",
+        presence: "online"
+      })
+    ]);
+    expect(storeA.getSnapshot().messages).toEqual([
+      expect.objectContaining({
+        id: "message-a",
+        status: "read"
+      })
+    ]);
+    expect(storeB.getSnapshot().chats).toEqual([
+      expect.objectContaining({
+        id: "chat-b",
+        presence: "offline",
+        lastSeenAt: 1_785_146_400_000
+      })
+    ]);
+    expect(storeB.getSnapshot().messages).toEqual([
+      expect.objectContaining({
+        id: "message-b",
+        status: "delivered"
+      })
+    ]);
+  });
 });
 
 describe("MediaMessage", () => {
@@ -314,6 +420,34 @@ function telegramLifecycleStub(initiallyActive = true) {
 }
 
 class LiveFakeSocket {
-  addEventListener(): void {}
+  private readonly listeners = new Map<
+    string,
+    Array<(event: unknown) => void>
+  >();
+
+  addEventListener(
+    type: string,
+    listener: (event: unknown) => void
+  ): void {
+    const current = this.listeners.get(type) ?? [];
+    current.push(listener);
+    this.listeners.set(type, current);
+  }
+
+  emit(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  emitEvent(event: MessengerEvent): void {
+    this.emit("message", {
+      data: JSON.stringify({
+        type: "event",
+        event
+      })
+    });
+  }
+
   close = vi.fn();
 }
