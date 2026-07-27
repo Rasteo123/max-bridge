@@ -14,15 +14,24 @@ type GestureAxis = "pending" | "horizontal" | "vertical";
 
 type ReplyGesture = {
   pointerId: number;
+  pointerType: string;
+  element: HTMLElement;
   startX: number;
   startY: number;
   axis: GestureAxis;
   armed: boolean;
+  captured: boolean;
+  captureAttempted: boolean;
 };
 
 type ReplySwipeHandlers = Pick<
   JSX.IntrinsicElements["article"],
-  "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel"
+  | "onPointerDown"
+  | "onPointerMove"
+  | "onPointerUp"
+  | "onPointerCancel"
+  | "onPointerLeave"
+  | "onLostPointerCapture"
 >;
 
 export function useSwipeToReply(options: Readonly<{
@@ -42,7 +51,11 @@ export function useSwipeToReply(options: Readonly<{
   const [armed, setArmed] = useState(false);
 
   function reset(): void {
+    const gesture = gestureRef.current;
     gestureRef.current = null;
+    if (gesture?.captured === true) {
+      releasePointer(gesture.element, gesture.pointerId);
+    }
     setDrag(0);
     setDragging(false);
     setArmed(false);
@@ -67,10 +80,14 @@ export function useSwipeToReply(options: Readonly<{
     }
     gestureRef.current = {
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      element: event.currentTarget,
       startX: event.clientX,
       startY: event.clientY,
       axis: "pending",
-      armed: false
+      armed: false,
+      captured: false,
+      captureAttempted: false
     };
   }
 
@@ -94,6 +111,13 @@ export function useSwipeToReply(options: Readonly<{
     }
     if (gesture.axis !== "horizontal") {
       return;
+    }
+    if (!gesture.captureAttempted) {
+      gesture.captureAttempted = true;
+      gesture.captured = capturePointer(
+        event.currentTarget,
+        event.pointerId
+      );
     }
     event.preventDefault();
     const nextDrag = Math.max(-REPLY_MAX, Math.min(0, deltaX));
@@ -125,6 +149,25 @@ export function useSwipeToReply(options: Readonly<{
     }
   }
 
+  function onPointerLeave(event: ReactPointerEvent<HTMLElement>): void {
+    const gesture = gestureRef.current;
+    if (
+      gesture?.pointerId === event.pointerId &&
+      gesture.pointerType === "mouse" &&
+      !gesture.captured
+    ) {
+      reset();
+    }
+  }
+
+  function onLostPointerCapture(
+    event: ReactPointerEvent<HTMLElement>
+  ): void {
+    if (gestureRef.current?.pointerId === event.pointerId) {
+      reset();
+    }
+  }
+
   return {
     dragging,
     armed,
@@ -135,7 +178,9 @@ export function useSwipeToReply(options: Readonly<{
       onPointerDown,
       onPointerMove,
       onPointerUp,
-      onPointerCancel
+      onPointerCancel,
+      onPointerLeave,
+      onLostPointerCapture
     },
     cancel: reset
   };
@@ -144,4 +189,32 @@ export function useSwipeToReply(options: Readonly<{
 function isIgnoredTarget(target: EventTarget): boolean {
   return target instanceof Element &&
     target.closest("[data-no-swipe]") !== null;
+}
+
+function capturePointer(element: HTMLElement, pointerId: number): boolean {
+  if (typeof element.setPointerCapture !== "function") {
+    return false;
+  }
+  try {
+    element.setPointerCapture(pointerId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releasePointer(element: HTMLElement, pointerId: number): void {
+  if (typeof element.releasePointerCapture !== "function") {
+    return;
+  }
+  try {
+    if (
+      typeof element.hasPointerCapture !== "function" ||
+      element.hasPointerCapture(pointerId)
+    ) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // Pointer capture can disappear before the matching terminal event.
+  }
 }

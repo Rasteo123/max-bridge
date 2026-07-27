@@ -147,6 +147,8 @@ export function MessageBubble({
           press.onPointerCancel(event);
           replySwipe.handlers.onPointerCancel?.(event);
         }}
+        onPointerLeave={replySwipe.handlers.onPointerLeave}
+        onLostPointerCapture={replySwipe.handlers.onLostPointerCapture}
         onClickCapture={press.onClickCapture}
         onDragStart={press.onDragStart}
       >

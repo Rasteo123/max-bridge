@@ -87,6 +87,12 @@ describe("message swipe to reply", () => {
     const onReply = vi.fn();
     render(<MessageBubble message={message()} onReply={onReply} />);
     const bubble = messageBubble();
+    const releasePointerCapture = vi.fn();
+    Object.assign(bubble, {
+      setPointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+      releasePointerCapture
+    });
 
     fireEvent.pointerDown(bubble, pointer(180, 100, 1));
     fireEvent.pointerMove(bubble, pointer(110, 102, 1));
@@ -94,6 +100,7 @@ describe("message swipe to reply", () => {
 
     expect(onReply).not.toHaveBeenCalled();
     expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+    expect(releasePointerCapture).toHaveBeenCalledWith(1);
   });
 
   it("does not start from an interactive media control", () => {
@@ -261,6 +268,126 @@ describe("message swipe to reply", () => {
 
     expect(onReply).not.toHaveBeenCalled();
   });
+
+  it("cancels a mouse gesture that leaves before horizontal lock", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+    Object.assign(bubble, {
+      setPointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+      releasePointerCapture: vi.fn()
+    });
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerMove(bubble, pointer(176, 102, 1, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerLeave(bubble, pointer(176, 102, 1, {
+      pointerType: "mouse"
+    }));
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 2, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerMove(bubble, pointer(110, 102, 2, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerUp(bubble, pointer(110, 102, 2, {
+      pointerType: "mouse"
+    }));
+
+    expect(onReply).toHaveBeenCalledOnce();
+  });
+
+  it("resets after losing pointer capture during a locked drag", () => {
+    const onReply = vi.fn();
+    const setPointerCapture = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+    Object.assign(bubble, {
+      setPointerCapture,
+      hasPointerCapture: vi.fn(() => false),
+      releasePointerCapture: vi.fn()
+    });
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1));
+    fireEvent.pointerMove(bubble, pointer(110, 102, 1));
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+    expect(bubble).toHaveStyle({ "--reply-drag": "-70px" });
+
+    fireEvent.lostPointerCapture(bubble, pointer(110, 102, 1));
+    fireEvent.pointerUp(bubble, pointer(110, 102, 1));
+
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+    expect(onReply).not.toHaveBeenCalled();
+  });
+
+  it("keeps an armed mouse drag active outside after capture", () => {
+    const onReply = vi.fn();
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+    Object.assign(bubble, {
+      setPointerCapture,
+      hasPointerCapture: vi.fn(() => true),
+      releasePointerCapture
+    });
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerMove(bubble, pointer(110, 102, 1, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerLeave(bubble, pointer(90, 102, 1, {
+      pointerType: "mouse"
+    }));
+    fireEvent.pointerUp(bubble, pointer(-10, 102, 1, {
+      pointerType: "mouse"
+    }));
+
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+    expect(releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(onReply).toHaveBeenCalledOnce();
+  });
+
+  it("stays safe when pointer capture APIs are unavailable or throw", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+    Object.assign(bubble, {
+      setPointerCapture: vi.fn(() => {
+        throw new Error("capture unavailable");
+      }),
+      hasPointerCapture: vi.fn(() => {
+        throw new Error("capture unavailable");
+      }),
+      releasePointerCapture: vi.fn(() => {
+        throw new Error("capture unavailable");
+      })
+    });
+
+    expect(() => {
+      fireEvent.pointerDown(bubble, pointer(180, 100, 1));
+      fireEvent.pointerMove(bubble, pointer(110, 102, 1));
+      fireEvent.pointerUp(bubble, pointer(110, 102, 1));
+    }).not.toThrow();
+    expect(onReply).toHaveBeenCalledOnce();
+
+    cleanup();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const withoutCapture = messageBubble();
+    expect(() => {
+      fireEvent.pointerDown(withoutCapture, pointer(180, 100, 2));
+      fireEvent.pointerMove(withoutCapture, pointer(110, 102, 2));
+      fireEvent.pointerUp(withoutCapture, pointer(110, 102, 2));
+    }).not.toThrow();
+    expect(onReply).toHaveBeenCalledTimes(2);
+  });
 });
 
 function messageBubble(): HTMLElement {
@@ -285,13 +412,14 @@ function pointer(
   overrides: Readonly<{
     button?: number;
     isPrimary?: boolean;
+    pointerType?: string;
   }> = {}
 ) {
   return {
     clientX,
     clientY,
     pointerId,
-    pointerType: "touch",
+    pointerType: overrides.pointerType ?? "touch",
     button: overrides.button ?? 0,
     isPrimary: overrides.isPrimary ?? true
   };
