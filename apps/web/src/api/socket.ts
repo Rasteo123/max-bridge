@@ -24,6 +24,7 @@ export class AuthenticatedSocket {
   private paused = false;
   private lifecycleVersion = 0;
   private resumePromise: Promise<boolean> | null = null;
+  private resumeRequested = false;
 
   constructor(private readonly options: AuthenticatedSocketOptions) {}
 
@@ -41,6 +42,7 @@ export class AuthenticatedSocket {
     if (this.stopped) {
       return;
     }
+    this.resumeRequested = false;
     if (this.paused) {
       if (this.resumePromise !== null) {
         this.lifecycleVersion += 1;
@@ -61,11 +63,30 @@ export class AuthenticatedSocket {
     if (
       this.stopped ||
       !this.started ||
-      !this.paused ||
-      this.resumePromise !== null
+      !this.paused
     ) {
       return Promise.resolve(false);
     }
+    if (this.resumePromise !== null) {
+      const staleOperation = this.resumePromise;
+      this.resumeRequested = true;
+      return staleOperation.then(() => {
+        if (
+          !this.resumeRequested ||
+          this.stopped ||
+          !this.started ||
+          !this.paused
+        ) {
+          return false;
+        }
+        this.resumeRequested = false;
+        if (this.resumePromise === staleOperation) {
+          this.resumePromise = null;
+        }
+        return this.resume();
+      });
+    }
+    this.resumeRequested = false;
     const lifecycleVersion = this.lifecycleVersion;
     const operation = this.reauthenticateForResume(lifecycleVersion);
     this.resumePromise = operation;
@@ -81,6 +102,7 @@ export class AuthenticatedSocket {
     this.stopped = true;
     this.started = false;
     this.paused = false;
+    this.resumeRequested = false;
     this.lifecycleVersion += 1;
     this.cancelReconnect();
     const socket = this.socket;
@@ -203,6 +225,7 @@ export class AuthenticatedSocket {
     this.stopped = true;
     this.started = false;
     this.paused = false;
+    this.resumeRequested = false;
     this.lifecycleVersion += 1;
     this.cancelReconnect();
     const socket = this.socket;

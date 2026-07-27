@@ -108,6 +108,41 @@ describe("AuthenticatedSocket", () => {
     bridge.stop();
   });
 
+  it("honors a later activation after a stale resume authentication", async () => {
+    let initData = "first-signed-data";
+    let resolveFirstAuthentication: (() => void) | undefined;
+    const authenticate = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        resolveFirstAuthentication = resolve;
+      }))
+      .mockResolvedValueOnce(undefined);
+    const sockets: FakeSocket[] = [];
+    const bridge = new AuthenticatedSocket({
+      initData: () => initData,
+      authenticate,
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      }
+    });
+
+    bridge.start();
+    bridge.pause();
+    const staleResume = bridge.resume();
+    bridge.pause();
+    initData = "latest-signed-data";
+    const latestResume = bridge.resume();
+    resolveFirstAuthentication?.();
+
+    await expect(staleResume).resolves.toBe(false);
+    await expect(latestResume).resolves.toBe(true);
+    expect(authenticate).toHaveBeenNthCalledWith(1, "first-signed-data");
+    expect(authenticate).toHaveBeenNthCalledWith(2, "latest-signed-data");
+    expect(sockets).toHaveLength(2);
+    bridge.stop();
+  });
+
   it("reauthenticates from current Telegram initData without browser tokens", async () => {
     vi.useFakeTimers();
     const sockets: FakeSocket[] = [];
