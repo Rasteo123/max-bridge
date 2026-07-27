@@ -201,14 +201,32 @@ describe("narrow messenger gestures", () => {
   });
 
   it("uses Telegram stable viewport and safe-area variables", () => {
-    const css = readFileSync(
-      "apps/web/src/features/messenger/messenger.css",
-      "utf8"
-    );
+    const css = messengerCss();
 
     expect(css).toContain("--tg-viewport-stable-height");
     expect(css).toContain("--tg-safe-area-inset-bottom");
     expect(css).toContain("--tg-content-safe-area-inset-bottom");
+  });
+
+  it("reserves the real action width symmetrically around the contact header", () => {
+    const css = messengerCss();
+
+    expect(css).toMatch(
+      /\.conversation__header\s*\{[\s\S]*?grid-template-columns:\s*84px minmax\(0,\s*1fr\) 84px;/u
+    );
+    expect(css).toMatch(
+      /\.conversation__actions\s*\{[\s\S]*?min-width:\s*84px;/u
+    );
+  });
+
+  it("preserves Telegram inline safe areas in the narrow layout", () => {
+    const css = messengerCss();
+    const narrow = css.slice(css.indexOf("@media (max-width: 819.98px)"));
+
+    expect(narrow).not.toMatch(/\.messenger-page\s*\{\s*padding:\s*0;/u);
+    expect(narrow).toMatch(
+      /\.messenger-page\s*\{[\s\S]*?--tg-safe-area-inset-right[\s\S]*?--tg-content-safe-area-inset-right[\s\S]*?--tg-safe-area-inset-left[\s\S]*?--tg-content-safe-area-inset-left/u
+    );
   });
 });
 
@@ -325,6 +343,13 @@ function installMatchMedia(initial: boolean): MatchMediaHarness {
   } as unknown as MatchMediaHarness;
   vi.stubGlobal("matchMedia", vi.fn(() => harness));
   return harness;
+}
+
+function messengerCss(): string {
+  return readFileSync(
+    "apps/web/src/features/messenger/messenger.css",
+    "utf8"
+  );
 }
 
 const chats: readonly MessengerChat[] = [

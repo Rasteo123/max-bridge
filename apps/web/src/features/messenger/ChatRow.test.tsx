@@ -62,9 +62,10 @@ describe("ChatRow", () => {
       />
     );
 
-    expect(screen.getByRole("img", { name: "Ольга" }))
-      .toHaveAttribute("src", "https://i.oneme.ru/avatar");
-    expect(screen.getByLabelText("В сети")).toBeVisible();
+    const avatar = document.querySelector(".chat-row__avatar img");
+    expect(avatar).toHaveAttribute("src", "https://i.oneme.ru/avatar");
+    expect(avatar).toHaveAttribute("alt", "");
+    expect(screen.getByRole("status", { name: "В сети" })).toBeVisible();
     expect(screen.getByLabelText("Последнее сообщение прочитано"))
       .toHaveTextContent("✓✓");
   });
@@ -82,7 +83,7 @@ describe("ChatRow", () => {
       />
     );
 
-    expect(screen.queryByLabelText("В сети")).toBeNull();
+    expect(screen.queryByRole("status", { name: "В сети" })).toBeNull();
 
     rerender(
       <ChatRow

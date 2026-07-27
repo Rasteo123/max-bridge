@@ -85,10 +85,16 @@ export function Conversation({
               {chat.avatarUrl === undefined ? (
                 <span aria-hidden="true">{initialsFor(chat.title)}</span>
               ) : (
-                <img src={chat.avatarUrl} alt={chat.title} />
+                <img src={chat.avatarUrl} alt="" />
               )}
               {chat.kind === "direct" && chat.presence === "online" && (
-                <span className="presence-dot" aria-label="В сети" />
+                <span
+                  className="presence-dot"
+                  role="status"
+                  aria-label="В сети"
+                >
+                  <span className="sr-only">В сети</span>
+                </span>
               )}
             </span>
           )}

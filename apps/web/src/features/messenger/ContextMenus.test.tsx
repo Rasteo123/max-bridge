@@ -213,9 +213,10 @@ describe("conversation identity and last seen", () => {
       />
     );
 
-    const avatar = screen.getByRole("img", { name: "Даниил" });
+    const avatar = document.querySelector(".conversation__avatar img");
     const title = screen.getByText("Даниил");
-    expect(avatar.compareDocumentPosition(title) &
+    expect(avatar).toHaveAttribute("alt", "");
+    expect((avatar as Element).compareDocumentPosition(title) &
       Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(screen.getByText(label)).toBeVisible();
   });
@@ -365,8 +366,9 @@ describe("conversation identity and last seen", () => {
       />
     );
 
-    expect(screen.getByLabelText("В сети")).toBeVisible();
-    expect(screen.getByText("В сети")).toBeVisible();
+    expect(screen.getByRole("status", { name: "В сети" })).toBeVisible();
+    expect(document.querySelector(".conversation__identity span"))
+      .toHaveTextContent("В сети");
 
     view.rerender(
       <Conversation
@@ -378,7 +380,7 @@ describe("conversation identity and last seen", () => {
         onSend={vi.fn()}
       />
     );
-    expect(screen.queryByLabelText("В сети")).toBeNull();
+    expect(screen.queryByRole("status", { name: "В сети" })).toBeNull();
     expect(screen.queryByText("В сети")).toBeNull();
     expect(screen.getByText("MAX")).toBeVisible();
   });
