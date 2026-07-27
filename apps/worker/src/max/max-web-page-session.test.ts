@@ -435,6 +435,84 @@ describe("MaxWebPageSession chat snapshots", () => {
       })
     ]);
   });
+
+  it("projects a bounded rich forwarded source and caption links", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        messages: [{
+          id: "history-forwarded-1",
+          senderId: "other-user",
+          status: "DELIVERED",
+          time: 1_721_843_200_000,
+          caption: "Доброе утро 🌻 открыть",
+          textLinks: [{
+            offset: 14,
+            length: 7,
+            url: "https://max.ru/channel/synthetic"
+          }],
+          forwarded: {
+            caption: "Доброе утро 🌻 открыть",
+            source: {
+              id: -68_429_202_642_371,
+              title: "ВСЕ ОТКРЫТКИ ТУТ",
+              type: "CHANNEL"
+            }
+          },
+          attaches: [{
+            _type: "PHOTO",
+            url: "https://i.oneme.ru/history-forwarded"
+          }]
+        }]
+      })
+    ]);
+    const internals = session as unknown as SessionInternals;
+
+    await expect(internals.readMessages("chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "history-forwarded-1",
+        text: "Доброе утро 🌻 открыть",
+        forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ",
+        forwardedSource: {
+          title: "ВСЕ ОТКРЫТКИ ТУТ",
+          chatId: "-68429202642371",
+          kind: "channel"
+        },
+        textLinks: [{
+          offset: 14,
+          length: 7,
+          url: "https://max.ru/channel/synthetic"
+        }]
+      })
+    ]);
+  });
+
+  it("does not project an incomplete forwarded source as navigable", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        messages: [{
+          id: "history-forwarded-incomplete",
+          senderId: "other-user",
+          time: 1_721_843_200_000,
+          text: "Переслано",
+          forwarded: {
+            source: {
+              id: "source-without-kind",
+              title: "Неизвестный источник"
+            }
+          }
+        }]
+      })
+    ]);
+    const internals = session as unknown as SessionInternals;
+
+    const messages = await internals.readMessages("chat-1") as Array<
+      Record<string, unknown>
+    >;
+    expect(messages[0]).not.toHaveProperty("forwardedSource");
+    expect(messages[0]).toMatchObject({
+      forwardedFrom: "Неизвестный источник"
+    });
+  });
 });
 
 describe("MaxWebPageSession history navigation", () => {

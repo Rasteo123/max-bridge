@@ -11,6 +11,7 @@ import { Conversation } from "./Conversation.js";
 import type {
   MessengerChat,
   MessengerChatAction,
+  MessengerForwardedSource,
   MessengerMessage,
   MessengerPane,
   MessengerSticker,
@@ -32,6 +33,7 @@ type MessengerShellProps = Readonly<{
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
   onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -52,6 +54,7 @@ export function MessengerShell({
   onEditMessage,
   onDeleteMessage,
   onReactMessage,
+  onOpenForwardedSource,
   onChatAction,
   onLoadStickers,
   onSendSticker,
@@ -181,6 +184,9 @@ export function MessengerShell({
             {...(onEditMessage === undefined ? {} : { onEditMessage })}
             {...(onDeleteMessage === undefined ? {} : { onDeleteMessage })}
             {...(onReactMessage === undefined ? {} : { onReactMessage })}
+            {...(onOpenForwardedSource === undefined
+              ? {}
+              : { onOpenForwardedSource })}
             {...(onLoadStickers === undefined ? {} : { onLoadStickers })}
             {...(onSendSticker === undefined ? {} : { onSendSticker })}
           />

@@ -525,6 +525,108 @@ describe("MAX history and media adapters", () => {
     expect(() => parseMessage(page.messages[0])).not.toThrow();
   });
 
+  it("preserves rich forwarded media captions and a trusted source", () => {
+    const page = adaptHistoryPage({
+      messages: [{
+        id: "rich-forwarded-message",
+        senderId: "other-user",
+        time: "2026-07-27T00:00:00.000Z",
+        caption: "Доброе утро 🌻 открыть",
+        textLinks: [{
+          offset: 14,
+          length: 7,
+          url: "https://max.ru/channel/synthetic"
+        }],
+        forwardedSource: {
+          title: "ВСЕ ОТКРЫТКИ ТУТ",
+          chatId: "-68429202642371",
+          kind: "channel"
+        },
+        attaches: [{
+          _type: "PHOTO",
+          url: "https://i.oneme.ru/i?r=synthetic"
+        }]
+      }]
+    }, {
+      chatId: "1001",
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+
+    expect(page.messages[0]).toMatchObject({
+      kind: "image",
+      text: "Доброе утро 🌻 открыть",
+      forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ",
+      forwardedSource: {
+        title: "ВСЕ ОТКРЫТКИ ТУТ",
+        chatId: "-68429202642371",
+        kind: "channel"
+      },
+      textLinks: [{
+        offset: 14,
+        length: 7,
+        url: "https://max.ru/channel/synthetic"
+      }]
+    });
+  });
+
+  it("drops all malformed rich-text ranges and keeps the plain caption", () => {
+    const page = adaptHistoryPage({
+      messages: [{
+        id: "malformed-rich-text",
+        senderId: "other-user",
+        time: "2026-07-27T00:00:00.000Z",
+        caption: "Подпись",
+        textLinks: [{
+          offset: 100,
+          length: 2,
+          url: "https://max.ru/channel/synthetic"
+        }],
+        attaches: [{
+          _type: "VIDEO",
+          url: "https://i.oneme.ru/i?r=synthetic-video"
+        }]
+      }]
+    }, {
+      chatId: "1001",
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+
+    expect(page.messages[0]).toMatchObject({
+      kind: "video",
+      text: "Подпись"
+    });
+    expect(page.messages[0]).not.toHaveProperty("textLinks");
+  });
+
+  it("exposes an unknown attachment explicitly instead of a file placeholder", () => {
+    const page = adaptHistoryPage({
+      messages: [{
+        id: "unknown-attachment",
+        senderId: "other-user",
+        time: "2026-07-27T00:00:00.000Z",
+        caption: "Точка встречи",
+        attaches: [{
+          _type: "LOCATION",
+          latitude: 0,
+          longitude: 0
+        }]
+      }]
+    }, {
+      chatId: "1001",
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+
+    expect(page.messages[0]).toMatchObject({
+      kind: "unsupported",
+      text: "Точка встречи",
+      attachmentType: "LOCATION"
+    });
+    expect(page.messages[0]).not.toHaveProperty("media");
+  });
+
   it("keeps media descriptors only in bounded memory and zeros previews", () => {
     const media = new RuntimeMediaAdapter({ maxEntries: 10 });
     const page = adaptHistoryPage(fixture.history, {

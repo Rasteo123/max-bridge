@@ -135,17 +135,31 @@ describe("message context menu", () => {
   });
 
   it("shows the original source for a forwarded message", () => {
+    const onOpenForwardedSource = vi.fn();
     render(
       <MessageBubble
         message={{
           ...incomingMessage(),
-          forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ"
+          forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ",
+          forwardedSource: {
+            title: "ВСЕ ОТКРЫТКИ ТУТ",
+            chatId: "-68429202642371",
+            kind: "channel"
+          }
         }}
+        onOpenForwardedSource={onOpenForwardedSource}
       />
     );
 
     expect(screen.getByText("Переслано:")).toBeVisible();
-    expect(screen.getByText("ВСЕ ОТКРЫТКИ ТУТ")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {
+      name: "ВСЕ ОТКРЫТКИ ТУТ"
+    }));
+    expect(onOpenForwardedSource).toHaveBeenCalledWith({
+      title: "ВСЕ ОТКРЫТКИ ТУТ",
+      chatId: "-68429202642371",
+      kind: "channel"
+    });
   });
 
   it("closes on an outside press and clamps to the viewport", () => {

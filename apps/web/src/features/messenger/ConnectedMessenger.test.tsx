@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../test-setup.js";
@@ -109,6 +115,77 @@ describe("ConnectedMessenger startup", () => {
       requestPath(request).includes("read")
     )).toBe(false);
   });
+
+  it("opens a rich forwarded source even when it is absent from the chat list", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(originalChats()))
+      .mockResolvedValueOnce(jsonResponse(forwardedHistory()))
+      .mockResolvedValueOnce(jsonResponse({
+        messages: [{
+          id: "source-message",
+          chatId: "-68429202642371",
+          senderId: "source-user",
+          direction: "incoming",
+          kind: "text",
+          text: "Сообщение источника",
+          sentAt: "2026-07-27T10:00:00.000Z",
+          status: "delivered"
+        }]
+      }));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: "ВСЕ ОТКРЫТКИ ТУТ"
+    }));
+
+    expect(await screen.findByText("Сообщение источника")).toBeVisible();
+    expect(fetcher.mock.calls.map(([request]) => requestPath(request))).toEqual([
+      "/api/chats",
+      "/api/chats/original/messages",
+      "/api/chats/-68429202642371/messages"
+    ]);
+  });
+
+  it("returns to the original chat when a forwarded source is unavailable", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(originalChats()))
+      .mockResolvedValueOnce(jsonResponse(forwardedHistory()))
+      .mockResolvedValueOnce(jsonResponse(
+        { code: "not_found" },
+        404
+      ));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: "ВСЕ ОТКРЫТКИ ТУТ"
+    }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось открыть источник пересланного сообщения."
+    );
+    expect(screen.getByRole("button", {
+      name: "ВСЕ ОТКРЫТКИ ТУТ"
+    }).closest("article")).toHaveTextContent("Подпись 🌻 открыть");
+    expect(screen.getAllByText("Исходный чат").length).toBeGreaterThan(0);
+  });
 });
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -128,6 +205,53 @@ function matchMediaStub() {
     addListener: vi.fn(),
     removeListener: vi.fn(),
     dispatchEvent: vi.fn()
+  };
+}
+
+function wideMatchMediaStub() {
+  return {
+    ...matchMediaStub(),
+    matches: true
+  };
+}
+
+function originalChats() {
+  return {
+    chats: [{
+      id: "original",
+      title: "Исходный чат",
+      preview: "Подпись",
+      timestamp: "2026-07-27T09:00:00.000Z",
+      unreadCount: 0,
+      muted: false,
+      kind: "direct"
+    }]
+  };
+}
+
+function forwardedHistory() {
+  return {
+    messages: [{
+      id: "forwarded-message",
+      chatId: "original",
+      senderId: "other-user",
+      direction: "incoming",
+      kind: "text",
+      text: "Подпись 🌻 открыть",
+      textLinks: [{
+        offset: 10,
+        length: 7,
+        url: "https://max.ru/channel/synthetic"
+      }],
+      sentAt: "2026-07-27T09:01:00.000Z",
+      status: "delivered",
+      forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ",
+      forwardedSource: {
+        title: "ВСЕ ОТКРЫТКИ ТУТ",
+        chatId: "-68429202642371",
+        kind: "channel"
+      }
+    }]
   };
 }
 

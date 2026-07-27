@@ -15,6 +15,7 @@ import {
 } from "./messenger-store.js";
 import type {
   MessengerChatAction,
+  MessengerForwardedSource,
   MessengerMedia,
   MessengerMessage,
   MessengerReaction,
@@ -126,7 +127,7 @@ export function ConnectedMessenger({
     };
   }, [client, store]);
 
-  async function selectChat(chatId: string) {
+  async function selectChat(chatId: string): Promise<boolean> {
     const requestId = ++historyRequest.current;
     store.selectChat(chatId);
     const cached = historyCache.current.get(chatId);
@@ -144,13 +145,47 @@ export function ConnectedMessenger({
       ) {
         store.mergeHistory(messages);
       }
+      return true;
     } catch {
       // The live connection can still recover the selected conversation.
+      return false;
     } finally {
       if (requestId === historyRequest.current) {
         setHistoryLoading(false);
       }
     }
+  }
+
+  async function openForwardedSource(source: MessengerForwardedSource) {
+    setActionError(undefined);
+    const originalChatId = store.getSnapshot().selectedChatId;
+    const sourceExists = store.getSnapshot().chats.some(
+      (chat) => chat.id === source.chatId
+    );
+    if (!sourceExists) {
+      store.addTransientChat(source);
+    }
+    const opened = await selectChat(source.chatId);
+    if (opened) {
+      return;
+    }
+    if (store.getSnapshot().selectedChatId !== source.chatId) {
+      return;
+    }
+    if (!sourceExists) {
+      store.removeTransientChat(source.chatId);
+    }
+    if (originalChatId !== undefined) {
+      store.selectChat(originalChatId);
+      const cached = historyCache.current.get(originalChatId);
+      if (cached !== undefined) {
+        store.replaceCurrentMessages(cached);
+      }
+    }
+    setHistoryLoading(false);
+    setActionError(
+      "Не удалось открыть источник пересланного сообщения."
+    );
   }
 
   async function send(text: string, replyToId?: string) {
@@ -357,6 +392,9 @@ export function ConnectedMessenger({
         onReactMessage={(messageId, reaction) => {
           void runAction(() => reactMessage(messageId, reaction));
         }}
+        onOpenForwardedSource={(source) => {
+          void openForwardedSource(source);
+        }}
         onChatAction={(chatId, action) => {
           void runAction(() => applyChatAction(chatId, action));
         }}
@@ -409,6 +447,8 @@ function toMessengerMessage(value: unknown): MessengerMessage {
   }
   const kind = messageKind(record["kind"]);
   const reactions = readReactions(record["reactions"]);
+  const forwardedSource = readForwardedSource(record["forwardedSource"]);
+  const textLinks = readTextLinks(record["textLinks"]);
   return {
     id: record["id"],
     ...(typeof record["chatId"] === "string"
@@ -430,6 +470,11 @@ function toMessengerMessage(value: unknown): MessengerMessage {
       : {}),
     ...(typeof record["forwardedFrom"] === "string"
       ? { forwardedFrom: record["forwardedFrom"] }
+      : {}),
+    ...(forwardedSource === undefined ? {} : { forwardedSource }),
+    ...(textLinks.length === 0 ? {} : { textLinks }),
+    ...(typeof record["attachmentType"] === "string"
+      ? { attachmentType: record["attachmentType"] }
       : {}),
     ...(reactions.length === 0
       ? {}
@@ -488,7 +533,9 @@ function isReactionKey(value: unknown): value is ReactionKey {
 
 function messageKind(value: unknown): NonNullable<MessengerMessage["kind"]> {
   return value === "system" || value === "image" || value === "video" ||
-    value === "voice" || value === "file" ? value : "text";
+    value === "voice" || value === "file" || value === "unsupported"
+    ? value
+    : "text";
 }
 
 function isMediaKind(
@@ -506,6 +553,83 @@ function isMedia(value: unknown): value is MessengerMedia {
   return typeof record["handle"] === "string" &&
     typeof record["mimeType"] === "string" &&
     typeof record["size"] === "number";
+}
+
+function readForwardedSource(
+  value: unknown
+): MessengerForwardedSource | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record["title"] !== "string" ||
+    record["title"].length < 1 ||
+    record["title"].length > 256 ||
+    typeof record["chatId"] !== "string" ||
+    record["chatId"].length < 1 ||
+    record["chatId"].length > 512 ||
+    hasControlCharacters(record["chatId"]) ||
+    (
+      record["kind"] !== "direct" &&
+      record["kind"] !== "group" &&
+      record["kind"] !== "channel"
+    )
+  ) {
+    return undefined;
+  }
+  return {
+    title: record["title"],
+    chatId: record["chatId"],
+    kind: record["kind"]
+  };
+}
+
+function readTextLinks(
+  value: unknown
+): NonNullable<MessengerMessage["textLinks"]> {
+  if (!Array.isArray(value) || value.length > 64) {
+    return [];
+  }
+  const output: Array<{
+    offset: number;
+    length: number;
+    url: string;
+  }> = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record["offset"] !== "number" ||
+      !Number.isSafeInteger(record["offset"]) ||
+      record["offset"] < 0 ||
+      typeof record["length"] !== "number" ||
+      !Number.isSafeInteger(record["length"]) ||
+      record["length"] < 1 ||
+      typeof record["url"] !== "string" ||
+      record["url"].length > 4_096
+    ) {
+      return [];
+    }
+    output.push({
+      offset: record["offset"],
+      length: record["length"],
+      url: record["url"]
+    });
+  }
+  return output;
+}
+
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isAborted(signal: AbortSignal): boolean {

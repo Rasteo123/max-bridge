@@ -1,6 +1,7 @@
 import type {
   MessengerChat,
   MessengerEvent,
+  MessengerForwardedSource,
   MessengerMessage
 } from "./types.js";
 
@@ -18,6 +19,7 @@ const MAX_CURRENT_MESSAGES = 400;
 export class MessengerStore {
   private listeners = new Set<() => void>();
   private presenceInvalidated = false;
+  private transientChats = new Map<string, MessengerChat>();
   private snapshot: MessengerSnapshot = {
     chats: [],
     messages: [],
@@ -35,12 +37,51 @@ export class MessengerStore {
   };
 
   replaceChats(chats: readonly MessengerChat[]): void {
-    const normalized = deduplicateChats(chats).slice(0, MAX_CHATS);
+    const chatIds = new Set(chats.map((chat) => chat.id));
+    const normalized = deduplicateChats([
+      ...chats,
+      ...[...this.transientChats.values()].filter(
+        (chat) => !chatIds.has(chat.id)
+      )
+    ]).slice(0, MAX_CHATS);
     this.update({
       ...this.snapshot,
       chats: this.presenceInvalidated
         ? invalidatePresence(normalized)
         : normalized
+    });
+  }
+
+  addTransientChat(source: MessengerForwardedSource): void {
+    if (this.snapshot.chats.some((chat) => chat.id === source.chatId)) {
+      return;
+    }
+    const chat: MessengerChat = {
+      id: source.chatId,
+      title: source.title,
+      preview: "",
+      timestamp: new Date(0).toISOString(),
+      unreadCount: 0,
+      muted: false,
+      kind: source.kind
+    };
+    this.transientChats.set(chat.id, chat);
+    this.update({
+      ...this.snapshot,
+      chats: [chat, ...this.snapshot.chats].slice(0, MAX_CHATS)
+    });
+  }
+
+  removeTransientChat(chatId: string): void {
+    if (!this.transientChats.delete(chatId)) {
+      return;
+    }
+    this.update({
+      ...this.snapshot,
+      chats: this.snapshot.chats.filter((chat) => chat.id !== chatId),
+      ...(this.snapshot.selectedChatId === chatId
+        ? { messages: [] }
+        : {})
     });
   }
 

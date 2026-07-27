@@ -1460,7 +1460,15 @@ export class MaxWebPageSession {
       >();
       const forwardedByIndex = new Map<
         number,
-        { sourceName: string; text?: string }
+        {
+          sourceName: string;
+          text?: string;
+          textLinks?: Array<{
+            offset: number;
+            length: number;
+            url: string;
+          }>;
+        }
       >();
       for (const item of document.querySelectorAll<HTMLElement>(
         "main [data-index]"
@@ -1504,14 +1512,20 @@ export class MaxWebPageSession {
             'button[aria-label="Перейти в канал"]'
           )?.textContent.replace(/\s+/gu, " ").trim().slice(0, 256);
           if (sourceName !== undefined && sourceName.length > 0) {
-            const forwardedText = item.querySelector<HTMLElement>(
+            const forwardedTextElement = item.querySelector<HTMLElement>(
               ".bubbleContent > span.text"
-            )?.textContent.replace(/\s+/gu, " ").trim().slice(0, 65_536);
+            );
+            const forwardedText = forwardedTextElement?.textContent
+              .slice(0, 65_536);
+            const textLinks = forwardedTextElement === null
+              ? []
+              : renderedTextLinks(forwardedTextElement);
             forwardedByIndex.set(index, {
               sourceName,
               ...(forwardedText === undefined || forwardedText.length === 0
                 ? {}
-                : { text: forwardedText })
+                : { text: forwardedText }),
+              ...(textLinks.length === 0 ? {} : { textLinks })
             });
           }
         }
@@ -1569,7 +1583,37 @@ export class MaxWebPageSession {
           forwardedRecord?.["title"],
           forwardedRecord?.["name"],
           forwardedSender?.["fullName"],
-          forwardedSender?.["name"]
+          forwardedSender?.["name"],
+          forwardedSender?.["title"]
+        );
+        const forwardedTitle = typeof forwardedFrom === "string"
+          ? forwardedFrom.slice(0, 256)
+          : undefined;
+        const forwardedChatId = trustedOpaque(
+          forwardedRecord?.["sourceChatId"]
+          ?? forwardedRecord?.["chatId"]
+          ?? forwardedRecord?.["peerId"]
+          ?? forwardedRecord?.["dialogId"]
+          ?? forwardedSender?.["chatId"]
+          ?? forwardedSender?.["peerId"]
+          ?? forwardedSender?.["id"]
+          ?? forwardedRecord?.["id"]
+        );
+        const forwardedKind = forwardedSourceKind(
+          forwardedRecord?.["sourceType"]
+          ?? forwardedRecord?.["chatType"]
+          ?? forwardedRecord?.["kind"]
+          ?? forwardedRecord?.["type"]
+          ?? forwardedSender?.["kind"]
+          ?? forwardedSender?.["type"]
+        );
+        const textLinks = forwarded?.textLinks ?? projectTextLinks(
+          message["textLinks"]
+          ?? raw?.["textLinks"]
+          ?? message["entities"]
+          ?? raw?.["entities"]
+          ?? forwardedRecord?.["textLinks"]
+          ?? forwardedRecord?.["entities"]
         );
         const reply = message["replyToId"]
           ?? raw?.["replyToId"]
@@ -1593,9 +1637,23 @@ export class MaxWebPageSession {
           type: message["type"] ?? raw?.["type"] ?? "MESSAGE",
           text: typeof text === "string" ? text : forwarded?.text,
           attaches: attachDomMediaUrls(normalizedAttaches, mediaUrls),
-          ...(typeof forwardedFrom !== "string" || forwardedFrom.length === 0
+          ...(forwardedTitle === undefined || forwardedTitle.length === 0
             ? {}
-            : { forwardedFrom: forwardedFrom.slice(0, 256) }),
+            : { forwardedFrom: forwardedTitle }),
+          ...(
+            forwardedTitle === undefined
+            || forwardedChatId === undefined
+            || forwardedKind === undefined
+              ? {}
+              : {
+                  forwardedSource: {
+                    title: forwardedTitle,
+                    chatId: forwardedChatId,
+                    kind: forwardedKind
+                  }
+                }
+          ),
+          ...(textLinks.length === 0 ? {} : { textLinks }),
           ...(replyToId === undefined ? {} : { replyToId }),
           edited: Boolean(
             message["edited"]
@@ -1894,6 +1952,138 @@ export class MaxWebPageSession {
           }
         }
         return undefined;
+      }
+
+      function renderedTextLinks(
+        root: HTMLElement
+      ): Array<{ offset: number; length: number; url: string }> {
+        if (typeof document.createRange !== "function") {
+          return [];
+        }
+        const output: Array<{
+          offset: number;
+          length: number;
+          url: string;
+        }> = [];
+        for (const anchor of root.querySelectorAll<HTMLAnchorElement>(
+          "a[href]"
+        )) {
+          const url = safeHttpsUrl(anchor.href);
+          const anchorText = anchor.textContent;
+          if (url === undefined || anchorText.length === 0) {
+            return [];
+          }
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(root);
+            range.setEndBefore(anchor);
+            const offset = Array.from(range.toString()).length;
+            const length = Array.from(anchorText).length;
+            if (offset + length > Array.from(root.textContent).length) {
+              return [];
+            }
+            output.push({ offset, length, url });
+          } catch {
+            return [];
+          }
+        }
+        return output;
+      }
+
+      function projectTextLinks(
+        value: unknown
+      ): Array<{ offset: number; length: number; url: string }> {
+        const values = Array.isArray(value)
+          ? value.slice(0, 64)
+          : [];
+        const output: Array<{
+          offset: number;
+          length: number;
+          url: string;
+        }> = [];
+        for (const entry of values) {
+          const record = asRecord(entry);
+          const offset = record?.["offset"];
+          const length = record?.["length"];
+          const url = safeHttpsUrl(
+            record?.["url"]
+            ?? record?.["href"]
+            ?? record?.["link"]
+          );
+          if (
+            typeof offset !== "number"
+            || !Number.isSafeInteger(offset)
+            || offset < 0
+            || typeof length !== "number"
+            || !Number.isSafeInteger(length)
+            || length < 1
+            || url === undefined
+          ) {
+            return [];
+          }
+          output.push({ offset, length, url });
+        }
+        return output;
+      }
+
+      function safeHttpsUrl(value: unknown): string | undefined {
+        if (typeof value !== "string" || value.length > 4_096) {
+          return undefined;
+        }
+        try {
+          const parsed = new URL(value);
+          return parsed.protocol === "https:"
+            && parsed.hostname.length > 0
+            && parsed.username.length === 0
+            && parsed.password.length === 0
+            ? parsed.href
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+
+      function forwardedSourceKind(
+        value: unknown
+      ): "direct" | "group" | "channel" | undefined {
+        const normalized = typeof value === "string"
+          ? value.toUpperCase()
+          : "";
+        if (normalized.includes("CHANNEL")) {
+          return "channel";
+        }
+        if (
+          normalized.includes("GROUP")
+          || normalized.includes("CHAT")
+        ) {
+          return "group";
+        }
+        if (
+          normalized.includes("DIRECT")
+          || normalized.includes("DIALOG")
+          || normalized.includes("USER")
+        ) {
+          return "direct";
+        }
+        return undefined;
+      }
+
+      function trustedOpaque(value: unknown): string | undefined {
+        const normalized = safeOptionalOpaque(value);
+        if (
+          normalized === undefined
+          || normalized.length === 0
+          || normalized.length > 512
+        ) {
+          return undefined;
+        }
+        for (let index = 0; index < normalized.length; index += 1) {
+          const code = normalized.charCodeAt(index);
+          if (code <= 31 || code === 127) {
+            return undefined;
+          }
+        }
+        return normalized;
       }
 
       function aliasedText(

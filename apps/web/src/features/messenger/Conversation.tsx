@@ -15,6 +15,7 @@ import {
 import { MessageBubble } from "./MessageBubble.js";
 import type {
   MessengerChat,
+  MessengerForwardedSource,
   MessengerMessage,
   MessengerSticker,
   ReactionKey
@@ -32,6 +33,7 @@ type ConversationProps = Readonly<{
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
   onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
 }>;
@@ -57,6 +59,7 @@ export function Conversation({
   onEditMessage,
   onDeleteMessage,
   onReactMessage,
+  onOpenForwardedSource,
   onLoadStickers,
   onSendSticker
 }: ConversationProps) {
@@ -232,6 +235,9 @@ export function Conversation({
                 {...(onReactMessage === undefined
                   ? {}
                   : { onReact: onReactMessage })}
+                {...(onOpenForwardedSource === undefined
+                  ? {}
+                  : { onOpenForwardedSource })}
                 onOpenMedia={(selectedMessage, input) => {
                   const nextIndex = mediaGallery.findIndex(
                     (item) => item.id === selectedMessage.id

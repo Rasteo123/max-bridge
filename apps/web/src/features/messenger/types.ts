@@ -25,7 +25,14 @@ export type MessengerChat = Readonly<{
 export type MessengerMessage = Readonly<{
   id: string;
   chatId?: string;
-  kind?: "text" | "system" | "image" | "video" | "voice" | "file";
+  kind?:
+    | "text"
+    | "system"
+    | "image"
+    | "video"
+    | "voice"
+    | "file"
+    | "unsupported";
   text: string;
   direction: "incoming" | "outgoing";
   sentAt: string;
@@ -37,7 +44,22 @@ export type MessengerMessage = Readonly<{
   replyToId?: string;
   replyPreview?: MessengerReplyPreview;
   forwardedFrom?: string;
+  forwardedSource?: MessengerForwardedSource;
+  textLinks?: readonly MessengerTextLink[];
+  attachmentType?: string;
   reactions?: readonly MessengerReaction[];
+}>;
+
+export type MessengerForwardedSource = Readonly<{
+  title: string;
+  chatId: string;
+  kind: "direct" | "group" | "channel";
+}>;
+
+export type MessengerTextLink = Readonly<{
+  offset: number;
+  length: number;
+  url: string;
 }>;
 
 export type MessengerPane = "list" | "conversation";

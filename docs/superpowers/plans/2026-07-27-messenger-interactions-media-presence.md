@@ -935,7 +935,7 @@ git commit -m "feat: add full screen media viewer"
 - Modify: `apps/web/src/features/messenger/messenger-store.ts`
 - Modify: `apps/web/src/features/messenger/messenger.css`
 
-- [ ] **Step 1: Inspect the real forwarded record and write failing fixtures**
+- [x] **Step 1: Inspect the real forwarded record and write failing fixtures**
 
 In the authenticated `web.max.ru` page, inspect one forwarded image with a
 caption/link/emoji and one forwarded video. Record only field names, element
@@ -957,7 +957,7 @@ Add failing worker/adapter/core tests that require:
 Add web tests that click the forwarded source, preserve a safe caption link,
 render emoji, and show an actionable error if the source cannot be opened.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -968,7 +968,7 @@ npx vitest run --config vitest.workspace.ts packages/core/src/domain/domain.test
 Expected: FAIL because forwarded source identity, rich caption links, and some
 forwarded media kinds are discarded and the source title is not interactive.
 
-- [ ] **Step 3: Extend strict message normalization**
+- [x] **Step 3: Extend strict message normalization**
 
 Add a strict forwarded-source object to the message schema. Keep
 `forwardedFrom` temporarily for backward compatibility, but derive it from the
@@ -989,7 +989,7 @@ Teach the history adapter to use `caption` aliases for media text and to map
 PHOTO/VIDEO/STICKER/AUDIO/FILE correctly. An unknown type produces an explicit
 unsupported attachment/message state and a non-sensitive diagnostic category.
 
-- [ ] **Step 4: Add safe rendering and in-app source navigation**
+- [x] **Step 4: Add safe rendering and in-app source navigation**
 
 `RichMessageText` renders plain text and allowlisted HTTPS links without
 `dangerouslySetInnerHTML`; external links use `rel="noreferrer noopener"`.
@@ -1002,7 +1002,7 @@ select it, and request history through the current authenticated client. On
 404/inaccessible source, return to the original chat and show an error instead
 of silently doing nothing.
 
-- [ ] **Step 5: Run focused and regression tests**
+- [x] **Step 5: Run focused and regression tests**
 
 Run the Step 2 command plus:
 

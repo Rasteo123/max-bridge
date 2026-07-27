@@ -240,6 +240,83 @@ describe("message domain", () => {
     expect(forwarded.forwardedFrom).toBe("ВСЕ ОТКРЫТКИ ТУТ");
   });
 
+  it("preserves a strict forwarded source and emoji-safe HTTPS links", () => {
+    const forwarded = parseMessage({
+      id: "message_forwarded_rich",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "image",
+      text: "Доброе утро 🌻 открыть",
+      textLinks: [{
+        offset: 15,
+        length: 7,
+        url: "https://max.ru/channel/synthetic"
+      }],
+      media: {
+        handle: "media_forwarded",
+        mimeType: "image/jpeg",
+        size: 128
+      },
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered",
+      forwardedSource: {
+        title: "ВСЕ ОТКРЫТКИ ТУТ",
+        chatId: "-68429202642371",
+        kind: "channel"
+      }
+    });
+
+    expect(forwarded.forwardedSource).toEqual({
+      title: "ВСЕ ОТКРЫТКИ ТУТ",
+      chatId: "-68429202642371",
+      kind: "channel"
+    });
+    expect(forwarded.textLinks).toEqual([{
+      offset: 15,
+      length: 7,
+      url: "https://max.ru/channel/synthetic"
+    }]);
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,unsafe",
+    "http://example.test/plain",
+    "https://user:password@example.test/private"
+  ])("rejects unsafe rich-text URL %s", (url) => {
+    expect(() => parseMessage({
+      id: "message_unsafe_link",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "text",
+      text: "Ссылка",
+      textLinks: [{ offset: 0, length: 6, url }],
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered"
+    })).toThrow(DomainValidationError);
+  });
+
+  it("accepts an explicit unsupported attachment message", () => {
+    const unsupported = parseMessage({
+      id: "message_unsupported",
+      chatId: syntheticChat.id,
+      senderId: "sender_synthetic",
+      direction: "incoming",
+      kind: "unsupported",
+      text: "Неподдерживаемое вложение: LOCATION",
+      attachmentType: "LOCATION",
+      sentAt: "2026-07-26T12:01:00.000Z",
+      status: "delivered"
+    });
+
+    expect(unsupported).toMatchObject({
+      kind: "unsupported",
+      attachmentType: "LOCATION"
+    });
+  });
+
   it("accepts omitted and empty message reactions", () => {
     const message = {
       id: "message_reactions",

@@ -1,6 +1,6 @@
 export type PrivateNotification = Readonly<{
   senderName: string;
-  kind: "text" | "image" | "video" | "voice" | "file";
+  kind: "text" | "image" | "video" | "voice" | "file" | "unsupported";
   messageBody?: string;
   mediaUrl?: string;
 }>;
@@ -10,7 +10,8 @@ const kindLabels: Readonly<Record<PrivateNotification["kind"], string>> = {
   image: "Фото",
   video: "Видео",
   voice: "Голосовое",
-  file: "Файл"
+  file: "Файл",
+  unsupported: "Вложение"
 };
 
 export function formatPrivateNotification(

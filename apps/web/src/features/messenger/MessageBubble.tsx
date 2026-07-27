@@ -12,7 +12,9 @@ import {
   type ContextMenuReaction,
   useLongPressContextMenu
 } from "./PressContextMenu.js";
+import { RichMessageText } from "./RichMessageText.js";
 import type {
+  MessengerForwardedSource,
   MessengerMessage,
   ReactionKey
 } from "./types.js";
@@ -25,6 +27,7 @@ type MessageBubbleProps = Readonly<{
   onEdit?(messageId: string, text: string): void;
   onDelete?(messageId: string): void;
   onReact?(messageId: string, reaction: ReactionKey | null): void;
+  onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
 }>;
 
@@ -48,6 +51,7 @@ export function MessageBubble({
   onEdit,
   onDelete,
   onReact,
+  onOpenForwardedSource,
   onOpenMedia
 }: MessageBubbleProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
@@ -65,6 +69,7 @@ export function MessageBubble({
     }
   });
   const kind = message.kind ?? "text";
+  const forwardedSource = message.forwardedSource;
   const isMedia = kind === "image" || kind === "video" ||
     kind === "voice" || kind === "file";
   const canEdit = (
@@ -169,10 +174,27 @@ export function MessageBubble({
             <span>{message.replyPreview.text || "Сообщение"}</span>
           </div>
         )}
-        {message.forwardedFrom !== undefined && (
+        {(forwardedSource !== undefined ||
+          message.forwardedFrom !== undefined) && (
           <div className="message__forwarded">
             <span>Переслано:</span>
-            <strong>{message.forwardedFrom}</strong>
+            {forwardedSource !== undefined &&
+            onOpenForwardedSource !== undefined ? (
+              <button
+                className="message__forwarded-source"
+                type="button"
+                data-no-swipe
+                onClick={() => {
+                  onOpenForwardedSource(forwardedSource);
+                }}
+              >
+                {forwardedSource.title}
+              </button>
+            ) : (
+              <strong>
+                {forwardedSource?.title ?? message.forwardedFrom}
+              </strong>
+            )}
           </div>
         )}
         {isMedia && message.media !== undefined && (
@@ -193,7 +215,16 @@ export function MessageBubble({
             />
           </div>
         )}
-        {message.text.length > 0 && <p>{message.text}</p>}
+        {message.text.length > 0 && (
+          <p>
+            <RichMessageText
+              text={message.text}
+              {...(message.textLinks === undefined
+                ? {}
+                : { links: message.textLinks })}
+            />
+          </p>
+        )}
         <div className="message__meta">
           {message.edited === true && <span>изменено</span>}
           <time dateTime={message.sentAt}>
