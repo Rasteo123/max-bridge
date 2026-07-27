@@ -34,6 +34,7 @@ export function useSwipeToReply(options: Readonly<{
   armed: boolean;
   style: CSSProperties;
   handlers: ReplySwipeHandlers;
+  cancel(): void;
 }> {
   const gestureRef = useRef<ReplyGesture | null>(null);
   const [drag, setDrag] = useState(0);
@@ -135,7 +136,8 @@ export function useSwipeToReply(options: Readonly<{
       onPointerMove,
       onPointerUp,
       onPointerCancel
-    }
+    },
+    cancel: reset
   };
 }
 

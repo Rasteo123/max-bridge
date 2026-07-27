@@ -46,15 +46,18 @@ export function MessageBubble({
   onReact
 }: MessageBubbleProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
-  const press = useLongPressContextMenu({
-    onOpen: setMenuPoint
-  });
   const replySwipe = useSwipeToReply({
     disabled: onReply === undefined,
     onReply: () => {
       onReply?.(message);
     },
     onArmed: triggerReplyHaptic
+  });
+  const press = useLongPressContextMenu({
+    onOpen: (point) => {
+      replySwipe.cancel();
+      setMenuPoint(point);
+    }
   });
   const kind = message.kind ?? "text";
   const isMedia = kind === "image" || kind === "video" ||

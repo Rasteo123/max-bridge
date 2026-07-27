@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -21,6 +22,7 @@ import type { MessengerMessage } from "./types.js";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -215,6 +217,49 @@ describe("message swipe to reply", () => {
     fireEvent.pointerMove(secondBubble, pointer(110, 101, 2));
     fireEvent.pointerUp(secondBubble, pointer(110, 101, 2));
     expect(onReply).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels a pending reply gesture when long press opens the menu", () => {
+    vi.useFakeTimers();
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1));
+    fireEvent.pointerMove(bubble, pointer(176, 102, 1));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(screen.getByRole("menu", {
+      name: "Действия с сообщением"
+    })).toBeVisible();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+
+    fireEvent.pointerMove(bubble, pointer(100, 102, 1));
+    fireEvent.pointerUp(bubble, pointer(100, 102, 1));
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+  });
+
+  it("cancels a pending reply gesture before the right-click menu opens", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1));
+    fireEvent.contextMenu(bubble, { clientX: 160, clientY: 100 });
+
+    expect(screen.getByRole("menu", {
+      name: "Действия с сообщением"
+    })).toBeVisible();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+
+    fireEvent.pointerMove(bubble, pointer(100, 102, 1));
+    fireEvent.pointerUp(bubble, pointer(100, 102, 1));
+
+    expect(onReply).not.toHaveBeenCalled();
   });
 });
 

@@ -16,7 +16,7 @@ type SwipeNavigationOptions = Readonly<{
   disabled: boolean;
 }>;
 
-type GestureAxis = "pending" | "horizontal" | "vertical";
+type GestureAxis = "pending" | "horizontal" | "vertical" | "rejected";
 
 type Gesture = {
   pointerId: number | null;
@@ -99,9 +99,11 @@ export function useSwipeNavigation({
       current.axis === "pending" &&
       Math.hypot(deltaX, deltaY) >= DIRECTION_LOCK_PX
     ) {
-      current.axis = Math.abs(deltaX) > Math.abs(deltaY)
-        ? "horizontal"
-        : "vertical";
+      current.axis = Math.abs(deltaX) <= Math.abs(deltaY)
+        ? "vertical"
+        : isCorrectDirection(pane, deltaX)
+          ? "horizontal"
+          : "rejected";
     }
     if (current.axis !== "horizontal") {
       return;
@@ -134,12 +136,9 @@ export function useSwipeNavigation({
       110,
       Math.max(56, width * 0.18)
     );
-    const correctDirection = pane === "conversation"
-      ? deltaX > 0
-      : deltaX < 0;
     if (
       current.axis === "horizontal" &&
-      correctDirection &&
+      isCorrectDirection(pane, deltaX) &&
       (
         Math.abs(deltaX) >= distanceThreshold ||
         (
@@ -291,9 +290,11 @@ export function useSwipeNavigation({
       current.axis === "pending" &&
       Math.hypot(deltaX, deltaY) >= DIRECTION_LOCK_PX
     ) {
-      current.axis = Math.abs(deltaX) > Math.abs(deltaY)
-        ? "horizontal"
-        : "vertical";
+      current.axis = Math.abs(deltaX) <= Math.abs(deltaY)
+        ? "vertical"
+        : isCorrectDirection(pane, deltaX)
+          ? "horizontal"
+          : "rejected";
     }
     if (current.axis === "horizontal") {
       current.offset = clampOffset(
@@ -316,12 +317,9 @@ export function useSwipeNavigation({
       110,
       Math.max(56, width * 0.18)
     );
-    const correctDirection = pane === "conversation"
-      ? deltaX > 0
-      : deltaX < 0;
     if (
       current.axis === "horizontal" &&
-      correctDirection &&
+      isCorrectDirection(pane, deltaX) &&
       (
         Math.abs(deltaX) >= distanceThreshold ||
         (
@@ -345,6 +343,10 @@ function clampOffset(
     return Math.min(limit, Math.max(0, deltaX));
   }
   return Math.max(-limit, Math.min(0, deltaX));
+}
+
+function isCorrectDirection(pane: MessengerPane, deltaX: number): boolean {
+  return pane === "conversation" ? deltaX > 0 : deltaX < 0;
 }
 
 function swipeProgress(offset: number): number {

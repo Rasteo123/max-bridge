@@ -48,6 +48,46 @@ describe("narrow messenger gestures", () => {
       .toHaveAttribute("data-pane", "list");
   });
 
+  it("lets a nested message own a left swipe to reply", () => {
+    const onSend = vi.fn();
+    renderShell("conversation", onSend);
+    const surface = screen.getByTestId("messenger-surface");
+    const capture = vi.fn();
+    Object.assign(surface, { setPointerCapture: capture });
+    const bubble = messageBubble("Привет! Ты видел фото?");
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1, 0));
+    fireEvent.pointerMove(bubble, pointer(116, 103, 1, 100));
+    expect(bubble).toHaveStyle({ "--reply-drag": "-64px" });
+    expect(capture).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(bubble, pointer(116, 103, 1, 150));
+
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "conversation");
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+    expect(screen.getAllByText("Ответ на сообщение")).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText("Сообщение"), {
+      target: { value: "Ответ" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledWith("Ответ", "message-1");
+  });
+
+  it("lets the parent own a right swipe that starts on a message", () => {
+    renderShell("conversation");
+    const bubble = messageBubble("Привет! Ты видел фото?");
+
+    fireEvent.pointerDown(bubble, pointer(100, 100, 1, 0));
+    fireEvent.pointerMove(bubble, pointer(260, 103, 1, 100));
+    fireEvent.pointerUp(bubble, pointer(260, 103, 1, 150));
+
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
+  });
+
   it("hides the chat list with a left swipe", () => {
     renderShell("list");
     swipe(260, 70);
@@ -261,6 +301,14 @@ function renderShell(
       onSend={onSend}
     />
   );
+}
+
+function messageBubble(text: string): HTMLElement {
+  const bubble = screen.getAllByText(text)
+    .map((element) => element.closest("article"))
+    .find((element) => element !== null);
+  expect(bubble).toBeDefined();
+  return bubble as HTMLElement;
 }
 
 function swipe(
