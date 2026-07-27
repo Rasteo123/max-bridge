@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -263,6 +264,52 @@ describe("MediaViewer", () => {
         onClose={vi.fn()}
       />
     ).unmount();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it("keeps owned fullscreen through StrictMode replay and releases it once", async () => {
+    const exitFullscreen = vi.fn();
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "",
+        themeParams: {},
+        ready: vi.fn(),
+        expand: vi.fn(),
+        exitFullscreen
+      }
+    });
+    const onClose = vi.fn();
+    const view = render(
+      <StrictMode>
+        <MediaViewer
+          items={items}
+          index={0}
+          onIndexChange={vi.fn()}
+          onClose={onClose}
+          telegramFullscreenRequested
+        />
+      </StrictMode>
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 0);
+      });
+    });
+    expect(exitFullscreen).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "Закрыть просмотр"
+    }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+
+    view.unmount();
+    await act(async () => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 0);
+      });
+    });
     expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 

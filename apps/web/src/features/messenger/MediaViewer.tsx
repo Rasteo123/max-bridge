@@ -89,6 +89,8 @@ function MediaViewerDialog({
       ? document.activeElement
       : null
   );
+  const fullscreenExitTimer = useRef<number | null>(null);
+  const fullscreenReleased = useRef(false);
   const [bounds, setBounds] = useState({
     viewportWidth: Math.max(1, window.innerWidth),
     viewportHeight: Math.max(1, window.innerHeight),
@@ -109,6 +111,10 @@ function MediaViewerDialog({
   const lastTouchAt = useRef(0);
 
   useEffect(() => {
+    if (fullscreenExitTimer.current !== null) {
+      window.clearTimeout(fullscreenExitTimer.current);
+      fullscreenExitTimer.current = null;
+    }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     dialogRef.current
@@ -117,7 +123,10 @@ function MediaViewerDialog({
     return () => {
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus();
-      exitOwnedTelegramMediaFullscreen(telegramFullscreenRequested);
+      fullscreenExitTimer.current = window.setTimeout(() => {
+        fullscreenExitTimer.current = null;
+        releaseOwnedFullscreen();
+      }, 0);
     };
   }, []);
 
@@ -163,7 +172,19 @@ function MediaViewerDialog({
   } as CSSProperties;
 
   function close(): void {
+    releaseOwnedFullscreen();
     onClose();
+  }
+
+  function releaseOwnedFullscreen(): void {
+    if (
+      fullscreenReleased.current ||
+      !telegramFullscreenRequested
+    ) {
+      return;
+    }
+    fullscreenReleased.current = true;
+    exitOwnedTelegramMediaFullscreen(true);
   }
 
   function onDocumentKeyDown(event: globalThis.KeyboardEvent): void {
