@@ -83,7 +83,13 @@ describe("chat summary domain", () => {
     });
   });
 
-  it.each(["online", "offline", "unknown"] as const)(
+  it.each([
+    "online",
+    "offline",
+    "recently",
+    "long_ago",
+    "unknown"
+  ] as const)(
     "accepts the %s presence",
     (presence) => {
       expect(parseChatSummary({
@@ -92,6 +98,32 @@ describe("chat summary domain", () => {
       }).presence).toBe(presence);
     }
   );
+
+  it("accepts a bounded epoch-millisecond last-seen time", () => {
+    const lastSeenAt = Date.parse("2026-07-27T09:55:00.000Z");
+
+    expect(parseChatSummary({
+      ...syntheticChat,
+      presence: "offline",
+      lastSeenAt
+    }).lastSeenAt).toBe(lastSeenAt);
+  });
+
+  it.each([
+    ["seconds", 1_785_146_400],
+    ["negative", -1],
+    ["not finite", Number.NaN],
+    ["fractional", 1_785_146_400_000.5],
+    ["too far in the future", 4_102_444_800_001],
+    ["string", "1785146400000"],
+    ["boolean", true]
+  ] as const)("rejects %s as lastSeenAt", (_label, lastSeenAt) => {
+    expect(() => parseChatSummary({
+      ...syntheticChat,
+      presence: "offline",
+      lastSeenAt
+    })).toThrow(DomainValidationError);
+  });
 
   it.each(["incoming", "outgoing"] as const)(
     "accepts the %s last-message direction",

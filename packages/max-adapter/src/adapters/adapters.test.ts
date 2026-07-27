@@ -4,7 +4,7 @@ import {
   parseChatSummary,
   parseMessage
 } from "@maxbridge/core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { adaptChatList } from "./chat-list-adapter.js";
 import { MaxCompatibilityError } from "./errors.js";
@@ -23,11 +23,17 @@ type DomainFixture = Readonly<{
 
 let fixture: DomainFixture;
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(async () => {
   fixture = await loadFixture();
 });
 
 describe("MAX chat list adapter", () => {
+  const now = Date.parse("2026-07-27T10:00:00.000Z");
+
   it("adapts direct and group summaries with preview, time and unread count", () => {
     const media = new RuntimeMediaAdapter();
 
@@ -79,6 +85,184 @@ describe("MAX chat list adapter", () => {
       lastMessageDirection: "outgoing",
       deliveryStatus: "read"
     });
+  });
+
+  it.each([
+    [0, "offline"],
+    [1, "online"],
+    [2, "recently"],
+    [3, "long_ago"]
+  ] as const)(
+    "normalizes trusted nested presence status %s to %s",
+    (status, expected) => {
+      const page = adaptChatList({
+        chats: [{
+          id: `presence-status-${String(status)}`,
+          type: "DIALOG",
+          title: "Ольга",
+          recipient: {
+            presence: {
+              status,
+              isOnline: status === 1
+            },
+            online: status !== 0
+          }
+        }]
+      }, { media: new RuntimeMediaAdapter() });
+
+      expect(page.chats[0]?.presence).toBe(expected);
+    }
+  );
+
+  it("keeps a trusted millisecond last-seen time for an offline direct chat", () => {
+    vi.setSystemTime(now);
+    const lastSeenAt = now - 5 * 60_000;
+    const page = adaptChatList({
+      chats: [{
+        id: "presence-last-seen-ms",
+        type: "DIALOG",
+        title: "Ольга",
+        recipient: {
+          presence: {
+            status: 0,
+            seen: lastSeenAt
+          }
+        }
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]).toMatchObject({
+      presence: "offline",
+      lastSeenAt
+    });
+  });
+
+  it("converts seconds only from the verified raw presence field", () => {
+    vi.setSystemTime(now);
+    const rawSeen = Math.floor((now - 2 * 60 * 60_000) / 1_000);
+    const page = adaptChatList({
+      chats: [{
+        id: "presence-last-seen-raw",
+        type: "DIALOG",
+        title: "Ольга",
+        recipient: {
+          presence: {
+            status: 0,
+            $: { seen: rawSeen }
+          }
+        }
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]).toMatchObject({
+      presence: "offline",
+      lastSeenAt: rawSeen * 1_000
+    });
+  });
+
+  it.each([
+    [
+      "online",
+      "DIALOG",
+      { status: 1, seen: now - 60_000 }
+    ],
+    [
+      "recently",
+      "DIALOG",
+      { status: 2, seen: now - 60_000 }
+    ],
+    [
+      "long ago",
+      "DIALOG",
+      { status: 3, seen: now - 60_000 }
+    ],
+    [
+      "unknown",
+      "DIALOG",
+      { seen: now - 60_000 }
+    ],
+    [
+      "group",
+      "CHAT",
+      { status: 0, seen: now - 60_000 }
+    ],
+    [
+      "channel",
+      "CHANNEL",
+      { status: 0, seen: now - 60_000 }
+    ]
+  ] as const)(
+    "omits lastSeenAt for %s presence",
+    (_label, type, presence) => {
+      vi.setSystemTime(now);
+      const page = adaptChatList({
+        chats: [{
+          id: `presence-last-seen-${_label}`,
+          type,
+          title: "Граница",
+          recipient: { presence }
+        }]
+      }, { media: new RuntimeMediaAdapter() });
+
+      expect(page.chats[0]).not.toHaveProperty("lastSeenAt");
+    }
+  );
+
+  it.each([
+    ["seconds in the millisecond field", { seen: 1_785_146_400 }],
+    ["a string millisecond value", { seen: String(now - 60_000) }],
+    ["a boolean value", { seen: true }],
+    ["a negative raw value", { $: { seen: -1 } }],
+    ["an ambiguous millisecond raw value", { $: { seen: now - 60_000 } }],
+    ["an implausibly old value", { seen: now - 11 * 366 * 24 * 60 * 60_000 }],
+    ["a future-skewed value", { seen: now + 5 * 60_000 + 1 }]
+  ] as const)(
+    "rejects last-seen input from %s",
+    (_label, seenFields) => {
+      vi.setSystemTime(now);
+      const page = adaptChatList({
+        chats: [{
+          id: `presence-invalid-${_label}`,
+          type: "DIALOG",
+          title: "Граница",
+          recipient: {
+            presence: {
+              status: 0,
+              ...seenFields
+            }
+          }
+        }]
+      }, { media: new RuntimeMediaAdapter() });
+
+      expect(page.chats[0]).not.toHaveProperty("lastSeenAt");
+    }
+  );
+
+  it("does not infer lastSeenAt from chat or message activity", () => {
+    vi.setSystemTime(now);
+    const page = adaptChatList({
+      chats: [{
+        id: "presence-no-inference",
+        type: "DIALOG",
+        title: "Граница",
+        recipient: {
+          presence: { status: 0 },
+          lastSeenAt: now - 60_000
+        },
+        lastSeenAt: now - 60_000,
+        lastActivity: now - 60_000,
+        openChat: true,
+        lastMessage: {
+          id: "message-activity",
+          senderId: "someone",
+          time: now - 60_000,
+          text: "Активность"
+        }
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]).toMatchObject({ presence: "offline" });
+    expect(page.chats[0]).not.toHaveProperty("lastSeenAt");
   });
 
   it.each([

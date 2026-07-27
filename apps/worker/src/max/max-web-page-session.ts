@@ -322,6 +322,22 @@ export class MaxWebPageSession {
               chat["recipient"] ?? raw?.["recipient"]
             );
             const rawRecipient = record(recipient?.["$"]);
+            const presence = record(
+              recipient?.["presence"] ?? rawRecipient?.["presence"]
+            );
+            const rawPresence = record(presence?.["$"]);
+            const presenceStatus = strictPresenceStatus(presence?.["status"]);
+            const presenceIsOnline = strictBoolean(presence?.["isOnline"]);
+            const presenceSeen = strictEpochInteger(
+              presence?.["seen"],
+              946_684_800_000,
+              4_102_444_800_000
+            );
+            const rawPresenceSeen = strictEpochInteger(
+              rawPresence?.["seen"],
+              946_684_800,
+              4_102_444_800
+            );
             const online = strictBoolean(recipient?.["online"])
               ?? strictBoolean(recipient?.["isOnline"])
               ?? strictBoolean(rawRecipient?.["online"])
@@ -356,9 +372,40 @@ export class MaxWebPageSession {
                 ?? (recipient === undefined ? "CHAT" : "DIALOG"),
               title,
               avatarUrl: avatarByTitle.get(title),
-              ...(online === undefined ? {} : {
-                recipient: { online }
-              }),
+              ...(
+                presenceStatus === undefined
+                && presenceIsOnline === undefined
+                && presenceSeen === undefined
+                && rawPresenceSeen === undefined
+                && online === undefined
+                  ? {}
+                  : {
+                    recipient: {
+                      ...(presenceStatus === undefined
+                        && presenceIsOnline === undefined
+                        && presenceSeen === undefined
+                        && rawPresenceSeen === undefined
+                        ? {}
+                        : {
+                          presence: {
+                            ...(presenceStatus === undefined
+                              ? {}
+                              : { status: presenceStatus }),
+                            ...(presenceIsOnline === undefined
+                              ? {}
+                              : { isOnline: presenceIsOnline }),
+                            ...(presenceSeen === undefined
+                              ? {}
+                              : { seen: presenceSeen }),
+                            ...(rawPresenceSeen === undefined
+                              ? {}
+                              : { $: { seen: rawPresenceSeen } })
+                          }
+                        }),
+                      ...(online === undefined ? {} : { online })
+                    }
+                  }
+              ),
               lastMessage: last === undefined
                 ? undefined
                 : {
@@ -456,6 +503,27 @@ export class MaxWebPageSession {
         }
         function strictBoolean(value: unknown): boolean | undefined {
           return typeof value === "boolean" ? value : undefined;
+        }
+        function strictPresenceStatus(
+          value: unknown
+        ): 0 | 1 | 2 | 3 | undefined {
+          return value === 0 || value === 1 || value === 2 || value === 3
+            ? value
+            : undefined;
+        }
+        function strictEpochInteger(
+          value: unknown,
+          minimum: number,
+          maximum: number
+        ): number | undefined {
+          return (
+            typeof value === "number"
+            && Number.isSafeInteger(value)
+            && value >= minimum
+            && value <= maximum
+          )
+            ? value
+            : undefined;
         }
         function isAllowedAvatar(value: string): boolean {
           try {

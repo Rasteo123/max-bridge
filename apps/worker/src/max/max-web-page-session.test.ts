@@ -9,6 +9,8 @@ afterEach(() => {
 });
 
 describe("MaxWebPageSession chat snapshots", () => {
+  const now = Date.parse("2026-07-27T10:00:00.000Z");
+
   it("returns direct-chat presence and outgoing read acknowledgements", async () => {
     const session = listChatsSession([
       directChatPageModel({
@@ -52,6 +54,142 @@ describe("MaxWebPageSession chat snapshots", () => {
           presence: expected
         })
       ]);
+    }
+  );
+
+  it.each([
+    [0, "offline"],
+    [1, "online"],
+    [2, "recently"],
+    [3, "long_ago"]
+  ] as const)(
+    "projects nested MAX presence status %s as %s",
+    async (status, expected) => {
+      const session = listChatsSession([
+        directChatPageModel({
+          recipient: {
+            presence: {
+              status,
+              isOnline: status === 1
+            },
+            online: status !== 0
+          }
+        })
+      ]);
+
+      await expect(session.listChats()).resolves.toEqual([
+        expect.objectContaining({
+          id: "chat-1",
+          presence: expected
+        })
+      ]);
+    }
+  );
+
+  it("projects trusted last-seen milliseconds without enumerating presence", async () => {
+    vi.setSystemTime(now);
+    const lastSeenAt = now - 5 * 60_000;
+    const presence = new Proxy({
+      status: 0,
+      isOnline: false,
+      seen: lastSeenAt,
+      $: { seen: Math.floor(lastSeenAt / 1_000) }
+    }, {
+      ownKeys: () => {
+        throw new Error("presence keys must not be enumerated");
+      }
+    });
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: {
+          presence,
+          online: true
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        presence: "offline",
+        lastSeenAt
+      })
+    ]);
+  });
+
+  it("projects raw last-seen seconds only from presence.$.seen", async () => {
+    vi.setSystemTime(now);
+    const rawSeen = Math.floor((now - 2 * 60 * 60_000) / 1_000);
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: {
+          presence: {
+            status: 0,
+            $: { seen: rawSeen }
+          }
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        presence: "offline",
+        lastSeenAt: rawSeen * 1_000
+      })
+    ]);
+  });
+
+  it("does not project activity fields as last-seen time", async () => {
+    vi.setSystemTime(now);
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: {
+          presence: { status: 0 },
+          lastSeenAt: now - 60_000
+        },
+        lastSeenAt: now - 60_000,
+        lastActivity: now - 60_000,
+        openChat: true,
+        lastMessage: {
+          id: "message-activity",
+          senderId: "viewer-2",
+          status: "READ",
+          time: now - 60_000,
+          text: "Активность",
+          seen: now - 60_000
+        }
+      })
+    ]);
+
+    const chats = await session.listChats();
+
+    expect(chats[0]).not.toHaveProperty("lastSeenAt");
+  });
+
+  it.each([
+    ["string", { seen: String(now - 60_000) }],
+    ["boolean", { seen: true }],
+    ["ambiguous direct seconds", { seen: 1_785_146_400 }],
+    ["ambiguous raw milliseconds", { $: { seen: now - 60_000 } }]
+  ] as const)(
+    "rejects %s last-seen units in the real page projection",
+    async (_label, seenFields) => {
+      vi.setSystemTime(now);
+      const session = listChatsSession([
+        directChatPageModel({
+          recipient: {
+            presence: {
+              status: 0,
+              ...seenFields
+            }
+          }
+        })
+      ]);
+
+      const chats = await session.listChats();
+
+      expect(chats[0]).not.toHaveProperty("lastSeenAt");
     }
   );
 

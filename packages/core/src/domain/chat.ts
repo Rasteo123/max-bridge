@@ -24,6 +24,8 @@ export const DeliveryStatusSchema = Type.Union([
 export const PresenceSchema = Type.Union([
   Type.Literal("online"),
   Type.Literal("offline"),
+  Type.Literal("recently"),
+  Type.Literal("long_ago"),
   Type.Literal("unknown")
 ]);
 
@@ -62,6 +64,10 @@ export const ChatSummarySchema = Type.Object({
     pattern: "^https://i\\.oneme\\.ru(?:/|$)"
   })),
   presence: Type.Optional(PresenceSchema),
+  lastSeenAt: Type.Optional(Type.Integer({
+    minimum: 946_684_800_000,
+    maximum: 4_102_444_800_000
+  })),
   lastMessageDirection: Type.Optional(LastMessageDirectionSchema),
   deliveryStatus: Type.Optional(DeliveryStatusSchema)
 }, strictObjectOptions);

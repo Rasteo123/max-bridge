@@ -68,7 +68,7 @@ function adaptChatSummary(
     chat["lastMessage"] ?? chat["message"]
   );
   const kind = chatKind(chat);
-  const presence = chatPresence(chat, kind);
+  const presenceState = chatPresence(chat, kind);
   const lastMessageDirection = messageDirection(chat, lastMessage);
   const timestamp = toIsoTimestamp(
     lastMessage?.["time"]
@@ -100,7 +100,12 @@ function adaptChatSummary(
     pinned: readWireBoolean(chat, "pinned", "isPinned") ?? false,
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
     ...(avatarUrl === undefined ? {} : { avatarUrl }),
-    ...(presence === undefined ? {} : { presence }),
+    ...(presenceState.presence === undefined
+      ? {}
+      : { presence: presenceState.presence }),
+    ...(presenceState.lastSeenAt === undefined
+      ? {}
+      : { lastSeenAt: presenceState.lastSeenAt }),
     ...(lastMessageDirection === undefined ? {} : { lastMessageDirection }),
     ...(lastMessage === undefined
       ? {}
@@ -116,15 +121,41 @@ function adaptChatSummary(
 function chatPresence(
   chat: WireRecord,
   kind: ChatKind
-): Presence | undefined {
+): Readonly<{
+  presence?: Presence;
+  lastSeenAt?: number;
+}> {
   if (kind !== "direct") {
-    return undefined;
+    return {};
   }
   const recipient = optionalWireRecord(chat["recipient"]);
+  const nestedPresence = optionalWireRecord(recipient?.["presence"]);
+  const rawNestedPresence = optionalWireRecord(nestedPresence?.["$"]);
+  const status = strictPresenceStatus(nestedPresence?.["status"]);
+  if (status !== undefined) {
+    const presence = ({
+      0: "offline",
+      1: "online",
+      2: "recently",
+      3: "long_ago"
+    } as const)[status];
+    if (presence !== "offline") {
+      return { presence };
+    }
+    const lastSeenAt = trustedLastSeenAt(
+      nestedPresence?.["seen"],
+      rawNestedPresence?.["seen"]
+    );
+    return {
+      presence,
+      ...(lastSeenAt === undefined ? {} : { lastSeenAt })
+    };
+  }
   const recipientView = optionalWireRecord(recipient?.["view"]);
   const chatView = optionalWireRecord(chat["view"]);
   const online = (
-    (recipient === undefined
+    strictWireBoolean(nestedPresence?.["isOnline"])
+    ?? (recipient === undefined
       ? undefined
       : readWireBoolean(recipient, "online", "isOnline"))
     ?? (recipientView === undefined
@@ -136,12 +167,81 @@ function chatPresence(
     ?? readWireBoolean(chat, "online", "isOnline")
   );
   if (online === true) {
-    return "online";
+    return { presence: "online" };
   }
   if (online === false) {
-    return "offline";
+    const lastSeenAt = trustedLastSeenAt(
+      nestedPresence?.["seen"],
+      rawNestedPresence?.["seen"]
+    );
+    return {
+      presence: "offline",
+      ...(lastSeenAt === undefined ? {} : { lastSeenAt })
+    };
   }
-  return "unknown";
+  return { presence: "unknown" };
+}
+
+const MAX_LAST_SEEN_AGE_MS = 10 * 366 * 24 * 60 * 60_000;
+const MAX_LAST_SEEN_FUTURE_SKEW_MS = 5 * 60_000;
+const MIN_EPOCH_MILLISECONDS = 946_684_800_000;
+const MAX_EPOCH_MILLISECONDS = 4_102_444_800_000;
+const MIN_EPOCH_SECONDS = MIN_EPOCH_MILLISECONDS / 1_000;
+const MAX_EPOCH_SECONDS = MAX_EPOCH_MILLISECONDS / 1_000;
+
+function strictPresenceStatus(value: unknown): 0 | 1 | 2 | 3 | undefined {
+  return value === 0 || value === 1 || value === 2 || value === 3
+    ? value
+    : undefined;
+}
+
+function strictWireBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function trustedLastSeenAt(
+  millisecondsValue: unknown,
+  rawSecondsValue: unknown
+): number | undefined {
+  const milliseconds = strictEpochInteger(
+    millisecondsValue,
+    MIN_EPOCH_MILLISECONDS,
+    MAX_EPOCH_MILLISECONDS
+  );
+  const rawSeconds = strictEpochInteger(
+    rawSecondsValue,
+    MIN_EPOCH_SECONDS,
+    MAX_EPOCH_SECONDS
+  );
+  const candidate = milliseconds ?? (
+    rawSeconds === undefined ? undefined : rawSeconds * 1_000
+  );
+  if (candidate === undefined || !Number.isSafeInteger(candidate)) {
+    return undefined;
+  }
+  const now = Date.now();
+  if (
+    candidate < now - MAX_LAST_SEEN_AGE_MS
+    || candidate > now + MAX_LAST_SEEN_FUTURE_SKEW_MS
+  ) {
+    return undefined;
+  }
+  return candidate;
+}
+
+function strictEpochInteger(
+  value: unknown,
+  minimum: number,
+  maximum: number
+): number | undefined {
+  return (
+    typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value >= minimum
+    && value <= maximum
+  )
+    ? value
+    : undefined;
 }
 
 function messageDirection(
