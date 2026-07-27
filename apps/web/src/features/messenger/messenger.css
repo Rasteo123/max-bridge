@@ -493,13 +493,50 @@
 }
 
 .message {
+  --reply-drag: 0px;
+  position: relative;
   width: fit-content;
   max-width: min(76%, 620px);
   padding: 9px 12px 6px;
+  transform: translate3d(var(--reply-drag), 0, 0);
+  transition: transform 160ms ease-out;
   border-radius: 16px;
   box-shadow: 0 2px 8px rgb(25 35 65 / 6%);
   -webkit-touch-callout: none;
   user-select: none;
+}
+
+.message[data-reply-dragging="true"] {
+  transition: none;
+}
+
+.message__reply-swipe-icon {
+  position: absolute;
+  top: 50%;
+  right: -38px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%) scale(0.8);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.message[data-reply-dragging="true"] .message__reply-swipe-icon {
+  transform: translateY(-50%) scale(1);
+  opacity: 0.72;
+}
+
+.message[data-reply-armed="true"] .message__reply-swipe-icon {
+  opacity: 1;
 }
 
 .message p {

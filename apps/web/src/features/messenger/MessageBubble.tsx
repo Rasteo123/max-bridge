@@ -13,6 +13,7 @@ import type {
   MessengerMessage,
   ReactionKey
 } from "./types.js";
+import { useSwipeToReply } from "./useSwipeToReply.js";
 
 type MessageBubbleProps = Readonly<{
   message: MessengerMessage;
@@ -47,6 +48,13 @@ export function MessageBubble({
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
   const press = useLongPressContextMenu({
     onOpen: setMenuPoint
+  });
+  const replySwipe = useSwipeToReply({
+    disabled: onReply === undefined,
+    onReply: () => {
+      onReply?.(message);
+    },
+    onArmed: triggerReplyHaptic
   });
   const kind = message.kind ?? "text";
   const isMedia = kind === "image" || kind === "video" ||
@@ -116,8 +124,30 @@ export function MessageBubble({
       <article
         className={`message message--${message.direction}`}
         data-message-id={message.id}
-        {...press}
+        data-reply-dragging={replySwipe.dragging ? "true" : "false"}
+        data-reply-armed={replySwipe.armed ? "true" : "false"}
+        style={replySwipe.style}
+        onContextMenu={press.onContextMenu}
+        onPointerDown={(event) => {
+          press.onPointerDown(event);
+          replySwipe.handlers.onPointerDown?.(event);
+        }}
+        onPointerMove={(event) => {
+          press.onPointerMove(event);
+          replySwipe.handlers.onPointerMove?.(event);
+        }}
+        onPointerUp={(event) => {
+          press.onPointerUp(event);
+          replySwipe.handlers.onPointerUp?.(event);
+        }}
+        onPointerCancel={(event) => {
+          press.onPointerCancel(event);
+          replySwipe.handlers.onPointerCancel?.(event);
+        }}
+        onClickCapture={press.onClickCapture}
+        onDragStart={press.onDragStart}
       >
+        <span className="message__reply-swipe-icon" aria-hidden="true">↩</span>
         {showSender && message.senderName !== undefined && (
           <strong>{message.senderName}</strong>
         )}
@@ -136,7 +166,9 @@ export function MessageBubble({
           </div>
         )}
         {isMedia && message.media !== undefined && (
-          <MediaMessage kind={kind} media={message.media} />
+          <div data-no-swipe>
+            <MediaMessage kind={kind} media={message.media} />
+          </div>
         )}
         {message.text.length > 0 && <p>{message.text}</p>}
         <div className="message__meta">
@@ -222,4 +254,23 @@ function formatMessageTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
+}
+
+function triggerReplyHaptic(): void {
+  const webApp = window.Telegram?.WebApp;
+  const feedback = webApp?.HapticFeedback;
+  if (feedback?.impactOccurred === undefined) {
+    return;
+  }
+  if (
+    webApp?.isVersionAtLeast !== undefined &&
+    !webApp.isVersionAtLeast("6.1")
+  ) {
+    return;
+  }
+  try {
+    feedback.impactOccurred("light");
+  } catch {
+    // Telegram capabilities can disappear while the host is being closed.
+  }
 }
