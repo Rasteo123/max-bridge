@@ -25,6 +25,30 @@ The release adds:
 - MAX remains the source of truth for presence, delivery state, and attachment
   confirmation. The Mini App must not infer these states from local activity.
 
+## Official MAX platform boundary
+
+The official MAX developer surfaces are used only within their documented
+authority:
+
+- MAX Bridge (`window.WebApp`) is available to a Mini App launched inside MAX.
+  This project is launched inside Telegram, so host integration such as back
+  navigation, viewport, and haptics uses the Telegram Mini App API instead.
+- MAX Bot API operates as the bot and does not grant access to a user's complete
+  personal chat list or permission to send as that user. It therefore cannot
+  replace the authenticated per-user MAX web session used by this bridge.
+- MAX UI is evaluated for presentation primitives and design tokens such as
+  avatars, online dots, panels, inputs, and theme adaptation. Custom messenger
+  interactions (message bubbles, swipe gestures, media transforms, and the
+  responsive two-pane layout) remain local when MAX UI has no matching
+  component or would change established behavior.
+- `shareMaxContent` is not an attachment-send path for this product: it is a MAX
+  host capability for sharing a message previously sent by a bot. Attachments
+  in this project must be sent from the user's isolated MAX session.
+
+This boundary keeps the implementation compatible with the official
+documentation without presenting an unsupported Bot API or MAX Bridge feature
+as personal-account access.
+
 ## User interaction design
 
 ### Swipe to reply

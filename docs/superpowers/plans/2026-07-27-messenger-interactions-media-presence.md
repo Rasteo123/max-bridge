@@ -4,11 +4,29 @@
 
 **Goal:** Add swipe-to-reply, a full-screen image/video viewer, direct-contact presence, outgoing delivery receipts, header avatars, and reliable desktop/mobile attachment sending.
 
-**Architecture:** Keep MAX as the source of truth. The worker extracts presence, direction, acknowledgement state, and performs attachment UI automation; core schemas and adapters normalize that data; the React client renders it and owns only transient interaction state. New gesture and media-transform logic live in focused hooks so message navigation, context menus, and media controls remain isolated and testable.
+**Architecture:** Keep MAX as the source of truth. The worker extracts presence, direction, acknowledgement state, and performs attachment UI automation; core schemas and adapters normalize that data; the React client renders it and owns only transient interaction state. New gesture and media-transform logic live in focused hooks so message navigation, context menus, and media controls remain isolated and testable. MAX Bridge is not called because this Mini App runs inside Telegram, and MAX Bot API is not treated as personal-account access. MAX UI components and design tokens may be reused in presentation tasks when they preserve the approved messenger behavior.
 
 **Tech Stack:** TypeScript, React 19, Fastify, Playwright, TypeBox, Vitest, Testing Library, CSS, systemd release deployment.
 
 ---
+
+## Official platform compatibility checkpoint
+
+Before Tasks 3, 4, 6, 7, and 8, compare the implementation surface with the
+current official documentation:
+
+- use Telegram WebApp host APIs for viewport, back navigation, and haptics;
+- use MAX UI selectively for compatible visual primitives and theme tokens,
+  with regression tests proving that gestures and the responsive layout remain
+  unchanged;
+- use MAX Bot API only for bot-owned operations; never use it as a substitute
+  for the requesting user's personal MAX session;
+- do not use MAX Bridge `shareMaxContent` as the attachment path because the
+  Mini App is not hosted inside MAX and the operation shares bot messages.
+
+If an official component or method does not cover the approved personal-chat
+behavior, keep the isolated worker implementation and document the unsupported
+boundary instead of silently changing product semantics.
 
 ## File structure
 
