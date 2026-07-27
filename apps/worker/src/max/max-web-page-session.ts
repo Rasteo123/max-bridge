@@ -317,6 +317,27 @@ export class MaxWebPageSession {
             const chat = mapValue as Record<string, unknown>;
             const raw = record(chat["$"]);
             const last = record(chat["lastMessage"] ?? raw?.["lastMessage"]);
+            const rawLast = record(last?.["$"]);
+            const recipient = record(
+              chat["recipient"] ?? raw?.["recipient"]
+            );
+            const rawRecipient = record(recipient?.["$"]);
+            const online = strictBoolean(recipient?.["online"])
+              ?? strictBoolean(recipient?.["isOnline"])
+              ?? strictBoolean(rawRecipient?.["online"])
+              ?? strictBoolean(rawRecipient?.["isOnline"]);
+            const lastMessageSenderId = optionalOpaque(last?.["sender"])
+              ?? optionalOpaque(last?.["senderId"])
+              ?? optionalOpaque(last?.["authorId"])
+              ?? optionalOpaque(rawLast?.["sender"])
+              ?? optionalOpaque(rawLast?.["senderId"])
+              ?? optionalOpaque(rawLast?.["authorId"]);
+            const lastMessageStatus = text(last?.["status"])
+              ?? text(last?.["deliveryStatus"])
+              ?? text(last?.["ack"])
+              ?? text(rawLast?.["status"])
+              ?? text(rawLast?.["deliveryStatus"])
+              ?? text(rawLast?.["ack"]);
             const id = chatOpaque(
               chat["id"] ?? raw?.["id"] ?? tuple?.[0]
             );
@@ -329,22 +350,37 @@ export class MaxWebPageSession {
               : storedTitle ?? "Чат";
             return {
               id,
+              viewerId,
               type: isSaved
                 ? "SAVED"
                 : text(raw?.["type"])
-                ?? (chat["recipient"] === undefined ? "CHAT" : "DIALOG"),
+                ?? (recipient === undefined ? "CHAT" : "DIALOG"),
               title,
               avatarUrl: avatarByTitle.get(title),
+              ...(online === undefined ? {} : {
+                recipient: { online }
+              }),
               lastMessage: last === undefined
                 ? undefined
                 : {
-                    id: opaque(last["id"]),
-                    time: temporal(last["time"]),
-                    text: richText(last["text"]),
-                    attaches: attachments(last["attaches"])
+                    id: opaque(last["id"] ?? rawLast?.["id"]),
+                    ...(lastMessageSenderId === undefined
+                      ? {}
+                      : { senderId: lastMessageSenderId }),
+                    ...(lastMessageStatus === undefined
+                      ? {}
+                      : { status: lastMessageStatus }),
+                    time: temporal(last["time"] ?? rawLast?.["time"]),
+                    text: richText(last["text"] ?? rawLast?.["text"]),
+                    attaches: attachments(
+                      last["attaches"] ?? rawLast?.["attaches"]
+                    )
                   },
               lastMessageTime: temporal(
-                last?.["time"] ?? chat["sortTime"] ?? chat["lastEventTime"]
+                last?.["time"]
+                ?? rawLast?.["time"]
+                ?? chat["sortTime"]
+                ?? chat["lastEventTime"]
               ),
               unreadCount: integer(
                 chat["newMessages"] ?? raw?.["newMessages"]
@@ -391,8 +427,17 @@ export class MaxWebPageSession {
           }
           return typeof value === "string" ? value : "";
         }
+        function optionalOpaque(value: unknown): string | undefined {
+          if (typeof value === "bigint" || typeof value === "number") {
+            return String(value);
+          }
+          return typeof value === "string" ? value : undefined;
+        }
         function text(value: unknown): string | undefined {
           return typeof value === "string" ? value : undefined;
+        }
+        function strictBoolean(value: unknown): boolean | undefined {
+          return typeof value === "boolean" ? value : undefined;
         }
         function isAllowedAvatar(value: string): boolean {
           try {
@@ -421,9 +466,12 @@ export class MaxWebPageSession {
             : 0;
         }
         function attachments(value: unknown): unknown[] {
+          if (Array.isArray(value)) {
+            return value.slice(0, 8);
+          }
           const attach = record(value);
           const raw = attach === undefined ? undefined : record(attach["$"]);
-          const source = raw?.["attaches"] ?? raw;
+          const source = attach?.["attaches"] ?? raw?.["attaches"] ?? raw;
           return Array.isArray(source) ? source.slice(0, 8) : [];
         }
       },
@@ -1344,6 +1392,14 @@ export class MaxWebPageSession {
           forwardedRecord?.["caption"]
         );
         const sender = message["sender"] ?? raw?.["sender"];
+        const status = strictText(
+          message["status"],
+          raw?.["status"],
+          message["deliveryStatus"],
+          raw?.["deliveryStatus"],
+          message["ack"],
+          raw?.["ack"]
+        );
         const normalizedAttaches = normalizeAttaches(
           message["attaches"] ?? raw?.["attaches"]
         );
@@ -1376,6 +1432,7 @@ export class MaxWebPageSession {
           senderName: sender !== null && typeof sender === "object"
             ? (sender as Record<string, unknown>)["fullName"]
             : undefined,
+          ...(status === undefined ? {} : { status }),
           time: typeof (message["time"] ?? raw?.["time"]) === "bigint"
             ? String(message["time"] ?? raw?.["time"])
             : message["time"] ?? raw?.["time"] ?? Date.now(),
@@ -1515,6 +1572,12 @@ export class MaxWebPageSession {
           }
         }
         return undefined;
+      }
+
+      function strictText(...values: unknown[]): string | undefined {
+        return values.find(
+          (value): value is string => typeof value === "string"
+        );
       }
 
       function integer(value: unknown): number {

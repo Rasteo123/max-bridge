@@ -8,6 +8,102 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("MaxWebPageSession chat snapshots", () => {
+  it("returns direct-chat presence and outgoing read acknowledgements", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        presence: "online",
+        lastMessageDirection: "outgoing",
+        deliveryStatus: "read"
+      })
+    ]);
+  });
+
+  it.each([
+    {
+      recipient: { $: { isOnline: false } },
+      expected: "offline"
+    },
+    {
+      recipient: {},
+      expected: "unknown"
+    },
+    {
+      recipient: { online: "true" },
+      expected: "unknown"
+    }
+  ] as const)(
+    "maps only trusted online booleans to $expected",
+    async ({ recipient, expected }) => {
+      const session = listChatsSession([
+        directChatPageModel({ recipient })
+      ]);
+
+      await expect(session.listChats()).resolves.toEqual([
+        expect.objectContaining({
+          id: "chat-1",
+          presence: expected
+        })
+      ]);
+    }
+  );
+
+  it.each(["DELIVERED", "UNRECOGNIZED_ACK"])(
+    "preserves raw history acknowledgement %s",
+    async (acknowledgement) => {
+      const session = listChatsSession([
+        directChatPageModel({
+          recipient: { online: true },
+          messages: [{
+            id: "history-message-1",
+            senderId: "viewer-1",
+            ack: acknowledgement,
+            time: 1_721_843_200_000,
+            text: "History"
+          }]
+        })
+      ]);
+      const internals = session as unknown as SessionInternals;
+
+      await expect(internals.readMessages("chat-1")).resolves.toEqual([
+        expect.objectContaining({
+          id: "history-message-1",
+          status: acknowledgement
+        })
+      ]);
+    }
+  );
+
+  it("carries last-message attachments into the adapter snapshot", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        lastMessage: {
+          id: "message-1",
+          senderId: "viewer-1",
+          status: "READ",
+          time: 1_721_843_200_000,
+          attaches: [{ _type: "STICKER" }]
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        preview: "Стикер"
+      })
+    ]);
+  });
+});
+
 describe("MaxWebPageSession history navigation", () => {
   it("accepts MAX textboxes with an empty contenteditable attribute", async () => {
     const waitFor = vi.fn(() => Promise.resolve());
@@ -144,4 +240,90 @@ function message(id: string) {
     sentAt: "2026-07-26T20:00:00.000Z",
     kind: "text" as const
   };
+}
+
+function listChatsSession(
+  chats: readonly Record<string, unknown>[]
+): MaxWebPageSession {
+  const pageSession = {
+    viewer: {
+      id: "viewer-1",
+      folders: {
+        all: { chats }
+      }
+    }
+  };
+  const evaluate = vi.fn((
+    callback: (argument: unknown) => unknown,
+    argument: unknown
+  ) => {
+    const accessorKey = typeof argument === "string"
+      ? argument
+      : "maxbridge.max-session-accessor.v1";
+    const accessorSymbol = Symbol.for(accessorKey);
+    const documentDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "document"
+    );
+    const accessorDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      accessorSymbol
+    );
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        querySelectorAll: () => []
+      }
+    });
+    Object.defineProperty(globalThis, accessorSymbol, {
+      configurable: true,
+      value: () => pageSession
+    });
+    try {
+      return Promise.resolve(callback(argument));
+    } finally {
+      restoreGlobalProperty("document", documentDescriptor);
+      restoreGlobalProperty(accessorSymbol, accessorDescriptor);
+    }
+  });
+  const page = {
+    on: vi.fn(),
+    evaluate
+  };
+  return new MaxWebPageSession({
+    page: page as unknown as Page,
+    context: {} as BrowserContext
+  });
+}
+
+function directChatPageModel(
+  overrides: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  return {
+    id: "chat-1",
+    longName: "Recipient",
+    lastMessage: {
+      id: "message-1",
+      senderId: "viewer-1",
+      status: "READ",
+      time: 1_721_843_200_000,
+      text: "Hello",
+      attaches: []
+    },
+    newMessages: 0,
+    muted: false,
+    pinned: false,
+    ...overrides
+  };
+}
+
+function restoreGlobalProperty(
+  property: PropertyKey,
+  descriptor: PropertyDescriptor | undefined
+): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(globalThis, property);
+  } else {
+    Object.defineProperty(globalThis, property, descriptor);
+  }
 }
