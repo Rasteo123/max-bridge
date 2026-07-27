@@ -231,6 +231,21 @@ export function ConnectedMessenger({
     await refreshHistory(chatId, true);
   }
 
+  async function forwardMessage(
+    messageId: string,
+    destinationIds: readonly string[]
+  ) {
+    const sourceChatId = store.getSnapshot().selectedChatId;
+    if (sourceChatId === undefined) {
+      throw new Error("MAX chat is unavailable");
+    }
+    return client.forwardMessage(
+      sourceChatId,
+      messageId,
+      destinationIds
+    );
+  }
+
   async function reactMessage(
     messageId: string,
     reaction: ReactionKey | null
@@ -389,6 +404,7 @@ export function ConnectedMessenger({
         onDeleteMessage={(messageId) => {
           void runAction(() => deleteMessage(messageId));
         }}
+        onForwardMessage={forwardMessage}
         onReactMessage={(messageId, reaction) => {
           void runAction(() => reactMessage(messageId, reaction));
         }}

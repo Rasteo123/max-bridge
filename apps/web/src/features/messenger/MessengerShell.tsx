@@ -6,8 +6,10 @@ import {
 } from "react";
 
 import { currentTelegramWebApp } from "../auth/telegram.js";
+import type { MessageSendResult } from "../../api/client.js";
 import { ChatList } from "./ChatList.js";
 import { Conversation } from "./Conversation.js";
+import { ForwardMessagePicker } from "./ForwardMessagePicker.js";
 import type {
   MessengerChat,
   MessengerChatAction,
@@ -32,6 +34,10 @@ type MessengerShellProps = Readonly<{
   onAttach?(file: File, kind: "media" | "file"): void;
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
+  onForwardMessage?(
+    sourceMessageId: string,
+    destinationIds: readonly string[]
+  ): Promise<MessageSendResult>;
   onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
@@ -53,6 +59,7 @@ export function MessengerShell({
   onAttach,
   onEditMessage,
   onDeleteMessage,
+  onForwardMessage,
   onReactMessage,
   onOpenForwardedSource,
   onChatAction,
@@ -70,6 +77,8 @@ export function MessengerShell({
   const [pane, setPane] = useState<MessengerPane>(
     initialPane ?? (initialChatId === undefined ? "list" : "conversation")
   );
+  const [forwardSource, setForwardSource] =
+    useState<MessengerMessage | null>(null);
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId),
     [chats, selectedChatId]
@@ -137,6 +146,20 @@ export function MessengerShell({
     onSelectChat(chatId);
   }
 
+  function closeForwardPicker(): void {
+    const sourceId = forwardSource?.id;
+    setForwardSource(null);
+    if (sourceId === undefined) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      const source = [...document.querySelectorAll<HTMLElement>(
+        "[data-message-id]"
+      )].find((element) => element.dataset["messageId"] === sourceId);
+      source?.focus();
+    });
+  }
+
   return (
     <main
       className="messenger-page"
@@ -183,6 +206,9 @@ export function MessengerShell({
             {...(onAttach === undefined ? {} : { onAttach })}
             {...(onEditMessage === undefined ? {} : { onEditMessage })}
             {...(onDeleteMessage === undefined ? {} : { onDeleteMessage })}
+            {...(onForwardMessage === undefined ? {} : {
+              onForwardMessage: setForwardSource
+            })}
             {...(onReactMessage === undefined ? {} : { onReactMessage })}
             {...(onOpenForwardedSource === undefined
               ? {}
@@ -192,6 +218,15 @@ export function MessengerShell({
           />
         </div>
       </section>
+      {forwardSource !== null && onForwardMessage !== undefined && (
+        <ForwardMessagePicker
+          chats={chats}
+          onClose={closeForwardPicker}
+          onConfirm={(destinationIds) => {
+            return onForwardMessage(forwardSource.id, destinationIds);
+          }}
+        />
+      )}
     </main>
   );
 }

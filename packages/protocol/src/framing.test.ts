@@ -108,6 +108,38 @@ describe("worker protocol validation", () => {
     });
   });
 
+  it("accepts only a bounded identity-free forward payload", () => {
+    const message = {
+      ...request,
+      operation: "message.forward" as const,
+      payload: {
+        sourceChatId: "chat-1",
+        sourceMessageId: "message-1",
+        destinationIds: ["chat-2", "channel-3"],
+        clientRequestId: "forward-1"
+      }
+    };
+
+    expect(parseWorkerMessage(message)).toEqual(message);
+    expect(() => parseWorkerMessage({
+      ...message,
+      payload: {
+        ...message.payload,
+        telegramId: "765023410"
+      }
+    })).toThrow(ProtocolMessageError);
+    expect(() => parseWorkerMessage({
+      ...message,
+      payload: {
+        ...message.payload,
+        destinationIds: Array.from(
+          { length: 11 },
+          (_, index) => `chat-${String(index)}`
+        )
+      }
+    })).toThrow(ProtocolMessageError);
+  });
+
   it("rejects client identity fields", () => {
     expect(() => parseWorkerMessage({
       ...request,

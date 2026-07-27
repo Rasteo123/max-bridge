@@ -170,6 +170,25 @@ export class ApiClient {
     );
   }
 
+  async forwardMessage(
+    sourceChatId: string,
+    sourceMessageId: string,
+    destinationIds: readonly string[],
+    clientRequestId: string = globalThis.crypto.randomUUID()
+  ): Promise<MessageSendResult> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(sourceChatId)}/messages/` +
+      `${encodeURIComponent(sourceMessageId)}/forward`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          destinationIds,
+          clientRequestId
+        })
+      }
+    );
+  }
+
   async setReaction(
     chatId: string,
     messageId: string,

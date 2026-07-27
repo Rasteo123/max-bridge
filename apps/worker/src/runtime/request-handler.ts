@@ -40,6 +40,11 @@ export interface RuntimeMaxSession {
     chatId: string,
     messageId: string
   ): Promise<RuntimeMutationResult>;
+  forwardMessage(
+    sourceChatId: string,
+    sourceMessageId: string,
+    destinationIds: readonly string[]
+  ): Promise<RuntimeMutationResult>;
   setReaction(
     chatId: string,
     messageId: string,
@@ -207,6 +212,17 @@ export class WorkerRuntimeRequestHandler {
           return success(
             request,
             await session.deleteMessage(input.chatId, input.messageId)
+          );
+        }
+        case "message.forward": {
+          const input = readForwardMessage(request.payload);
+          return success(
+            request,
+            await session.forwardMessage(
+              input.sourceChatId,
+              input.sourceMessageId,
+              input.destinationIds
+            )
           );
         }
         case "message.reaction.set": {
@@ -553,6 +569,40 @@ function readDeleteMessage(value: unknown): Readonly<{
   return {
     chatId: readChatId({ chatId: input["chatId"] }),
     messageId: readOpaqueId(input["messageId"])
+  };
+}
+
+function readForwardMessage(value: unknown): Readonly<{
+  sourceChatId: string;
+  sourceMessageId: string;
+  destinationIds: readonly string[];
+}> {
+  const input = exact(value, [
+    "sourceChatId",
+    "sourceMessageId",
+    "destinationIds",
+    "clientRequestId"
+  ]);
+  readClientRequestId(input["clientRequestId"]);
+  const destinationIds = input["destinationIds"];
+  if (
+    !Array.isArray(destinationIds)
+    || destinationIds.length < 1
+    || destinationIds.length > 10
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  const parsedDestinationIds = destinationIds.map(readOpaqueId);
+  if (
+    new Set(parsedDestinationIds).size
+    !== parsedDestinationIds.length
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return {
+    sourceChatId: readOpaqueId(input["sourceChatId"]),
+    sourceMessageId: readOpaqueId(input["sourceMessageId"]),
+    destinationIds: parsedDestinationIds
   };
 }
 

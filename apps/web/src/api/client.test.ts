@@ -69,6 +69,28 @@ describe("ApiClient messenger actions", () => {
     );
   });
 
+  it("forwards only source identifiers and selected destination ids", async () => {
+    const { client, fetcher } = apiClient();
+
+    await client.forwardMessage(
+      "chat/with space",
+      "message/?target",
+      ["chat-2", "channel-3"],
+      "request-forward"
+    );
+
+    expectJsonRequest(
+      fetcher,
+      "/api/chats/chat%2Fwith%20space/messages/" +
+        "message%2F%3Ftarget/forward",
+      "POST",
+      {
+        destinationIds: ["chat-2", "channel-3"],
+        clientRequestId: "request-forward"
+      }
+    );
+  });
+
   it("sets and removes a reaction through the message reaction route", async () => {
     const { client, fetcher } = apiClient();
 

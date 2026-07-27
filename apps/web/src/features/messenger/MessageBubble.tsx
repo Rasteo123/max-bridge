@@ -26,6 +26,7 @@ type MessageBubbleProps = Readonly<{
   onReply?(message: MessengerMessage): void;
   onEdit?(messageId: string, text: string): void;
   onDelete?(messageId: string): void;
+  onForward?(message: MessengerMessage): void;
   onReact?(messageId: string, reaction: ReactionKey | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
@@ -50,6 +51,7 @@ export function MessageBubble({
   onReply,
   onEdit,
   onDelete,
+  onForward,
   onReact,
   onOpenForwardedSource,
   onOpenMedia
@@ -119,6 +121,14 @@ export function MessageBubble({
         onEdit(message.id, message.text);
       }
     }] : []),
+    ...(onForward === undefined || kind === "system" ? [] : [{
+      id: "forward",
+      label: "Переслать",
+      icon: "↗",
+      onSelect: () => {
+        onForward(message);
+      }
+    }]),
     ...(onDelete === undefined ? [] : [{
       id: "delete",
       label: "Удалить",
@@ -137,6 +147,7 @@ export function MessageBubble({
       <article
         className={`message message--${message.direction}`}
         data-message-id={message.id}
+        tabIndex={-1}
         data-reply-dragging={replySwipe.dragging ? "true" : "false"}
         data-reply-armed={replySwipe.armed ? "true" : "false"}
         style={replySwipe.style}

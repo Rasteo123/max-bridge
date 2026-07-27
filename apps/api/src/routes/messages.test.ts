@@ -159,6 +159,39 @@ describe("message routes", () => {
     expect(gateway.deleteCalls).toBe(1);
   });
 
+  it("forwards to one to ten targets without client identity fields", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/chats/1001/messages/message-1/forward",
+      headers: { origin: allowedOrigin },
+      payload: {
+        clientRequestId: "client-forward-1",
+        destinationIds: ["2002", "3003"]
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(gateway.forwardInput).toEqual({
+      userLookup: principal.userLookup,
+      sourceChatId: "1001",
+      sourceMessageId: "message-1",
+      destinationIds: ["2002", "3003"],
+      clientRequestId: "client-forward-1"
+    });
+
+    const injectedIdentity = await app.inject({
+      method: "POST",
+      url: "/api/chats/1001/messages/message-1/forward",
+      headers: { origin: allowedOrigin },
+      payload: {
+        clientRequestId: "client-forward-2",
+        destinationIds: ["2002"],
+        telegramId: "765023410"
+      }
+    });
+    expect(injectedIdentity.statusCode).toBe(400);
+  });
+
   it("sets and removes an allowlisted reaction", async () => {
     const set = await app.inject({
       method: "PUT",
@@ -272,6 +305,14 @@ describe("message routes", () => {
     },
     {
       method: "POST" as const,
+      url: "/api/chats/1001/messages/message-1/forward",
+      payload: {
+        clientRequestId: "client-forward",
+        destinationIds: ["2002"]
+      }
+    },
+    {
+      method: "POST" as const,
       url: "/api/chats/1001/actions",
       payload: { clientRequestId: "client-4", action: "pin" }
     },
@@ -308,6 +349,7 @@ class FakeMessageGateway implements MessageGateway {
   retryCalls = 0;
   editCalls = 0;
   deleteCalls = 0;
+  forwardInput: Record<string, unknown> | undefined;
   observedText: Uint8Array | undefined;
   observedEditText: Uint8Array | undefined;
   observedReplyToId: string | undefined;
@@ -361,6 +403,26 @@ class FakeMessageGateway implements MessageGateway {
     return Promise.resolve({
       state: "confirmed",
       operationId: "op-delete"
+    });
+  }
+
+  forwardMessage(
+    userLookup: string,
+    input: Readonly<{
+      sourceChatId: string;
+      sourceMessageId: string;
+      destinationIds: readonly string[];
+      clientRequestId: string;
+    }>
+  ): Promise<Readonly<{ state: "confirmed"; operationId: string }>> {
+    this.forwardInput = {
+      userLookup,
+      ...input,
+      destinationIds: [...input.destinationIds]
+    };
+    return Promise.resolve({
+      state: "confirmed",
+      operationId: "op-forward"
     });
   }
 

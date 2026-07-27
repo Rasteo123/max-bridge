@@ -240,6 +240,10 @@ function createServices(store: MemorySessionStore): AppServices {
         state: "confirmed",
         operationId: "op-delete"
       }),
+      forwardMessage: () => Promise.resolve({
+        state: "confirmed",
+        operationId: "op-forward"
+      }),
       setReaction: () => Promise.resolve({
         state: "confirmed",
         operationId: "op-reaction"

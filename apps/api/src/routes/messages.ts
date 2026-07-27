@@ -76,6 +76,15 @@ export interface MessageGateway {
       confirmedByUser: true;
     }>
   ): Promise<MessageRouteResult>;
+  forwardMessage(
+    userLookup: string,
+    input: Readonly<{
+      sourceChatId: string;
+      sourceMessageId: string;
+      destinationIds: readonly string[];
+      clientRequestId: string;
+    }>
+  ): Promise<MessageRouteResult>;
   setReaction(
     userLookup: string,
     input: Readonly<{
@@ -139,6 +148,10 @@ type EditMessageBody = {
 type DeleteMessageBody = {
   clientRequestId: string;
   confirmedByUser: boolean;
+};
+type ForwardMessageBody = {
+  clientRequestId: string;
+  destinationIds: string[];
 };
 type SetReactionBody = {
   clientRequestId: string;
@@ -437,6 +450,49 @@ export const registerMessageRoutes: FastifyPluginCallback<
         messageId: request.params.messageId,
         clientRequestId: request.body.clientRequestId,
         confirmedByUser: true
+      }
+    ));
+  });
+
+  app.post<{
+    Params: MessageParams;
+    Body: ForwardMessageBody;
+  }>("/api/chats/:chatId/messages/:messageId/forward", {
+    config: { sensitiveBody: true },
+    schema: {
+      params: messageParamsSchema,
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["clientRequestId", "destinationIds"],
+        properties: {
+          clientRequestId: clientRequestIdSchema,
+          destinationIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            uniqueItems: true,
+            items: {
+              type: "string",
+              minLength: 1,
+              maxLength: 512
+            }
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorizeMutation(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply.send(await options.gateway.forwardMessage(
+      principal.userLookup,
+      {
+        sourceChatId: request.params.chatId,
+        sourceMessageId: request.params.messageId,
+        destinationIds: request.body.destinationIds,
+        clientRequestId: request.body.clientRequestId
       }
     ));
   });

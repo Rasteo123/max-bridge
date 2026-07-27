@@ -142,6 +142,63 @@ describe("BridgeRuntimeGateway", () => {
     expect(receivedB).toEqual([eventB]);
   });
 
+  it("routes each forward through only that user's opaque session", async () => {
+    const requests: unknown[] = [];
+    const worker = fakeWorker((request) => {
+      requests.push(request);
+      if (request.operation === "session.open") {
+        return Promise.resolve({ opened: true });
+      }
+      return Promise.resolve({
+        state: "confirmed",
+        operationId: "forward"
+      });
+    });
+    const gateway = new BridgeRuntimeGateway({
+      worker,
+      users: fakeUsers()
+    });
+
+    await gateway.forwardMessage("u_AbCdEfGhIjKlMnOpQrStUv", {
+      sourceChatId: "source-a",
+      sourceMessageId: "message-a",
+      destinationIds: ["destination-a"],
+      clientRequestId: "request-a"
+    });
+    await gateway.forwardMessage("u_ZyXwVuTsRqPoNmLkJiHgFe", {
+      sourceChatId: "source-b",
+      sourceMessageId: "message-b",
+      destinationIds: ["destination-b"],
+      clientRequestId: "request-b"
+    });
+
+    const forwardRequests = requests.filter((value) => (
+      value as { operation?: string }
+    ).operation === "message.forward");
+    expect(forwardRequests).toEqual([
+      {
+        operation: "message.forward",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          sourceChatId: "source-a",
+          sourceMessageId: "message-a",
+          destinationIds: ["destination-a"],
+          clientRequestId: "request-a"
+        }
+      },
+      {
+        operation: "message.forward",
+        sessionHandle: "s_ZyXwVuTsRqPoNmLkJiHgFe",
+        payload: {
+          sourceChatId: "source-b",
+          sourceMessageId: "message-b",
+          destinationIds: ["destination-b"],
+          clientRequestId: "request-b"
+        }
+      }
+    ]);
+  });
+
   it("routes message and chat mutations through the user's session", async () => {
     const requests: unknown[] = [];
     const worker = fakeWorker((request) => {
@@ -185,6 +242,12 @@ describe("BridgeRuntimeGateway", () => {
       messageId: "message-1",
       clientRequestId: "request-3",
       confirmedByUser: true
+    });
+    await gateway.forwardMessage(userLookup, {
+      sourceChatId: "chat-1",
+      sourceMessageId: "message-1",
+      destinationIds: ["chat-2", "channel-3"],
+      clientRequestId: "request-forward"
     });
     await gateway.setReaction(userLookup, {
       chatId: "chat-1",
@@ -234,6 +297,16 @@ describe("BridgeRuntimeGateway", () => {
           messageId: "message-1",
           clientRequestId: "request-3",
           confirmedByUser: true
+        }
+      },
+      {
+        operation: "message.forward",
+        sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv",
+        payload: {
+          sourceChatId: "chat-1",
+          sourceMessageId: "message-1",
+          destinationIds: ["chat-2", "channel-3"],
+          clientRequestId: "request-forward"
         }
       },
       {

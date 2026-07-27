@@ -15,6 +15,7 @@ export const WORKER_OPERATIONS = [
   "message.sendAttachment",
   "message.edit",
   "message.delete",
+  "message.forward",
   "message.reaction.set",
   "chat.action",
   "stickers.list",
@@ -22,6 +23,13 @@ export const WORKER_OPERATIONS = [
 ] as const;
 
 export type WorkerOperation = typeof WORKER_OPERATIONS[number];
+
+export type MessageForwardPayload = Readonly<{
+  sourceChatId: string;
+  sourceMessageId: string;
+  destinationIds: readonly string[];
+  clientRequestId: string;
+}>;
 
 export type WorkerRequest = Readonly<{
   kind: "request";
@@ -89,12 +97,15 @@ export function parseWorkerMessage(value: unknown): WorkerMessage {
     const requestId = parseRequestId(record["requestId"]);
     const sessionHandle = parseSessionHandle(record["sessionHandle"]);
     const operation = parseOperation(record["operation"]);
+    const payload = operation === "message.forward"
+      ? parseMessageForwardPayload(record["payload"])
+      : record["payload"];
     return {
       kind: "request",
       requestId,
       operation,
       sessionHandle,
-      ...("payload" in record ? { payload: record["payload"] } : {})
+      ...("payload" in record ? { payload } : {})
     };
   }
   if (record["kind"] === "response") {
@@ -196,4 +207,66 @@ function parseOperation(value: unknown): WorkerOperation {
     throw new ProtocolMessageError();
   }
   return operation;
+}
+
+function parseMessageForwardPayload(
+  value: unknown
+): MessageForwardPayload {
+  const record = asRecord(value);
+  assertExactKeys(record, [
+    "sourceChatId",
+    "sourceMessageId",
+    "destinationIds",
+    "clientRequestId"
+  ]);
+  const sourceChatId = parseOpaqueValue(record["sourceChatId"], 512);
+  const sourceMessageId = parseOpaqueValue(
+    record["sourceMessageId"],
+    512
+  );
+  const clientRequestId = parseOpaqueValue(
+    record["clientRequestId"],
+    128
+  );
+  if (
+    !Array.isArray(record["destinationIds"])
+    || record["destinationIds"].length < 1
+    || record["destinationIds"].length > 10
+  ) {
+    throw new ProtocolMessageError();
+  }
+  const destinationIds = record["destinationIds"].map(
+    (destinationId) => parseOpaqueValue(destinationId, 512)
+  );
+  if (new Set(destinationIds).size !== destinationIds.length) {
+    throw new ProtocolMessageError();
+  }
+  return {
+    sourceChatId,
+    sourceMessageId,
+    destinationIds,
+    clientRequestId
+  };
+}
+
+function parseOpaqueValue(value: unknown, maxLength: number): string {
+  if (
+    typeof value !== "string"
+    || value.length < 1
+    || value.length > maxLength
+    || hasControlCharacter(value)
+  ) {
+    throw new ProtocolMessageError();
+  }
+  return value;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+  return false;
 }

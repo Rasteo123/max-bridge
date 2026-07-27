@@ -1013,7 +1013,7 @@ npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/Medi
 Expected: PASS. Forwarded image/video captions render below the media, source
 navigation works, and no false “Сообщение” placeholder remains.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/domain/message.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/history-adapter.ts packages/max-adapter/src/adapters/adapters.test.ts apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-page-session.test.ts apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/RichMessageText.tsx apps/web/src/features/messenger/RichMessageText.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx apps/web/src/features/messenger/messenger-store.ts apps/web/src/features/messenger/messenger.css
@@ -1048,7 +1048,7 @@ git commit -m "fix: preserve rich forwarded messages"
 - Modify: `apps/web/src/features/messenger/ConnectedMessenger.test.tsx`
 - Modify: `apps/web/src/features/messenger/messenger.css`
 
-- [ ] **Step 1: Inspect MAX's native forwarding flow and write failing tests**
+- [x] **Step 1: Inspect MAX's native forwarding flow and write failing tests**
 
 Using the authenticated MAX page, record the accessible sequence for
 right-click/long-press “Переслать”, destination search/selection, confirmation,
@@ -1066,7 +1066,7 @@ Add failing tests for:
 - confirmed and ambiguous results with no automatic retry;
 - user A's gateway/session handle never serving user B's forward request.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run:
 
@@ -1076,7 +1076,7 @@ npx vitest run --config vitest.workspace.ts packages/protocol/src/protocol.test.
 
 Expected: FAIL because no forward operation or picker exists.
 
-- [ ] **Step 3: Add strict session-scoped forwarding**
+- [x] **Step 3: Add strict session-scoped forwarding**
 
 Add `message.forward` to the protocol with bounded opaque IDs, 1–10 unique
 destination IDs, and a client request ID. Reject duplicates, extra identity
@@ -1091,7 +1091,7 @@ destinations in the native picker, confirms once, and waits for bounded MAX
 confirmation. Never fall back to copying/reuploading media and never retry an
 ambiguous result.
 
-- [ ] **Step 4: Add the web picker and action state**
+- [x] **Step 4: Add the web picker and action state**
 
 Add a context-menu action labelled “Переслать”. The picker filters the current
 normalized chat/channel list, supports 1–10 selections, has Cancel and Forward
@@ -1099,7 +1099,7 @@ buttons, traps focus, and restores focus after close. Show sending, confirmed,
 failed, and ambiguous states. Disable duplicate submission and require an
 explicit user retry after failure/ambiguity.
 
-- [ ] **Step 5: Run focused and isolation tests**
+- [x] **Step 5: Run focused and isolation tests**
 
 Run the Step 2 command.
 

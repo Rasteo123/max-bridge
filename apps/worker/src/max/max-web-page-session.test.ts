@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Locator, Page } from "playwright";
 
 import { MaxWebPageSession } from "./max-web-page-session.js";
 
@@ -515,6 +515,52 @@ describe("MaxWebPageSession chat snapshots", () => {
   });
 });
 
+describe("MaxWebPageSession native forwarding", () => {
+  it("selects the exact requested destinations and confirms once", async () => {
+    const fixture = forwardingSession();
+
+    await expect(fixture.session.forwardMessage(
+      "source-chat",
+      "source-message",
+      ["destination-1", "destination-2"]
+    )).resolves.toMatchObject({ state: "confirmed" });
+
+    expect(fixture.openMessageMenu).toHaveBeenCalledWith(
+      "source-chat",
+      "source-message"
+    );
+    expect(fixture.clickMenuItem).toHaveBeenCalledWith(
+      fixture.menu,
+      "Переслать"
+    );
+    expect(fixture.search.fill.mock.calls.map(([value]) => value)).toEqual([
+      "Получатель 1",
+      "",
+      "Получатель 2",
+      ""
+    ]);
+    expect(fixture.rows.map((row) => row.click)).toEqual([
+      expect.any(Function),
+      expect.any(Function)
+    ]);
+    expect(fixture.rows[0]?.click).toHaveBeenCalledTimes(1);
+    expect(fixture.rows[1]?.click).toHaveBeenCalledTimes(1);
+    expect(fixture.send.click).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns ambiguous after one click when MAX does not close the picker", async () => {
+    const fixture = forwardingSession({ confirmationVisible: true });
+
+    await expect(fixture.session.forwardMessage(
+      "source-chat",
+      "source-message",
+      ["destination-1"]
+    )).resolves.toMatchObject({ state: "ambiguous" });
+
+    expect(fixture.send.click).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("MaxWebPageSession history navigation", () => {
   it("accepts MAX textboxes with an empty contenteditable attribute", async () => {
     const waitFor = vi.fn(() => Promise.resolve());
@@ -616,6 +662,11 @@ type SessionInternals = {
     chatId: string
   ) => Promise<void>;
   waitForChatReady: (chatId: string) => Promise<void>;
+  openMessageMenu: (
+    chatId: string,
+    messageId: string
+  ) => Promise<Locator>;
+  clickMenuItem: (dialog: Locator, label: string) => Promise<void>;
 };
 
 class FakeAdapter {
@@ -705,6 +756,78 @@ function listChatsSession(
     page: page as unknown as Page,
     context: {} as BrowserContext
   });
+}
+
+function forwardingSession(
+  options: Readonly<{ confirmationVisible?: boolean }> = {}
+) {
+  const search = {
+    waitFor: vi.fn(() => Promise.resolve()),
+    fill: vi.fn((value: string) => {
+      void value;
+      return Promise.resolve();
+    })
+  };
+  const rows: Array<{
+    count: ReturnType<typeof vi.fn>;
+    click: ReturnType<typeof vi.fn>;
+  }> = [];
+  const send = {
+    waitFor: vi.fn(() => Promise.resolve()),
+    isEnabled: vi.fn(() => Promise.resolve(true)),
+    click: vi.fn(() => Promise.resolve())
+  };
+  const picker = {
+    waitFor: vi.fn((input: Readonly<{ state: string }>) => {
+      if (input.state === "hidden" && options.confirmationVisible === true) {
+        return Promise.reject(new Error("still visible"));
+      }
+      return Promise.resolve();
+    }),
+    getByPlaceholder: vi.fn(() => search),
+    getByRole: vi.fn(() => send),
+    locator: vi.fn(() => ({
+      filter: vi.fn(() => {
+        const row = {
+          count: vi.fn(() => Promise.resolve(1)),
+          click: vi.fn(() => Promise.resolve())
+        };
+        rows.push(row);
+        return row;
+      })
+    })),
+    press: vi.fn(() => Promise.resolve())
+  };
+  const menu = {} as Locator;
+  const page = {
+    on: vi.fn(),
+    getByRole: vi.fn(() => ({
+      last: () => picker
+    }))
+  };
+  const session = new MaxWebPageSession({
+    page: page as unknown as Page,
+    context: {} as BrowserContext
+  });
+  session.history = vi.fn(() => Promise.resolve([]));
+  session.listChats = vi.fn(() => Promise.resolve([
+    { ...chat("destination-1"), title: "Получатель 1" },
+    { ...chat("destination-2"), title: "Получатель 2" }
+  ]));
+  const internals = session as unknown as SessionInternals;
+  const openMessageMenu = vi.fn(() => Promise.resolve(menu));
+  const clickMenuItem = vi.fn(() => Promise.resolve());
+  internals.openMessageMenu = openMessageMenu;
+  internals.clickMenuItem = clickMenuItem;
+  return {
+    session,
+    menu,
+    search,
+    rows,
+    send,
+    openMessageMenu,
+    clickMenuItem
+  };
 }
 
 function directChatPageModel(

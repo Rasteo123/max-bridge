@@ -186,6 +186,79 @@ describe("ConnectedMessenger startup", () => {
     }).closest("article")).toHaveTextContent("Подпись 🌻 открыть");
     expect(screen.getAllByText("Исходный чат").length).toBeGreaterThan(0);
   });
+
+  it("forwards from the selected chat through the strict API route", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        chats: [
+          ...originalChats().chats,
+          {
+            id: "destination",
+            title: "Получатель",
+            preview: "",
+            timestamp: "2026-07-27T09:00:00.000Z",
+            unreadCount: 0,
+            muted: false,
+            kind: "direct"
+          }
+        ]
+      }))
+      .mockResolvedValueOnce(jsonResponse(forwardedHistory()))
+      .mockResolvedValueOnce(jsonResponse({
+        state: "confirmed",
+        operationId: "forward-1"
+      }));
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    const messageLink = await screen.findByRole("link", {
+      name: "открыть"
+    });
+    const sourceMessage = messageLink.closest("article") as HTMLElement;
+    fireEvent.contextMenu(sourceMessage);
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Переслать"
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(sourceMessage);
+    });
+
+    fireEvent.contextMenu(sourceMessage);
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Переслать"
+    }));
+    const destination = screen.getAllByRole("checkbox")[1];
+    expect(destination).toBeDefined();
+    fireEvent.click(destination as Element);
+    fireEvent.click(screen.getByRole("button", { name: "Переслать" }));
+
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    });
+    expect(requestPath(fetcher.mock.calls[2]?.[0] as RequestInfo)).toBe(
+      "/api/chats/original/messages/forwarded-message/forward"
+    );
+    const requestInit = fetcher.mock.calls[2]?.[1];
+    expect(requestInit).toMatchObject({ method: "POST" });
+    const requestBody = requestInit?.body;
+    if (typeof requestBody !== "string") {
+      throw new TypeError("Expected a JSON request body");
+    }
+    const parsedBody = JSON.parse(requestBody) as unknown as {
+      destinationIds?: unknown;
+      clientRequestId?: unknown;
+    };
+    expect(parsedBody.destinationIds).toEqual(["destination"]);
+    expect(typeof parsedBody.clientRequestId).toBe("string");
+  });
 });
 
 function jsonResponse(value: unknown, status = 200): Response {

@@ -32,6 +32,7 @@ type ConversationProps = Readonly<{
   historyLoading?: boolean;
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
+  onForwardMessage?(message: MessengerMessage): void;
   onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
@@ -58,6 +59,7 @@ export function Conversation({
   historyLoading = false,
   onEditMessage,
   onDeleteMessage,
+  onForwardMessage,
   onReactMessage,
   onOpenForwardedSource,
   onLoadStickers,
@@ -232,6 +234,9 @@ export function Conversation({
                 {...(onDeleteMessage === undefined
                   ? {}
                   : { onDelete: onDeleteMessage })}
+                {...(onForwardMessage === undefined
+                  ? {}
+                  : { onForward: onForwardMessage })}
                 {...(onReactMessage === undefined
                   ? {}
                   : { onReact: onReactMessage })}

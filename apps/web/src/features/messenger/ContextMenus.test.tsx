@@ -162,6 +162,21 @@ describe("message context menu", () => {
     });
   });
 
+  it.each([
+    ["incoming", incomingMessage()],
+    ["outgoing", outgoingMessage()]
+  ] as const)("offers forwarding for an %s message", (_direction, message) => {
+    const onForward = vi.fn();
+    render(<MessageBubble message={message} onForward={onForward} />);
+
+    openMessageMenu(message.text);
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Переслать"
+    }));
+
+    expect(onForward).toHaveBeenCalledWith(message);
+  });
+
   it("closes on an outside press and clamps to the viewport", () => {
     render(<MessageBubble message={incomingMessage()} />);
     const bubble = screen.getByText("Входящее сообщение").closest("article");

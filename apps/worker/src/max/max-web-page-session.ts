@@ -789,6 +789,109 @@ export class MaxWebPageSession {
     };
   }
 
+  async forwardMessage(
+    sourceChatId: string,
+    sourceMessageId: string,
+    destinationIds: readonly string[]
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+  }>> {
+    if (
+      destinationIds.length < 1
+      || destinationIds.length > 10
+      || new Set(destinationIds).size !== destinationIds.length
+    ) {
+      throw new TypeError("Forward destinations are invalid");
+    }
+    if (await this.history(sourceChatId) === null) {
+      throw new TypeError("Chat is unavailable");
+    }
+    const chats = await this.listChats();
+    const destinations = destinationIds.map((destinationId) => {
+      const chat = chats.find((candidate) => candidate.id === destinationId);
+      if (chat === undefined) {
+        throw new TypeError("Forward destination is unavailable");
+      }
+      return chat;
+    });
+    if (
+      new Set(destinations.map((chat) => chat.title)).size
+      !== destinations.length
+    ) {
+      throw new TypeError("Forward destination title is ambiguous");
+    }
+
+    let picker: Locator | undefined;
+    let confirmed = false;
+    try {
+      const menu = await this.openMessageMenu(
+        sourceChatId,
+        sourceMessageId
+      );
+      await this.clickMenuItem(menu, "Переслать");
+      picker = this.options.page.getByRole("dialog").last();
+      await picker.waitFor({
+        state: "visible",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      const search = picker.getByPlaceholder(
+        "Найти чат или канал",
+        { exact: true }
+      );
+      await search.waitFor({
+        state: "visible",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      for (const destination of destinations) {
+        await search.fill(destination.title);
+        const row = picker.locator("button.cell").filter({
+          has: picker.getByRole("heading", {
+            name: destination.title,
+            exact: true
+          })
+        });
+        if (await row.count() !== 1) {
+          throw new Error("MAX forward destination is ambiguous");
+        }
+        await row.click({ timeout: MAX_ACTION_WAIT_MS });
+        await search.fill("");
+      }
+      const send = picker.getByRole("button", {
+        name: "Отправить сообщение",
+        exact: true
+      });
+      await send.waitFor({
+        state: "visible",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      if (!await send.isEnabled()) {
+        throw new Error("MAX forward confirmation is unavailable");
+      }
+      await send.click({ timeout: MAX_ACTION_WAIT_MS });
+      confirmed = true;
+      try {
+        await picker.waitFor({
+          state: "hidden",
+          timeout: MAX_ACTION_WAIT_MS
+        });
+      } catch {
+        return {
+          state: "ambiguous",
+          operationId: createOperationId()
+        };
+      }
+      return {
+        state: "confirmed",
+        operationId: createOperationId()
+      };
+    } finally {
+      if (!confirmed && picker !== undefined) {
+        await picker.press("Escape").catch(() => undefined);
+      }
+    }
+  }
+
   async setReaction(
     chatId: string,
     messageId: string,
@@ -1061,7 +1164,7 @@ export class MaxWebPageSession {
       throw new TypeError("Message is unavailable");
     }
     const item = this.options.page.locator(
-      `main [data-index="${String(domIndex)}"]`
+      `main [data-index="${String(domIndex)}"] .bubble`
     );
     await item.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
     await item.scrollIntoViewIfNeeded();

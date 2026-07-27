@@ -158,6 +158,7 @@ describe("WorkerRuntimeRequestHandler", () => {
     const sendText = vi.spyOn(session, "sendText");
     const editMessage = vi.spyOn(session, "editMessage");
     const deleteMessage = vi.spyOn(session, "deleteMessage");
+    const forwardMessage = vi.spyOn(session, "forwardMessage");
     const setReaction = vi.spyOn(session, "setReaction");
     const chatAction = vi.spyOn(session, "chatAction");
     const listStickers = vi.spyOn(session, "listStickers");
@@ -188,6 +189,12 @@ describe("WorkerRuntimeRequestHandler", () => {
       messageId: "message-1",
       clientRequestId: "request-3",
       confirmedByUser: true
+    }));
+    await runtime.handle(request("message.forward", {
+      sourceChatId: "chat-1",
+      sourceMessageId: "message-1",
+      destinationIds: ["chat-2", "channel-3"],
+      clientRequestId: "request-forward"
     }));
     await runtime.handle(request("message.reaction.set", {
       chatId: "chat-1",
@@ -220,6 +227,11 @@ describe("WorkerRuntimeRequestHandler", () => {
       "Исправлено"
     );
     expect(deleteMessage).toHaveBeenCalledWith("chat-1", "message-1");
+    expect(forwardMessage).toHaveBeenCalledWith(
+      "chat-1",
+      "message-1",
+      ["chat-2", "channel-3"]
+    );
     expect(setReaction).toHaveBeenCalledWith(
       "chat-1",
       "message-2",
@@ -228,6 +240,40 @@ describe("WorkerRuntimeRequestHandler", () => {
     expect(chatAction).toHaveBeenCalledWith("chat-1", "mute");
     expect(listStickers).toHaveBeenCalledWith("chat-1");
     expect(sendSticker).toHaveBeenCalledWith("chat-1", "sticker-1");
+  });
+
+  it("rejects forward payload identity fields and duplicate targets", async () => {
+    const session = fakeSession();
+    const forwardMessage = vi.spyOn(session, "forwardMessage");
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve(session),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open"));
+
+    await expect(runtime.handle(request("message.forward", {
+      sourceChatId: "chat-1",
+      sourceMessageId: "message-1",
+      destinationIds: ["chat-2"],
+      clientRequestId: "request-1",
+      telegramId: "765023410"
+    }))).resolves.toMatchObject({
+      ok: false,
+      errorCode: "worker_failure"
+    });
+    await expect(runtime.handle(request("message.forward", {
+      sourceChatId: "chat-1",
+      sourceMessageId: "message-1",
+      destinationIds: ["chat-2", "chat-2"],
+      clientRequestId: "request-2"
+    }))).resolves.toMatchObject({
+      ok: false,
+      errorCode: "worker_failure"
+    });
+    expect(forwardMessage).not.toHaveBeenCalled();
   });
 
   it("requires explicit confirmation for destructive operations", async () => {
@@ -302,6 +348,10 @@ function fakeSession(): RuntimeMaxSession {
     deleteMessage: () => Promise.resolve({
       state: "confirmed",
       operationId: "delete-1"
+    }),
+    forwardMessage: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "forward-1"
     }),
     setReaction: () => Promise.resolve({
       state: "confirmed",

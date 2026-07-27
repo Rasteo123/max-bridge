@@ -339,6 +339,28 @@ export class BridgeRuntimeGateway implements
     }));
   }
 
+  async forwardMessage(
+    userLookup: string,
+    input: Readonly<{
+      sourceChatId: string;
+      sourceMessageId: string;
+      destinationIds: readonly string[];
+      clientRequestId: string;
+    }>
+  ): Promise<MessageRouteResult> {
+    await this.ensureSession(userLookup);
+    return parseSendResult(await this.options.worker.request({
+      operation: "message.forward",
+      sessionHandle: sessionHandle(userLookup),
+      payload: {
+        sourceChatId: input.sourceChatId,
+        sourceMessageId: input.sourceMessageId,
+        destinationIds: [...input.destinationIds],
+        clientRequestId: input.clientRequestId
+      }
+    }));
+  }
+
   async setReaction(
     userLookup: string,
     input: Readonly<{
