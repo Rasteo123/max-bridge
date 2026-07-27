@@ -332,12 +332,11 @@ export class MaxWebPageSession {
               ?? optionalOpaque(rawLast?.["sender"])
               ?? optionalOpaque(rawLast?.["senderId"])
               ?? optionalOpaque(rawLast?.["authorId"]);
-            const lastMessageStatus = text(last?.["status"])
-              ?? text(last?.["deliveryStatus"])
-              ?? text(last?.["ack"])
-              ?? text(rawLast?.["status"])
-              ?? text(rawLast?.["deliveryStatus"])
-              ?? text(rawLast?.["ack"]);
+            const lastMessageStatus = aliasedText(
+              last,
+              rawLast,
+              ["status", "deliveryStatus", "ack"]
+            );
             const id = chatOpaque(
               chat["id"] ?? raw?.["id"] ?? tuple?.[0]
             );
@@ -436,6 +435,25 @@ export class MaxWebPageSession {
         function text(value: unknown): string | undefined {
           return typeof value === "string" ? value : undefined;
         }
+        function aliasedText(
+          primary: Record<string, unknown> | undefined,
+          raw: Record<string, unknown> | undefined,
+          aliases: readonly string[]
+        ): string | undefined {
+          for (const alias of aliases) {
+            const value = text(safeValue(primary, alias));
+            if (value !== undefined) {
+              return value;
+            }
+          }
+          for (const alias of aliases) {
+            const value = text(safeValue(raw, alias));
+            if (value !== undefined) {
+              return value;
+            }
+          }
+          return undefined;
+        }
         function strictBoolean(value: unknown): boolean | undefined {
           return typeof value === "boolean" ? value : undefined;
         }
@@ -466,13 +484,86 @@ export class MaxWebPageSession {
             : 0;
         }
         function attachments(value: unknown): unknown[] {
-          if (Array.isArray(value)) {
-            return value.slice(0, 8);
+          const direct = arrayItems(value, 8);
+          const container = direct === undefined ? record(value) : undefined;
+          const rawContainer = record(safeValue(container, "$"));
+          const source = direct
+            ?? arrayItems(safeValue(container, "attaches"), 8)
+            ?? arrayItems(safeValue(rawContainer, "attaches"), 8)
+            ?? arrayItems(rawContainer, 8);
+          if (source === undefined) {
+            return [];
           }
-          const attach = record(value);
-          const raw = attach === undefined ? undefined : record(attach["$"]);
-          const source = attach?.["attaches"] ?? raw?.["attaches"] ?? raw;
-          return Array.isArray(source) ? source.slice(0, 8) : [];
+          return source.flatMap((entry) => {
+            const projected = projectAttachment(entry);
+            return projected === undefined ? [] : [projected];
+          });
+        }
+        function projectAttachment(
+          value: unknown
+        ): Record<string, string | number> | undefined {
+          const tuple = arrayItems(value, 2);
+          const tupleValue = tuple?.length === 2
+            ? tuple[1]
+            : value;
+          const attachment = record(tupleValue);
+          if (attachment === undefined) {
+            return undefined;
+          }
+          const raw = record(safeValue(attachment, "$"));
+          const projected: Record<string, string | number> = {};
+          let fields = 0;
+          for (const field of ["_type", "type", "kind"]) {
+            const selected = boundedString(
+              safeValue(attachment, field),
+              64
+            ) ?? boundedString(safeValue(raw, field), 64);
+            if (selected !== undefined) {
+              projected[field] = selected;
+              fields += 1;
+            }
+          }
+          return fields === 0 ? undefined : projected;
+        }
+        function safeValue(
+          value: Record<string, unknown> | undefined,
+          key: string
+        ): unknown {
+          try {
+            return value?.[key];
+          } catch {
+            return undefined;
+          }
+        }
+        function arrayItems(
+          value: unknown,
+          maximum: number
+        ): unknown[] | undefined {
+          try {
+            if (!Array.isArray(value)) {
+              return undefined;
+            }
+            const length = Math.min(value.length, maximum);
+            const output: unknown[] = [];
+            for (let index = 0; index < length; index += 1) {
+              try {
+                output.push(value[index]);
+              } catch {
+                // Skip hostile entries without enumerating the source.
+              }
+            }
+            return output;
+          } catch {
+            return undefined;
+          }
+        }
+        function boundedString(
+          value: unknown,
+          maximum: number
+        ): string | undefined {
+          return typeof value === "string"
+            ? value.slice(0, maximum)
+            : undefined;
         }
       },
       MAX_SESSION_ACCESSOR_KEY
@@ -1392,13 +1483,10 @@ export class MaxWebPageSession {
           forwardedRecord?.["caption"]
         );
         const sender = message["sender"] ?? raw?.["sender"];
-        const status = strictText(
-          message["status"],
-          raw?.["status"],
-          message["deliveryStatus"],
-          raw?.["deliveryStatus"],
-          message["ack"],
-          raw?.["ack"]
+        const status = aliasedText(
+          message,
+          raw,
+          ["status", "deliveryStatus", "ack"]
         );
         const normalizedAttaches = normalizeAttaches(
           message["attaches"] ?? raw?.["attaches"]
@@ -1476,31 +1564,199 @@ export class MaxWebPageSession {
 
       function normalizeAttaches(value: unknown): unknown[] {
         const container = asRecord(value);
-        const rawContainer = asRecord(container?.["$"]);
-        const source = container?.["attaches"]
-          ?? rawContainer?.["attaches"]
-          ?? rawContainer
-          ?? value;
-        const entries = Array.isArray(source)
-          ? source
-          : source !== null
-              && typeof source === "object"
-              && Symbol.iterator in source
-            ? Array.from(source as Iterable<unknown>)
-            : [];
-        return entries.slice(0, 16).map((entry): unknown => {
-          const tuple: unknown[] | undefined = Array.isArray(entry)
-            ? entry as unknown[]
+        const rawContainer = asRecord(
+          safeAttachmentValue(container, "$")
+        );
+        const entries = attachmentCollection(
+          safeAttachmentValue(container, "attaches"),
+          16
+        ) ?? attachmentCollection(
+          safeAttachmentValue(rawContainer, "attaches"),
+          16
+        ) ?? attachmentCollection(rawContainer, 16)
+          ?? attachmentCollection(value, 16)
+          ?? [];
+        return entries.map(projectHistoryAttachment);
+      }
+
+      function projectHistoryAttachment(
+        value: unknown
+      ): Record<string, unknown> {
+        const tuple = attachmentArray(value, 2);
+        const tupleValue = tuple?.length === 2 ? tuple[1] : value;
+        const attachment = asRecord(tupleValue);
+        const raw = asRecord(safeAttachmentValue(attachment, "$"));
+        const projected: Record<string, unknown> = {};
+        const fields: readonly (
+          readonly [string, "text" | "opaque" | "number", number]
+        )[] = [
+          ["_type", "text", 64],
+          ["type", "text", 64],
+          ["kind", "text", 64],
+          ["mediaType", "text", 64],
+          ["url", "text", 2_048],
+          ["downloadUrl", "text", 2_048],
+          ["baseUrl", "text", 2_048],
+          ["baseRawUrl", "text", 2_048],
+          ["photoToken", "text", 4_096],
+          ["videoToken", "text", 4_096],
+          ["token", "text", 4_096],
+          ["photoId", "opaque", 512],
+          ["videoId", "opaque", 512],
+          ["fileId", "opaque", 512],
+          ["id", "opaque", 512],
+          ["name", "text", 255],
+          ["fileName", "text", 255],
+          ["filename", "text", 255],
+          ["mimeType", "text", 255],
+          ["mime", "text", 255],
+          ["contentType", "text", 255],
+          ["width", "number", 65_535],
+          ["height", "number", 65_535],
+          ["duration", "number", 86_400],
+          ["durationMs", "number", 86_400_000],
+          ["size", "number", 1_073_741_824],
+          ["fileSize", "number", 1_073_741_824]
+        ];
+        for (const [field, kind, maximum] of fields) {
+          const selected = attachmentScalar(
+            safeAttachmentValue(attachment, field),
+            kind,
+            maximum
+          ) ?? attachmentScalar(
+            safeAttachmentValue(raw, field),
+            kind,
+            maximum
+          );
+          if (selected !== undefined) {
+            projected[field] = selected;
+          }
+        }
+        const previewData = attachmentBytes(
+          safeAttachmentValue(attachment, "previewData")
+        ) ?? attachmentBytes(safeAttachmentValue(raw, "previewData"));
+        if (previewData !== undefined) {
+          projected["previewData"] = previewData;
+        }
+        return projected;
+      }
+
+      function safeAttachmentValue(
+        value: Record<string, unknown> | undefined,
+        key: string
+      ): unknown {
+        try {
+          return value?.[key];
+        } catch {
+          return undefined;
+        }
+      }
+
+      function attachmentCollection(
+        value: unknown,
+        maximum: number
+      ): unknown[] | undefined {
+        const array = attachmentArray(value, maximum);
+        if (array !== undefined) {
+          return array;
+        }
+        try {
+          if (
+            value === null
+            || typeof value !== "object"
+            || !(Symbol.iterator in value)
+          ) {
+            return undefined;
+          }
+          const output: unknown[] = [];
+          for (const entry of value as Iterable<unknown>) {
+            output.push(entry);
+            if (output.length >= maximum) {
+              break;
+            }
+          }
+          return output;
+        } catch {
+          return undefined;
+        }
+      }
+
+      function attachmentArray(
+        value: unknown,
+        maximum: number
+      ): unknown[] | undefined {
+        try {
+          if (!Array.isArray(value)) {
+            return undefined;
+          }
+          const output: unknown[] = [];
+          const length = Math.min(value.length, maximum);
+          for (let index = 0; index < length; index += 1) {
+            try {
+              output.push(value[index]);
+            } catch {
+              output.push(undefined);
+            }
+          }
+          return output;
+        } catch {
+          return undefined;
+        }
+      }
+
+      function attachmentScalar(
+        value: unknown,
+        kind: "text" | "opaque" | "number",
+        maximum: number
+      ): string | number | undefined {
+        if (kind === "text") {
+          return typeof value === "string"
+            ? value.slice(0, maximum)
             : undefined;
-          const tupleValue: unknown = tuple?.length === 2
-            ? tuple[1]
-            : entry;
-          const attachment = asRecord(tupleValue);
-          const raw = asRecord(attachment?.["$"]);
-          return raw === undefined
-            ? tupleValue
-            : { ...raw, ...attachment };
-        });
+        }
+        if (kind === "opaque") {
+          if (
+            typeof value !== "string"
+            && typeof value !== "number"
+            && typeof value !== "bigint"
+          ) {
+            return undefined;
+          }
+          const normalized = String(value);
+          return normalized.length === 0
+            ? undefined
+            : normalized.slice(0, maximum);
+        }
+        const number = typeof value === "number"
+          ? value
+          : typeof value === "bigint"
+            ? Number(value)
+            : undefined;
+        return number === undefined || !Number.isFinite(number)
+          ? undefined
+          : Math.min(maximum, Math.max(0, number));
+      }
+
+      function attachmentBytes(value: unknown): number[] | undefined {
+        try {
+          const byteLimit = 256 * 1_024;
+          const values = value instanceof Uint8Array
+            ? value.length > byteLimit
+              ? undefined
+              : Array.from(value)
+            : attachmentArray(value, byteLimit + 1);
+          if (values === undefined || values.length > byteLimit) {
+            return undefined;
+          }
+          return values.every((entry) =>
+            typeof entry === "number"
+            && Number.isInteger(entry)
+            && entry >= 0
+            && entry <= 255
+          ) ? values as number[] : undefined;
+        } catch {
+          return undefined;
+        }
       }
 
       function attachDomMediaUrls(
@@ -1574,10 +1830,24 @@ export class MaxWebPageSession {
         return undefined;
       }
 
-      function strictText(...values: unknown[]): string | undefined {
-        return values.find(
-          (value): value is string => typeof value === "string"
-        );
+      function aliasedText(
+        primary: Record<string, unknown>,
+        raw: Record<string, unknown> | undefined,
+        aliases: readonly string[]
+      ): string | undefined {
+        for (const source of [primary, raw]) {
+          for (const alias of aliases) {
+            try {
+              const value = source?.[alias];
+              if (typeof value === "string") {
+                return value;
+              }
+            } catch {
+              // Ignore hostile record fields and continue through aliases.
+            }
+          }
+        }
+        return undefined;
       }
 
       function integer(value: unknown): number {

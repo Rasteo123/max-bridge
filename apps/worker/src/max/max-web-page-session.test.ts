@@ -55,18 +55,33 @@ describe("MaxWebPageSession chat snapshots", () => {
     }
   );
 
-  it.each(["DELIVERED", "UNRECOGNIZED_ACK"])(
-    "preserves raw history acknowledgement %s",
-    async (acknowledgement) => {
+  it.each([
+    ["status", { status: "STATUS_VALUE" }, "STATUS_VALUE"],
+    [
+      "deliveryStatus",
+      { deliveryStatus: "DELIVERY_STATUS_VALUE" },
+      "DELIVERY_STATUS_VALUE"
+    ],
+    ["ack", { ack: "ACK_VALUE" }, "ACK_VALUE"],
+    ["$.status", { $: { status: "RAW_STATUS_VALUE" } }, "RAW_STATUS_VALUE"],
+    [
+      "$.deliveryStatus",
+      { $: { deliveryStatus: "RAW_DELIVERY_STATUS_VALUE" } },
+      "RAW_DELIVERY_STATUS_VALUE"
+    ],
+    ["$.ack", { $: { ack: "RAW_ACK_VALUE" } }, "RAW_ACK_VALUE"]
+  ] as const)(
+    "preserves history acknowledgement from %s",
+    async (_source, statusFields, expectedStatus) => {
       const session = listChatsSession([
         directChatPageModel({
           recipient: { online: true },
           messages: [{
             id: "history-message-1",
             senderId: "viewer-1",
-            ack: acknowledgement,
             time: 1_721_843_200_000,
-            text: "History"
+            text: "History",
+            ...statusFields
           }]
         })
       ]);
@@ -75,11 +90,86 @@ describe("MaxWebPageSession chat snapshots", () => {
       await expect(internals.readMessages("chat-1")).resolves.toEqual([
         expect.objectContaining({
           id: "history-message-1",
-          status: acknowledgement
+          status: expectedStatus
         })
       ]);
     }
   );
+
+  it("prefers every top-level history status alias over raw aliases", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        messages: [{
+          id: "history-message-1",
+          senderId: "viewer-1",
+          ack: "SENT",
+          time: 1_721_843_200_000,
+          text: "History",
+          $: { status: "READ" }
+        }]
+      })
+    ]);
+    const internals = session as unknown as SessionInternals;
+
+    await expect(internals.readMessages("chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "history-message-1",
+        status: "SENT"
+      })
+    ]);
+  });
+
+  it("reads last-message fields from the raw $ record", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        lastMessage: {
+          $: {
+            id: "message-raw",
+            sender: "viewer-1",
+            deliveryStatus: "READ",
+            time: 1_721_843_200_000,
+            text: { plain: "Wrapped text" },
+            attaches: []
+          }
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        lastMessageDirection: "outgoing",
+        deliveryStatus: "read",
+        timestamp: "2024-07-24T17:46:40.000Z",
+        preview: "Wrapped text"
+      })
+    ]);
+  });
+
+  it("prefers every top-level last-message status alias over raw aliases", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        lastMessage: {
+          id: "message-1",
+          senderId: "viewer-1",
+          ack: "SENT",
+          time: 1_721_843_200_000,
+          text: "Priority",
+          $: { status: "READ" }
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        deliveryStatus: "sent"
+      })
+    ]);
+  });
 
   it("carries last-message attachments into the adapter snapshot", async () => {
     const session = listChatsSession([
@@ -99,6 +189,87 @@ describe("MaxWebPageSession chat snapshots", () => {
       expect.objectContaining({
         id: "chat-1",
         preview: "Стикер"
+      })
+    ]);
+  });
+
+  it("projects raw wrapped attachments into bounded JSON-safe metadata", async () => {
+    const cyclicAttachment: Record<string, unknown> = {
+      _type: "STICKER",
+      name: "x".repeat(1_000),
+      unsupported: () => "not cloneable"
+    };
+    cyclicAttachment["self"] = cyclicAttachment;
+    const proxiedAttachment = new Proxy(cyclicAttachment, {
+      ownKeys: () => {
+        throw new Error("attachment keys must not be enumerated");
+      }
+    });
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        lastMessage: {
+          $: {
+            id: "message-raw",
+            senderId: "viewer-1",
+            status: "READ",
+            time: 1_721_843_200_000,
+            attaches: [{ $: proxiedAttachment }]
+          }
+        }
+      })
+    ]);
+
+    await expect(session.listChats()).resolves.toEqual([
+      expect.objectContaining({
+        id: "chat-1",
+        preview: "Стикер"
+      })
+    ]);
+  });
+
+  it("projects history attachments without enumerating raw page objects", async () => {
+    const cyclicAttachment: Record<string, unknown> = {
+      _type: "PHOTO",
+      url: "https://i.oneme.ru/history-photo",
+      width: 640,
+      height: 480,
+      name: "x".repeat(1_000),
+      unsupported: () => "not cloneable"
+    };
+    cyclicAttachment["self"] = cyclicAttachment;
+    const proxiedAttachment = new Proxy(cyclicAttachment, {
+      ownKeys: () => {
+        throw new Error("attachment keys must not be enumerated");
+      }
+    });
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: { online: true },
+        messages: [{
+          id: "history-message-1",
+          senderId: "viewer-1",
+          status: "DELIVERED",
+          time: 1_721_843_200_000,
+          text: "History",
+          attaches: [{ $: proxiedAttachment }]
+        }]
+      })
+    ]);
+    const internals = session as unknown as SessionInternals;
+
+    await expect(internals.readMessages("chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "history-message-1",
+        attaches: [
+          expect.objectContaining({
+            _type: "PHOTO",
+            url: "https://i.oneme.ru/history-photo",
+            width: 640,
+            height: 480,
+            name: "x".repeat(255)
+          })
+        ]
       })
     ]);
   });
@@ -280,7 +451,7 @@ function listChatsSession(
       value: () => pageSession
     });
     try {
-      return Promise.resolve(callback(argument));
+      return Promise.resolve(structuredClone(callback(argument)));
     } finally {
       restoreGlobalProperty("document", documentDescriptor);
       restoreGlobalProperty(accessorSymbol, accessorDescriptor);
