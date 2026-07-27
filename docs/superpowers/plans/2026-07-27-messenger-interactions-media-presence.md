@@ -193,7 +193,7 @@ Run the Step 2 command.
 
 Expected: both files PASS with no schema diagnostics.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/domain/chat.ts packages/core/src/domain/domain.test.ts packages/max-adapter/src/adapters/chat-list-adapter.ts packages/max-adapter/src/adapters/history-adapter.ts packages/max-adapter/src/adapters/adapters.test.ts
@@ -1105,7 +1105,7 @@ Run the Step 2 command.
 
 Expected: PASS with no cross-user session, source, or destination leakage.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/protocol/src/commands.ts packages/protocol/src/messages.ts packages/protocol/src/protocol.test.ts packages/max-adapter/src/max-session.ts apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-page-session.test.ts apps/worker/src/runtime/request-handler.ts apps/worker/src/runtime/request-handler.test.ts apps/api/src/runtime/bridge-runtime-gateway.ts apps/api/src/runtime/bridge-runtime-gateway.test.ts apps/api/src/routes/messages.ts apps/api/src/routes/messages.test.ts apps/web/src/api/client.ts apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/ForwardMessagePicker.tsx apps/web/src/features/messenger/ForwardMessagePicker.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx apps/web/src/features/messenger/messenger.css
@@ -1120,7 +1120,7 @@ git commit -m "feat: forward MAX messages"
 - Modify: `apps/worker/src/max/max-web-page-session.test.ts`
 - Modify: `apps/worker/src/runtime/request-handler.test.ts`
 
-- [ ] **Step 1: Write failing worker automation tests**
+- [x] **Step 1: Write failing worker automation tests**
 
 Create locator fakes for:
 
@@ -1135,7 +1135,7 @@ dialog-scoped input receives `setInputFiles`. For `kind: "file"`, assert `Фай
 is clicked. Add failure cases at `open_menu`, `select_mode`, `set_file`,
 `wait_for_preview`, and `send`; each must clear pending confirmation.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run:
 
@@ -1146,7 +1146,7 @@ npx vitest run --config vitest.workspace.ts apps/worker/src/max/max-web-page-ses
 Expected: FAIL because the implementation uses
 `locator('input[type="file"]').first()` without opening a mode.
 
-- [ ] **Step 3: Implement mode-scoped selection**
+- [x] **Step 3: Implement mode-scoped selection**
 
 Add private helpers:
 
@@ -1177,7 +1177,7 @@ stable than accessible names, but keep scoping to the newly opened UI. Replace
 the global-first input in `sendAttachment`. Keep one pending-send confirmation
 and never retry after an ambiguous result.
 
-- [ ] **Step 4: Run worker tests and verify GREEN**
+- [x] **Step 4: Run worker tests and verify GREEN**
 
 Run the Step 2 command.
 

@@ -561,6 +561,53 @@ describe("MaxWebPageSession native forwarding", () => {
   });
 });
 
+describe("MaxWebPageSession native attachment modes", () => {
+  it.each([
+    ["media", "Фото или видео"],
+    ["file", "Файл"]
+  ] as const)(
+    "uses the dialog-scoped input for %s",
+    async (kind, expectedMode) => {
+      const fixture = attachmentSession();
+
+      await expect(fixture.internals.sendAttachmentThroughUi(
+        "/run/maxbridge/media/synthetic/file.bin",
+        kind
+      )).resolves.toMatchObject({
+        state: "confirmed",
+        messageId: "uploaded-message"
+      });
+
+      expect(fixture.trigger.click).toHaveBeenCalledTimes(1);
+      expect(fixture.modeNames).toEqual([expectedMode]);
+      expect(fixture.scopedInput.setInputFiles).toHaveBeenCalledWith(
+        "/run/maxbridge/media/synthetic/file.bin"
+      );
+      expect(fixture.unrelatedInputs.every((input) =>
+        input.setInputFiles.mock.calls.length === 0
+      )).toBe(true);
+      expect(fixture.send.click).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([
+    "open_menu",
+    "select_mode",
+    "set_file",
+    "wait_for_preview",
+    "send"
+  ] as const)("clears pending confirmation after %s failure", async (stage) => {
+    const fixture = attachmentSession({ failStage: stage });
+
+    await expect(fixture.internals.sendAttachmentThroughUi(
+      "/run/maxbridge/media/synthetic/file.bin",
+      "media"
+    )).rejects.toThrow("MAX attachment send failed before confirmation");
+
+    expect(fixture.internals.pendingSend).toBeUndefined();
+  });
+});
+
 describe("MaxWebPageSession history navigation", () => {
   it("accepts MAX textboxes with an empty contenteditable attribute", async () => {
     const waitFor = vi.fn(() => Promise.resolve());
@@ -667,6 +714,16 @@ type SessionInternals = {
     messageId: string
   ) => Promise<Locator>;
   clickMenuItem: (dialog: Locator, label: string) => Promise<void>;
+  sendAttachmentThroughUi: (
+    filePath: string,
+    kind: "media" | "file"
+  ) => Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>>;
+  resolvePendingSend: (messageId: string | undefined) => void;
+  pendingSend?: unknown;
 };
 
 class FakeAdapter {
@@ -827,6 +884,118 @@ function forwardingSession(
     send,
     openMessageMenu,
     clickMenuItem
+  };
+}
+
+function attachmentSession(options: Readonly<{
+  failStage?:
+    | "open_menu"
+    | "select_mode"
+    | "set_file"
+    | "wait_for_preview"
+    | "send";
+}> = {}) {
+  const input = () => ({
+    waitFor: vi.fn(() => Promise.resolve()),
+    setInputFiles: vi.fn(() => Promise.resolve())
+  });
+  const unrelatedInputs = [input(), input()];
+  const scopedInput = input();
+  if (options.failStage === "set_file") {
+    scopedInput.setInputFiles.mockRejectedValue(new Error("set file"));
+  }
+  const scopedInputs = {
+    count: vi.fn(() => Promise.resolve(1)),
+    last: vi.fn(() => scopedInput)
+  };
+  const dialog = {
+    locator: vi.fn(() => scopedInputs)
+  };
+  const dialogs = {
+    count: vi.fn(() => Promise.resolve(1)),
+    last: vi.fn(() => dialog)
+  };
+  const trigger = {
+    count: vi.fn(() => Promise.resolve(1)),
+    click: vi.fn(() => options.failStage === "open_menu"
+      ? Promise.reject(new Error("open menu"))
+      : Promise.resolve())
+  };
+  const modeNames: string[] = [];
+  const modeItem = {
+    waitFor: vi.fn(() => Promise.resolve()),
+    click: vi.fn(() => options.failStage === "select_mode"
+      ? Promise.reject(new Error("select mode"))
+      : Promise.resolve())
+  };
+  const send = {
+    waitFor: vi.fn(() => Promise.resolve()),
+    click: vi.fn(() => Promise.resolve())
+  };
+  const empty = {
+    count: vi.fn(() => Promise.resolve(0)),
+    first: vi.fn()
+  };
+  const allInputs = {
+    count: vi.fn(() => Promise.resolve(unrelatedInputs.length)),
+    nth: vi.fn((index: number) => unrelatedInputs[index]),
+    first: vi.fn(() => unrelatedInputs[0]),
+    last: vi.fn(() => unrelatedInputs.at(-1))
+  };
+  const page = {
+    on: vi.fn(),
+    locator: vi.fn((selector: string) => {
+      if (selector === 'input[type="file"]') {
+        return allInputs;
+      }
+      if (selector.includes('input[type="file"]')) {
+        return empty;
+      }
+      return empty;
+    }),
+    getByRole: vi.fn((
+      role: string,
+      roleOptions?: Readonly<{ name?: string | RegExp }>
+    ) => {
+      if (role === "dialog") {
+        return dialogs;
+      }
+      if (role === "menuitem") {
+        if (typeof roleOptions?.name === "string") {
+          modeNames.push(roleOptions.name);
+        }
+        return modeItem;
+      }
+      if (role === "button" && roleOptions?.name instanceof RegExp) {
+        return trigger;
+      }
+      return send;
+    }),
+    waitForFunction: vi.fn(() =>
+      options.failStage === "wait_for_preview"
+        ? Promise.reject(new Error("preview"))
+        : Promise.resolve()
+    )
+  };
+  const session = new MaxWebPageSession({
+    page: page as unknown as Page,
+    context: {} as BrowserContext
+  });
+  const internals = session as unknown as SessionInternals;
+  send.click.mockImplementation(() => {
+    if (options.failStage === "send") {
+      return Promise.reject(new Error("send"));
+    }
+    internals.resolvePendingSend("uploaded-message");
+    return Promise.resolve();
+  });
+  return {
+    internals,
+    trigger,
+    modeNames,
+    scopedInput,
+    unrelatedInputs,
+    send
   };
 }
 

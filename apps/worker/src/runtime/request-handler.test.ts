@@ -156,6 +156,7 @@ describe("WorkerRuntimeRequestHandler", () => {
   it("routes bounded message and chat mutations", async () => {
     const session = fakeSession();
     const sendText = vi.spyOn(session, "sendText");
+    const sendAttachment = vi.spyOn(session, "sendAttachment");
     const editMessage = vi.spyOn(session, "editMessage");
     const deleteMessage = vi.spyOn(session, "deleteMessage");
     const forwardMessage = vi.spyOn(session, "forwardMessage");
@@ -177,6 +178,12 @@ describe("WorkerRuntimeRequestHandler", () => {
       clientRequestId: "request-1",
       text: "Ответ",
       replyToId: "message-0"
+    }));
+    await runtime.handle(request("message.sendAttachment", {
+      chatId: "chat-1",
+      filePath: "/run/maxbridge/media/upload/file.bin",
+      kind: "file",
+      clientRequestId: "request-attachment"
     }));
     await runtime.handle(request("message.edit", {
       chatId: "chat-1",
@@ -221,6 +228,11 @@ describe("WorkerRuntimeRequestHandler", () => {
       "Ответ",
       "message-0"
     );
+    expect(sendAttachment).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      filePath: "/run/maxbridge/media/upload/file.bin",
+      kind: "file"
+    });
     expect(editMessage).toHaveBeenCalledWith(
       "chat-1",
       "message-1",
@@ -340,6 +352,10 @@ function fakeSession(): RuntimeMaxSession {
       state: "confirmed",
       operationId: "1",
       messageId: "2"
+    }),
+    sendAttachment: () => Promise.resolve({
+      state: "confirmed",
+      operationId: "attachment-1"
     }),
     editMessage: () => Promise.resolve({
       state: "confirmed",

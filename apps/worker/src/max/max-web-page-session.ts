@@ -70,6 +70,16 @@ type PendingSend = {
   timeout: NodeJS.Timeout;
 };
 
+class AttachmentUiStageError extends Error {
+  constructor(
+    readonly stage: "open_menu" | "select_mode" | "set_file",
+    cause?: unknown
+  ) {
+    super("MAX attachment UI is unavailable", { cause });
+    this.name = "AttachmentUiStageError";
+  }
+}
+
 export class MaxWebPageSession {
   private bindings: MaxClientBindings | undefined;
   private adapter: MaxSession | undefined;
@@ -1090,6 +1100,17 @@ export class MaxWebPageSession {
     if (await this.history(input.chatId) === null) {
       throw new TypeError("Chat is unavailable");
     }
+    return this.sendAttachmentThroughUi(filePath, input.kind);
+  }
+
+  private async sendAttachmentThroughUi(
+    filePath: string,
+    kind: "media" | "file"
+  ): Promise<Readonly<{
+    state: "confirmed" | "ambiguous";
+    operationId: string;
+    messageId?: string;
+  }>> {
     const operationId = createOperationId();
     const confirmation = new Promise<string | undefined>((resolvePending) => {
       const timeout = setTimeout(() => {
@@ -1111,8 +1132,9 @@ export class MaxWebPageSession {
       ) {
         await staleDrafts.first().click({ timeout: 2_000 });
       }
+      stage = "open_menu";
+      const fileInput = await this.openAttachmentInput(kind);
       stage = "set_file";
-      const fileInput = this.options.page.locator('input[type="file"]').first();
       await fileInput.waitFor({ state: "attached", timeout: 5_000 });
       await fileInput.setInputFiles(filePath);
       stage = "wait_for_preview";
@@ -1130,9 +1152,12 @@ export class MaxWebPageSession {
       await send.click({ timeout: 10_000 });
     } catch (error: unknown) {
       this.clearPendingSend();
+      const failedStage = error instanceof AttachmentUiStageError
+        ? error.stage
+        : stage;
       process.stderr.write(`${JSON.stringify({
         event: "max_attachment_ui_failed",
-        stage,
+        stage: failedStage,
         errorName: error instanceof Error ? error.name : "unknown"
       })}\n`);
       throw new Error("MAX attachment send failed before confirmation", {
@@ -1144,6 +1169,70 @@ export class MaxWebPageSession {
     return messageId === undefined
       ? { state: "ambiguous", operationId }
       : { state: "confirmed", operationId, messageId };
+  }
+
+  private async openAttachmentInput(
+    kind: "media" | "file"
+  ): Promise<Locator> {
+    const allInputs = this.options.page.locator('input[type="file"]');
+    const before = await allInputs.count();
+    const trigger = this.options.page.getByRole("button", {
+      name: /загрузить файл|прикрепить/iu
+    });
+    if (await trigger.count() !== 1) {
+      throw new AttachmentUiStageError("open_menu");
+    }
+    try {
+      await trigger.click({ timeout: MAX_ACTION_WAIT_MS });
+    } catch (error: unknown) {
+      throw new AttachmentUiStageError("open_menu", error);
+    }
+    const menuItem = this.options.page.getByRole("menuitem", {
+      name: kind === "media" ? "Фото или видео" : "Файл",
+      exact: true
+    });
+    try {
+      await menuItem.waitFor({
+        state: "visible",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      await menuItem.click({ timeout: MAX_ACTION_WAIT_MS });
+    } catch (error: unknown) {
+      throw new AttachmentUiStageError("select_mode", error);
+    }
+
+    const dialogs = this.options.page.getByRole("dialog");
+    if (await dialogs.count() > 0) {
+      const scoped = dialogs.last().locator('input[type="file"]');
+      if (await scoped.count() > 0) {
+        return scoped.last();
+      }
+    }
+    const modeScoped = kind === "media"
+      ? this.options.page.locator(
+          'input[type="file"][accept*="image"],' +
+          'input[type="file"][accept*="video"]'
+        )
+      : this.options.page.locator(
+          'input[type="file"]:not([accept*="image"])' +
+          ':not([accept*="video"])'
+        );
+    if (await modeScoped.count() > 0) {
+      return modeScoped.last();
+    }
+    const after = await allInputs.count();
+    if (after > before) {
+      const revealed = allInputs.nth(before);
+      await revealed.waitFor({
+        state: "attached",
+        timeout: MAX_ACTION_WAIT_MS
+      });
+      return revealed;
+    }
+    if (after === 1) {
+      return allInputs.first();
+    }
+    throw new AttachmentUiStageError("set_file");
   }
 
   private async openMessageMenu(
