@@ -38,7 +38,13 @@ export class AuthenticatedSocket {
   }
 
   pause(): void {
-    if (this.stopped || this.paused) {
+    if (this.stopped) {
+      return;
+    }
+    if (this.paused) {
+      if (this.resumePromise !== null) {
+        this.lifecycleVersion += 1;
+      }
       return;
     }
     this.started = true;

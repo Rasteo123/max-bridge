@@ -76,6 +76,38 @@ describe("AuthenticatedSocket", () => {
     bridge.stop();
   });
 
+  it("stays paused when deactivated again during resume authentication", async () => {
+    let resolveAuthentication: (() => void) | undefined;
+    const authenticate = vi.fn(() => new Promise<void>((resolve) => {
+      resolveAuthentication = resolve;
+    }));
+    const sockets: FakeSocket[] = [];
+    const onStatus = vi.fn();
+    const bridge = new AuthenticatedSocket({
+      initData: () => "current-signed-data",
+      authenticate,
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      onStatus
+    });
+
+    bridge.start();
+    bridge.pause();
+    const resume = bridge.resume();
+    bridge.pause();
+    resolveAuthentication?.();
+
+    await expect(resume).resolves.toBe(false);
+    expect(sockets).toHaveLength(1);
+    expect(onStatus.mock.calls.filter(([status]) =>
+      status === "disconnected"
+    )).toHaveLength(1);
+    bridge.stop();
+  });
+
   it("reauthenticates from current Telegram initData without browser tokens", async () => {
     vi.useFakeTimers();
     const sockets: FakeSocket[] = [];
