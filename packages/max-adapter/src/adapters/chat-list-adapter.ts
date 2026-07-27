@@ -1,10 +1,13 @@
 import {
   parseChatSummary,
   type ChatKind,
-  type ChatSummary
+  type ChatSummary,
+  type LastMessageDirection,
+  type Presence
 } from "@maxbridge/core";
 
 import { MaxCompatibilityError } from "./errors.js";
+import { normalizeDeliveryStatus } from "./history-adapter.js";
 import type { RuntimeMediaAdapter } from "./media-adapter.js";
 import {
   asWireRecord,
@@ -64,6 +67,9 @@ function adaptChatSummary(
   const lastMessage = optionalWireRecord(
     chat["lastMessage"] ?? chat["message"]
   );
+  const kind = chatKind(chat);
+  const presence = chatPresence(chat, kind);
+  const lastMessageDirection = messageDirection(chat, lastMessage);
   const timestamp = toIsoTimestamp(
     lastMessage?.["time"]
       ?? chat["lastMessageTime"]
@@ -81,7 +87,7 @@ function adaptChatSummary(
   );
   const summary = {
     id,
-    kind: chatKind(chat),
+    kind,
     title,
     preview: messagePreview(lastMessage),
     timestamp,
@@ -93,9 +99,69 @@ function adaptChatSummary(
     muted: isMuted(chat),
     pinned: readWireBoolean(chat, "pinned", "isPinned") ?? false,
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
-    ...(avatarUrl === undefined ? {} : { avatarUrl })
+    ...(avatarUrl === undefined ? {} : { avatarUrl }),
+    ...(presence === undefined ? {} : { presence }),
+    ...(lastMessageDirection === undefined ? {} : { lastMessageDirection }),
+    ...(lastMessage === undefined
+      ? {}
+      : {
+        deliveryStatus: normalizeDeliveryStatus(
+          readWireString(lastMessage, "status", "deliveryStatus")
+        )
+      })
   };
   return parseChatSummary(summary);
+}
+
+function chatPresence(
+  chat: WireRecord,
+  kind: ChatKind
+): Presence | undefined {
+  if (kind !== "direct") {
+    return undefined;
+  }
+  const recipient = optionalWireRecord(chat["recipient"]);
+  const recipientView = optionalWireRecord(recipient?.["view"]);
+  const chatView = optionalWireRecord(chat["view"]);
+  const online = (
+    (recipient === undefined
+      ? undefined
+      : readWireBoolean(recipient, "online", "isOnline"))
+    ?? (recipientView === undefined
+      ? undefined
+      : readWireBoolean(recipientView, "online", "isOnline"))
+    ?? (chatView === undefined
+      ? undefined
+      : readWireBoolean(chatView, "online", "isOnline"))
+    ?? readWireBoolean(chat, "online", "isOnline")
+  );
+  if (online === true) {
+    return "online";
+  }
+  if (online === false) {
+    return "offline";
+  }
+  return "unknown";
+}
+
+function messageDirection(
+  chat: WireRecord,
+  lastMessage: WireRecord | undefined
+): LastMessageDirection | undefined {
+  if (lastMessage === undefined) {
+    return undefined;
+  }
+  const lastSenderId = readOpaqueId(
+    lastMessage,
+    "sender",
+    "senderId",
+    "authorId"
+  );
+  const viewerId = readOpaqueId(chat, "viewerId");
+  if (lastSenderId === undefined || viewerId === undefined) {
+    return undefined;
+  }
+  return lastSenderId === viewerId ? "outgoing" : "incoming";
 }
 
 function safeAvatarUrl(value: string | undefined): string | undefined {

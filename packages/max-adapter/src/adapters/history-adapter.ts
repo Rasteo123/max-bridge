@@ -93,7 +93,9 @@ export function adaptWireMessage(
     sentAt: toIsoTimestamp(
       message["time"] ?? message["sentAt"] ?? message["timestamp"]
     ),
-    status: messageStatus(message),
+    status: normalizeDeliveryStatus(
+      readWireString(message, "status", "deliveryStatus")
+    ),
     ...(readOpaqueId(message, "replyToId", "replyTo") === undefined
       ? {}
       : { replyToId: readOpaqueId(message, "replyToId", "replyTo") }),
@@ -208,17 +210,28 @@ function displayText(value: string | undefined): string | undefined {
     : value;
 }
 
-function messageStatus(message: WireRecord): DeliveryStatus {
-  const raw = readWireString(message, "status", "deliveryStatus")
-    ?.toLowerCase();
-  if (
-    raw === "pending"
-    || raw === "sent"
-    || raw === "delivered"
-    || raw === "read"
-    || raw === "failed"
-  ) {
-    return raw;
+export function normalizeDeliveryStatus(
+  value: string | undefined
+): DeliveryStatus {
+  switch (value?.toUpperCase()) {
+    case "PENDING":
+      return "pending";
+    case "SENT":
+    case "ACKNOWLEDGED":
+      return "sent";
+    case "DELIVERED":
+      return "delivered";
+    case "SEEN":
+    case "READ":
+      return "read";
+    case "FAILED":
+    case "FAILURE":
+    case "ERROR":
+    case "REJECTED":
+    case "CANCELED":
+    case "CANCELLED":
+      return "failed";
+    default:
+      return "sent";
   }
-  return "sent";
 }

@@ -70,6 +70,26 @@ describe("chat summary domain", () => {
     }).pinned).toBe(true);
   });
 
+  it("accepts strict presence, direction and delivery state", () => {
+    expect(parseChatSummary({
+      ...syntheticChat,
+      presence: "online",
+      lastMessageDirection: "outgoing",
+      deliveryStatus: "read"
+    })).toMatchObject({
+      presence: "online",
+      lastMessageDirection: "outgoing",
+      deliveryStatus: "read"
+    });
+  });
+
+  it("rejects an unknown presence", () => {
+    expect(() => parseChatSummary({
+      ...syntheticChat,
+      presence: "maybe"
+    })).toThrow(DomainValidationError);
+  });
+
   it("rejects an avatar URL outside the MAX image host", () => {
     expect(() => parseChatSummary({
       ...syntheticChat,

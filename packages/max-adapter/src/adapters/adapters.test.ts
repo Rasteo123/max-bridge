@@ -53,6 +53,33 @@ describe("MAX chat list adapter", () => {
     expect(page.nextCursor).toBe("1000");
     expect(page.hasMore).toBe(true);
   });
+
+  it("normalizes direct-chat presence and outgoing read receipts", () => {
+    const page = adaptChatList({
+      chats: [{
+        id: "presence-chat",
+        type: "DIALOG",
+        title: "Ольга",
+        viewerId: fixture.viewerId,
+        recipient: {
+          online: true
+        },
+        lastMessage: {
+          id: "presence-message",
+          sender: fixture.viewerId,
+          time: "2026-07-27T10:00:00.000Z",
+          text: "До встречи",
+          status: "READ"
+        }
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]).toMatchObject({
+      presence: "online",
+      lastMessageDirection: "outgoing",
+      deliveryStatus: "read"
+    });
+  });
 });
 
 describe("MAX history and media adapters", () => {
@@ -140,6 +167,36 @@ describe("MAX history and media adapters", () => {
     }
     expect(page.nextCursor).toBe("3001");
     expect(page.hasMore).toBe(true);
+  });
+
+  it.each([
+    ["PENDING", "pending"],
+    ["SENT", "sent"],
+    ["ACKNOWLEDGED", "sent"],
+    ["DELIVERED", "delivered"],
+    ["SEEN", "read"],
+    ["READ", "read"],
+    ["FAILED", "failed"],
+    ["FAILURE", "failed"],
+    ["ERROR", "failed"],
+    ["REJECTED", "failed"],
+    ["UNKNOWN", "sent"]
+  ] as const)("normalizes %s delivery status to %s", (status, expected) => {
+    const page = adaptHistoryPage({
+      messages: [{
+        id: `status-${status}`,
+        sender: fixture.viewerId,
+        time: "2026-07-27T10:00:00.000Z",
+        text: "Статус",
+        status
+      }]
+    }, {
+      chatId: "1001",
+      viewerId: fixture.viewerId,
+      media: new RuntimeMediaAdapter()
+    });
+
+    expect(page.messages[0]?.status).toBe(expected);
   });
 
   it("preserves validated reactions and reply metadata", () => {

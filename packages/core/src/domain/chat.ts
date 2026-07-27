@@ -21,6 +21,17 @@ export const DeliveryStatusSchema = Type.Union([
   Type.Literal("failed")
 ]);
 
+export const PresenceSchema = Type.Union([
+  Type.Literal("online"),
+  Type.Literal("offline"),
+  Type.Literal("unknown")
+]);
+
+export const LastMessageDirectionSchema = Type.Union([
+  Type.Literal("incoming"),
+  Type.Literal("outgoing")
+]);
+
 export const CHAT_ACTIONS = [
   "pin",
   "unpin",
@@ -50,12 +61,16 @@ export const ChatSummarySchema = Type.Object({
     maxLength: 2048,
     pattern: "^https://i\\.oneme\\.ru(?:/|$)"
   })),
+  presence: Type.Optional(PresenceSchema),
+  lastMessageDirection: Type.Optional(LastMessageDirectionSchema),
   deliveryStatus: Type.Optional(DeliveryStatusSchema)
 }, strictObjectOptions);
 
 export type ChatKind = Static<typeof ChatKindSchema>;
 export type ChatAction = Static<typeof ChatActionSchema>;
 export type DeliveryStatus = Static<typeof DeliveryStatusSchema>;
+export type Presence = Static<typeof PresenceSchema>;
+export type LastMessageDirection = Static<typeof LastMessageDirectionSchema>;
 export type ChatSummary = Static<typeof ChatSummarySchema>;
 
 export function parseChatSummary(value: unknown): ChatSummary {
