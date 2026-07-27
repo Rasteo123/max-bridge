@@ -140,6 +140,30 @@ describe("MaxWebPageSession chat snapshots", () => {
     ]);
   });
 
+  it("ignores an unverified recipient.$.presence fallback", async () => {
+    vi.setSystemTime(now);
+    const rawSeen = Math.floor((now - 60_000) / 1_000);
+    const session = listChatsSession([
+      directChatPageModel({
+        recipient: {
+          $: {
+            presence: {
+              status: 0,
+              isOnline: false,
+              seen: now - 60_000,
+              $: { seen: rawSeen }
+            }
+          }
+        }
+      })
+    ]);
+
+    const chats = await session.listChats();
+
+    expect(chats[0]).toMatchObject({ presence: "unknown" });
+    expect(chats[0]).not.toHaveProperty("lastSeenAt");
+  });
+
   it("does not project activity fields as last-seen time", async () => {
     vi.setSystemTime(now);
     const session = listChatsSession([

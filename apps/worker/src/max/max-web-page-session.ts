@@ -322,9 +322,7 @@ export class MaxWebPageSession {
               chat["recipient"] ?? raw?.["recipient"]
             );
             const rawRecipient = record(recipient?.["$"]);
-            const presence = record(
-              recipient?.["presence"] ?? rawRecipient?.["presence"]
-            );
+            const presence = record(recipient?.["presence"]);
             const rawPresence = record(presence?.["$"]);
             const presenceStatus = strictPresenceStatus(presence?.["status"]);
             const presenceIsOnline = strictBoolean(presence?.["isOnline"]);
