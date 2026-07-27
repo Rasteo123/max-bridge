@@ -49,6 +49,31 @@ This boundary keeps the implementation compatible with the official
 documentation without presenting an unsupported Bot API or MAX Bridge feature
 as personal-account access.
 
+## Telegram host integration
+
+Telegram is the actual Mini App host, so the web client follows the official
+Telegram Mini Apps lifecycle:
+
+- only signed `Telegram.WebApp.initData` is sent to the server; the server
+  validates its HMAC, timestamp, and signed user before deriving identity;
+- `ready()` and `expand()` run during bootstrap;
+- `themeChanged` reapplies Telegram theme variables without reloading;
+- `deactivated` stops the live socket and clears transient online presence so a
+  minimized or closed Mini App does not keep an active conversation view;
+- `activated` reauthenticates with the current `initData`, reconnects the live
+  socket, and refreshes the current MAX snapshot;
+- `viewportStableHeight`, safe-area variables, and content-safe-area variables
+  protect the conversation header and composer from Telegram and system chrome;
+- Telegram's native `BackButton` mirrors the narrow-screen selected-chat state,
+  while the in-content “Chats” button remains removed;
+- official `HapticFeedback` is used behind a capability guard for gesture
+  thresholds;
+- vertical Telegram close/minimize swipes remain enabled because this design's
+  navigation and reply gestures are horizontal.
+
+The image/video viewer may request Telegram full-screen mode when the host
+supports it, but it must retain the browser modal/native-video fallback.
+
 ## User interaction design
 
 ### Swipe to reply

@@ -15,7 +15,8 @@
 Before Tasks 3, 4, 6, 7, and 8, compare the implementation surface with the
 current official documentation:
 
-- use Telegram WebApp host APIs for viewport, back navigation, and haptics;
+- use Telegram WebApp host APIs for signed initialization, lifecycle events,
+  stable viewport, safe areas, back navigation, themes, and haptics;
 - use MAX UI selectively for compatible visual primitives and theme tokens,
   with regression tests proving that gestures and the responsive layout remain
   unchanged;
@@ -32,6 +33,7 @@ boundary instead of silently changing product semantics.
 
 **Create**
 
+- `apps/web/src/features/auth/telegram.test.ts` — Telegram theme and host-capability coverage.
 - `apps/web/src/features/messenger/useSwipeToReply.ts` — message-local horizontal gesture state and reply threshold.
 - `apps/web/src/features/messenger/swipe-to-reply.test.tsx` — gesture conflict and threshold coverage.
 - `apps/web/src/features/messenger/useMediaTransform.ts` — image scale/translation math and pointer tracking.
@@ -47,6 +49,12 @@ boundary instead of silently changing product semantics.
 - `packages/max-adapter/src/adapters/adapters.test.ts` — adapter fixtures for presence and receipts.
 - `apps/worker/src/max/max-web-page-session.ts` — extract MAX state and target the correct attachment input.
 - `apps/worker/src/max/max-web-page-session.test.ts` — attachment stage and snapshot behavior.
+- `apps/web/src/features/auth/telegram.ts` — Telegram host capabilities and theme application.
+- `apps/web/src/features/auth/AuthGate.tsx` — bootstrap and live theme subscription.
+- `apps/web/src/api/socket.ts` — resumable authenticated live socket.
+- `apps/web/src/api/socket.test.ts` — pause/resume and reauthentication coverage.
+- `apps/web/src/features/messenger/useLiveEvents.ts` — activated/deactivated socket lifecycle.
+- `apps/web/src/features/messenger/live-events.test.tsx` — host lifecycle and store behavior.
 - `apps/web/src/features/messenger/types.ts` — web-facing presence and upload state.
 - `apps/web/src/features/messenger/MessageBubble.tsx` — reply gesture and outgoing receipt.
 - `apps/web/src/features/messenger/MediaMessage.tsx` — open viewer instead of inline-only playback.
@@ -287,6 +295,85 @@ git add apps/worker/src/max/max-web-page-session.ts apps/worker/src/max/max-web-
 git commit -m "feat: capture MAX presence and acknowledgements"
 ```
 
+## Task 2A: Align the web client with the Telegram Mini App lifecycle
+
+**Files:**
+
+- Create: `apps/web/src/features/auth/telegram.test.ts`
+- Modify: `apps/web/src/features/auth/telegram.ts`
+- Modify: `apps/web/src/features/auth/AuthGate.tsx`
+- Modify: `apps/web/src/api/socket.ts`
+- Modify: `apps/web/src/api/socket.test.ts`
+- Modify: `apps/web/src/features/messenger/useLiveEvents.ts`
+- Modify: `apps/web/src/features/messenger/live-events.test.tsx`
+
+- [ ] **Step 1: Write failing host-lifecycle tests**
+
+Cover the official Telegram host contract:
+
+- `themeChanged` reapplies current theme params and cleanup calls `offEvent`
+  with the same callback;
+- `deactivated` stops the authenticated live socket and publishes
+  `disconnected`;
+- `activated` reauthenticates using the current signed `initData`, restarts the
+  socket, and triggers a current-data refresh callback exactly once;
+- repeated activation does not create duplicate sockets;
+- a missing capability on older Telegram versions is a safe no-op;
+- no Telegram identity, token, or reconnect material is written to browser
+  storage.
+
+Keep the existing server-side HMAC and `auth_date` tests unchanged: signed
+`initData`, not `initDataUnsafe`, remains the only identity source.
+
+- [ ] **Step 2: Run and verify RED**
+
+Run:
+
+```bash
+npx vitest run --config vitest.workspace.ts apps/web/src/features/auth/telegram.test.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/live-events.test.tsx
+```
+
+Expected: FAIL because the Telegram interface has no event methods and the live
+socket does not pause or resume from host lifecycle events.
+
+- [ ] **Step 3: Implement capability-guarded host integration**
+
+Extend `TelegramWebApp` with only the documented capabilities used here:
+`onEvent`, `offEvent`, `isActive`, `viewportStableHeight`, `BackButton`,
+`HapticFeedback`, `isVersionAtLeast`, and optional full-screen methods. Keep
+them optional so older clients remain supported.
+
+In `AuthGate`, keep the existing early `ready()` and `expand()` calls, apply
+the initial theme, subscribe to `themeChanged`, and remove the exact callback on
+cleanup.
+
+Give `AuthenticatedSocket` idempotent pause/resume semantics. Pause must cancel
+timers and close the current socket without expiring authentication. Resume must
+reauthenticate once before reconnecting. In `useLiveEvents`, subscribe to
+`deactivated` and `activated`; deactivate pauses the socket, and activate
+resumes it and requests a fresh chat/history snapshot through an injected
+callback. Remove both listeners and stop the socket on unmount.
+
+Do not keep a live connection while Telegram reports the Mini App inactive.
+Do not automatically mark MAX messages read as part of activation or refresh.
+
+- [ ] **Step 4: Run focused and regression tests**
+
+Run the Step 2 command plus:
+
+```bash
+npx vitest run --config vitest.workspace.ts apps/web/src/telegram-bootstrap.test.ts apps/api/src/auth/telegram-init-data.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/web/src/features/auth/telegram.test.ts apps/web/src/features/auth/telegram.ts apps/web/src/features/auth/AuthGate.tsx apps/web/src/api/socket.ts apps/web/src/api/socket.test.ts apps/web/src/features/messenger/useLiveEvents.ts apps/web/src/features/messenger/live-events.test.tsx
+git commit -m "fix: follow Telegram Mini App lifecycle"
+```
+
 ## Task 3: Render presence, avatars, and delivery indicators
 
 **Files:**
@@ -298,6 +385,7 @@ git commit -m "feat: capture MAX presence and acknowledgements"
 - Modify: `apps/web/src/features/messenger/ContextMenus.test.tsx`
 - Modify: `apps/web/src/features/messenger/Conversation.tsx`
 - Modify: `apps/web/src/features/messenger/MessengerShell.tsx`
+- Modify: `apps/web/src/features/auth/telegram.ts`
 - Modify: `apps/web/src/features/messenger/messenger-store.ts`
 - Modify: `apps/web/src/features/messenger/live-events.test.tsx`
 - Modify: `apps/web/src/features/messenger/messenger.css`
@@ -330,6 +418,10 @@ labels `Отправляется`, `Отправлено`, `Доставлено
 
 In a new conversation assertion, verify the avatar precedes the identity title
 and no visible button named `Открыть список чатов` remains.
+On a narrow selected-chat view, assert Telegram's native `BackButton` is shown,
+its click calls `onOpenChats`, and it is hidden with the exact callback removed
+when the list is visible or the component unmounts. Assert safe-area and stable
+viewport variables are used by the shell/composer styles.
 
 - [ ] **Step 2: Run the web tests and verify RED**
 
@@ -381,6 +473,19 @@ otherwise create a component dependency cycle.
 
 Replace the narrow back button with avatar/identity markup. Keep
 `onOpenChats()` available for the pane gesture but do not render the old button.
+Mirror the selected narrow-pane state to Telegram's native `BackButton` through
+capability-guarded `show`, `hide`, `onClick`, and `offClick` calls. Use
+`--tg-viewport-stable-height`, `--tg-safe-area-inset-*`, and
+`--tg-content-safe-area-inset-*` with browser fallbacks for the messenger shell,
+header, and composer.
+
+Before introducing a local presentation primitive, compare it with the current
+MAX UI package. Reuse a compatible MAX UI primitive or design token (notably
+avatar/online-dot, input, button, spinner, or panel) only when focused tests
+prove that it does not change DOM accessibility, gestures, or the approved
+responsive layout. Do not import the full stylesheet merely to restyle custom
+message bubbles.
+
 When store connection becomes reconnecting/disconnected, map chat presence to
 `unknown` before publishing the snapshot.
 
@@ -397,7 +502,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/ChatRow.tsx apps/web/src/features/messenger/ChatRow.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/messenger/messenger-store.ts apps/web/src/features/messenger/live-events.test.tsx apps/web/src/features/messenger/messenger.css
+git add apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/ChatRow.tsx apps/web/src/features/messenger/ChatRow.test.tsx apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/ContextMenus.test.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/MessengerShell.tsx apps/web/src/features/auth/telegram.ts apps/web/src/features/messenger/messenger-store.ts apps/web/src/features/messenger/live-events.test.tsx apps/web/src/features/messenger/messenger.css
 git commit -m "feat: show MAX presence and delivery receipts"
 ```
 
@@ -468,8 +573,11 @@ explicitly rather than overwriting either set, apply the CSS variable, and add:
 <span className="message__reply-swipe-icon" aria-hidden="true">↩</span>
 ```
 
-Call `Telegram.WebApp.HapticFeedback.impactOccurred("light")` through a guarded
-utility passed as `onArmed`.
+Call the official
+`Telegram.WebApp.HapticFeedback.impactOccurred("light")` through a guarded
+utility passed as `onArmed`. The utility must be a no-op outside Telegram or on
+an older host that does not expose the capability; it must not invoke MAX
+Bridge or browser vibration as an identity-independent fallback.
 
 - [ ] **Step 4: Run reply and navigation gesture tests**
 
@@ -578,6 +686,7 @@ git commit -m "feat: add image transform controls"
 - Modify: `apps/web/src/features/messenger/MediaMessage.test.ts`
 - Modify: `apps/web/src/features/messenger/MessageBubble.tsx`
 - Modify: `apps/web/src/features/messenger/Conversation.tsx`
+- Modify: `apps/web/src/features/auth/telegram.ts`
 - Modify: `apps/web/src/features/messenger/messenger.css`
 
 - [ ] **Step 1: Write failing modal tests**
@@ -635,6 +744,12 @@ overflow, and stops pointer/wheel propagation. Render `<video controls
 playsInline>` for videos. Render the transformed `<img draggable={false}>` and
 zoom controls for images.
 
+When `Telegram.WebApp.isVersionAtLeast("8.0")` and `requestFullscreen` are
+available, the viewer may request Telegram full-screen mode from the user's
+open action and call `exitFullscreen` during close. A rejection or unsupported
+host must leave the in-app modal fully functional. Do not require Telegram
+full-screen for native video playback, browser full-screen, zoom, or dismissal.
+
 - [ ] **Step 4: Run viewer and message tests**
 
 Run:
@@ -648,7 +763,7 @@ Expected: PASS and media controls do not trigger reply.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/features/messenger/MediaViewer.tsx apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/messenger/messenger.css
+git add apps/web/src/features/messenger/MediaViewer.tsx apps/web/src/features/messenger/MediaViewer.test.tsx apps/web/src/features/messenger/MediaMessage.tsx apps/web/src/features/messenger/MediaMessage.test.ts apps/web/src/features/messenger/MessageBubble.tsx apps/web/src/features/messenger/Conversation.tsx apps/web/src/features/auth/telegram.ts apps/web/src/features/messenger/messenger.css
 git commit -m "feat: add full screen media viewer"
 ```
 
@@ -943,6 +1058,10 @@ Use the Mini App to check:
 3. image pinch, pan, double tap, and reset;
 4. video play, seek, and full screen;
 5. gallery and document pickers both expose local files and send one item.
+6. theme changes apply without reopening, safe areas protect the composer, and
+   Telegram's native BackButton returns from a selected chat to the list;
+7. minimizing the Mini App closes the live socket, and returning reauthenticates,
+   reconnects, and refreshes without an endless “reconnecting” banner.
 
 Expected: no text selection during the reply gesture and no indefinite
 “reconnecting” state.
