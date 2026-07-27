@@ -14,6 +14,7 @@ import {
   MessengerStore
 } from "./messenger-store.js";
 import type {
+  AttachmentSendState,
   MessengerChatAction,
   MessengerForwardedSource,
   MessengerMedia,
@@ -23,6 +24,8 @@ import type {
   ReactionKey
 } from "./types.js";
 import { useLiveEvents } from "./useLiveEvents.js";
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 type ConnectedMessengerProps = Readonly<{
   client: ApiClient;
@@ -47,8 +50,12 @@ export function ConnectedMessenger({
   const [failed, setFailed] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [attachmentState, setAttachmentState] =
+    useState<AttachmentSendState>({ state: "idle" });
   const historyCache = useRef(new Map<string, readonly MessengerMessage[]>());
   const historyRequest = useRef(0);
+  const attachmentRequest = useRef(0);
+  const attachmentSending = useRef(false);
   const refreshCurrentData = useCallback(async () => {
     const { chats } = await client.listChats();
     store.replaceChats(chats);
@@ -127,6 +134,12 @@ export function ConnectedMessenger({
     };
   }, [client, store]);
 
+  useEffect(() => {
+    attachmentRequest.current += 1;
+    attachmentSending.current = false;
+    setAttachmentState({ state: "idle" });
+  }, [snapshot.selectedChatId]);
+
   async function selectChat(chatId: string): Promise<boolean> {
     const requestId = ++historyRequest.current;
     store.selectChat(chatId);
@@ -199,11 +212,65 @@ export function ConnectedMessenger({
 
   async function sendAttachment(file: File, kind: "media" | "file") {
     const chatId = store.getSnapshot().selectedChatId;
-    if (chatId === undefined) {
+    if (chatId === undefined || attachmentSending.current) {
       return;
     }
-    await client.sendAttachment(chatId, file, kind);
-    await refreshHistory(chatId);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachmentState({
+        state: "failed",
+        fileName: file.name,
+        file,
+        kind,
+        ambiguous: false
+      });
+      return;
+    }
+
+    const requestId = ++attachmentRequest.current;
+    attachmentSending.current = true;
+    setAttachmentState({ state: "sending", fileName: file.name });
+    try {
+      const result = await client.sendAttachment(chatId, file, kind);
+      if (
+        requestId !== attachmentRequest.current ||
+        store.getSnapshot().selectedChatId !== chatId
+      ) {
+        return;
+      }
+      if (result.state === "ambiguous") {
+        setAttachmentState({
+          state: "failed",
+          fileName: file.name,
+          file,
+          kind,
+          ambiguous: true
+        });
+        return;
+      }
+      setAttachmentState({ state: "idle" });
+      try {
+        await refreshHistory(chatId);
+      } catch {
+        // The confirmed upload must not be retried just because refresh failed.
+      }
+    } catch {
+      if (
+        requestId === attachmentRequest.current &&
+        store.getSnapshot().selectedChatId === chatId
+      ) {
+        setAttachmentState({
+          state: "failed",
+          fileName: file.name,
+          file,
+          kind,
+          ambiguous: false
+        });
+      }
+    } finally {
+      if (requestId === attachmentRequest.current) {
+        attachmentSending.current = false;
+      }
+    }
   }
 
   async function editMessage(messageId: string, text: string) {
@@ -396,7 +463,16 @@ export function ConnectedMessenger({
           void runAction(() => send(text, replyToId));
         }}
         onAttach={(file, kind) => {
-          void runAction(() => sendAttachment(file, kind));
+          void sendAttachment(file, kind);
+        }}
+        attachmentState={attachmentState}
+        onRetryAttachment={() => {
+          if (attachmentState.state === "failed") {
+            void sendAttachment(attachmentState.file, attachmentState.kind);
+          }
+        }}
+        onCancelAttachment={() => {
+          setAttachmentState({ state: "idle" });
         }}
         onEditMessage={(messageId, text) => {
           void runAction(() => editMessage(messageId, text));

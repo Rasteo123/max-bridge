@@ -259,6 +259,135 @@ describe("ConnectedMessenger startup", () => {
     expect(parsedBody.destinationIds).toEqual(["destination"]);
     expect(typeof parsedBody.clientRequestId).toBe("string");
   });
+
+  it("shows attachment progress and only retries after an explicit action", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const upload = deferred<Response>();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(originalChats()))
+      .mockResolvedValueOnce(jsonResponse({ messages: [] }))
+      .mockImplementationOnce(() => upload.promise)
+      .mockResolvedValueOnce(jsonResponse({
+        state: "confirmed",
+        operationId: "attachment-retry"
+      }))
+      .mockResolvedValueOnce(jsonResponse({ messages: [] }));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    await screen.findAllByText("Исходный чат");
+    const file = new File(["photo"], "photo.jpg", {
+      type: "image/jpeg"
+    });
+    chooseAttachment(file, "media");
+
+    expect(await screen.findByText("Отправляем photo.jpg…")).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Прикрепить файл"
+    })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", {
+      name: "Прикрепить файл"
+    }));
+    expect(fetcher).toHaveBeenCalledTimes(3);
+
+    upload.reject(new Error("network"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось отправить photo.jpg"
+    );
+    expect(fetcher).toHaveBeenCalledTimes(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledTimes(5);
+    });
+    expect(screen.queryByText(/photo\.jpg/)).toBeNull();
+  });
+
+  it("keeps an ambiguous attachment for deliberate retry and clears it on chat change", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        chats: [
+          ...originalChats().chats,
+          {
+            id: "destination",
+            title: "Получатель",
+            preview: "",
+            timestamp: "2026-07-27T09:00:00.000Z",
+            unreadCount: 0,
+            muted: false,
+            kind: "direct"
+          }
+        ]
+      }))
+      .mockResolvedValueOnce(jsonResponse({ messages: [] }))
+      .mockResolvedValueOnce(jsonResponse({
+        state: "ambiguous",
+        operationId: "attachment-unknown"
+      }))
+      .mockResolvedValueOnce(jsonResponse({ messages: [] }));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    await screen.findAllByText("Исходный чат");
+    chooseAttachment(new File(["photo"], "photo.jpg"), "media");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "MAX не подтвердил отправку photo.jpg"
+    );
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeVisible();
+
+    fireEvent.click(screen.getByText("Получатель"));
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    });
+    expect(screen.queryByText(/photo\.jpg/)).toBeNull();
+  });
+
+  it("rejects attachments over 20 MB before starting a request", async () => {
+    vi.stubGlobal("matchMedia", wideMatchMediaStub);
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(originalChats()))
+      .mockResolvedValueOnce(jsonResponse({ messages: [] }));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(fetcher)}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+
+    await screen.findAllByText("Исходный чат");
+    const file = new File(["large"], "large.zip");
+    Object.defineProperty(file, "size", {
+      configurable: true,
+      value: 20 * 1024 * 1024 + 1
+    });
+    chooseAttachment(file, "file");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Файл large.zip больше 20 МБ"
+    );
+    expect(screen.queryByRole("button", { name: "Повторить" })).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -333,4 +462,31 @@ function requestPath(request: RequestInfo | URL): string {
     return request;
   }
   return request instanceof URL ? request.href : request.url;
+}
+
+function chooseAttachment(file: File, kind: "media" | "file") {
+  const attachmentButton = screen.getByRole("button", {
+    name: "Прикрепить файл"
+  });
+  if (!attachmentButton.hasAttribute("disabled")) {
+    fireEvent.click(attachmentButton);
+  }
+  const selector = kind === "media"
+    ? 'input[type="file"][accept="image/*,video/*"]'
+    : 'input[type="file"]:not([accept])';
+  const input = document.querySelector<HTMLInputElement>(selector);
+  if (input === null) {
+    throw new Error(`Missing ${kind} attachment input`);
+  }
+  fireEvent.change(input, { target: { files: [file] } });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

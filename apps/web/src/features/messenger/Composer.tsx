@@ -6,6 +6,7 @@ import {
   useState
 } from "react";
 import type {
+  AttachmentSendState,
   MessengerMessage,
   MessengerSticker
 } from "./types.js";
@@ -28,6 +29,9 @@ type ComposerProps = Readonly<{
   disabled?: boolean;
   onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
+  attachmentState?: AttachmentSendState;
+  onRetryAttachment?(): void;
+  onCancelAttachment?(): void;
   replyingTo?: MessengerMessage;
   editing?: MessengerMessage;
   onEdit?(messageId: string, text: string): void;
@@ -40,6 +44,9 @@ export function Composer({
   disabled = false,
   onSend,
   onAttach,
+  attachmentState = { state: "idle" },
+  onRetryAttachment,
+  onCancelAttachment,
   replyingTo,
   editing,
   onEdit,
@@ -149,7 +156,11 @@ export function Composer({
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     setAttachmentsOpen(false);
-    if (file !== undefined && !disabled) {
+    if (
+      file !== undefined &&
+      !disabled &&
+      attachmentState.state !== "sending"
+    ) {
       onAttach?.(file, kind);
     }
   }
@@ -202,7 +213,8 @@ export function Composer({
     replyingTo !== undefined || editing !== undefined
       ? "composer--context"
       : "",
-    "composer--stickers"
+    "composer--stickers",
+    attachmentState.state !== "idle" ? "composer--attachment-state" : ""
   ].filter(Boolean).join(" ");
 
   return (
@@ -237,6 +249,37 @@ export function Composer({
           </button>
         </div>
       )}
+      {attachmentState.state !== "idle" && (
+        <div
+          className="composer__attachment-state"
+          role={attachmentState.state === "failed" ? "alert" : "status"}
+        >
+          <span>
+            {attachmentState.state === "sending"
+              ? `Отправляем ${attachmentState.fileName}…`
+              : attachmentState.file.size > 20 * 1024 * 1024
+              ? `Файл ${attachmentState.fileName} больше 20 МБ.`
+              : attachmentState.ambiguous
+              ? `MAX не подтвердил отправку ${attachmentState.fileName}.`
+              : `Не удалось отправить ${attachmentState.fileName}.`}
+          </span>
+          {attachmentState.state === "failed" && (
+            <span className="composer__attachment-actions">
+              {attachmentState.file.size <= 20 * 1024 * 1024 &&
+                onRetryAttachment !== undefined && (
+                  <button type="button" onClick={onRetryAttachment}>
+                    Повторить
+                  </button>
+                )}
+              {onCancelAttachment !== undefined && (
+                <button type="button" onClick={onCancelAttachment}>
+                  Отменить
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      )}
       <div className="composer__attachment" ref={attachmentRoot}>
         {attachmentsOpen && (
           <div className="composer__attachment-menu" role="menu">
@@ -247,6 +290,7 @@ export function Composer({
                 type="file"
                 accept="image/*,video/*"
                 multiple={false}
+                disabled={attachmentState.state === "sending"}
                 onChange={(event) => {
                   choose(event, "media");
                 }}
@@ -258,6 +302,7 @@ export function Composer({
               <input
                 type="file"
                 multiple={false}
+                disabled={attachmentState.state === "sending"}
                 onChange={(event) => {
                   choose(event, "file");
                 }}
@@ -272,7 +317,12 @@ export function Composer({
           aria-label="Прикрепить файл"
           aria-expanded={attachmentsOpen}
           data-no-swipe
-          disabled={disabled || editing !== undefined}
+          disabled={
+            disabled ||
+            editing !== undefined ||
+            attachmentState.state === "sending"
+          }
+          aria-busy={attachmentState.state === "sending"}
           onClick={() => {
             setStickersOpen(false);
             setAttachmentsOpen((value) => !value);

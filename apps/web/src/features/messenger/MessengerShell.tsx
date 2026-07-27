@@ -11,6 +11,7 @@ import { ChatList } from "./ChatList.js";
 import { Conversation } from "./Conversation.js";
 import { ForwardMessagePicker } from "./ForwardMessagePicker.js";
 import type {
+  AttachmentSendState,
   MessengerChat,
   MessengerChatAction,
   MessengerForwardedSource,
@@ -32,6 +33,9 @@ type MessengerShellProps = Readonly<{
   onSelectChat(chatId: string): void;
   onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
+  attachmentState?: AttachmentSendState;
+  onRetryAttachment?(): void;
+  onCancelAttachment?(): void;
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
   onForwardMessage?(
@@ -57,6 +61,9 @@ export function MessengerShell({
   onSelectChat,
   onSend,
   onAttach,
+  attachmentState,
+  onRetryAttachment,
+  onCancelAttachment,
   onEditMessage,
   onDeleteMessage,
   onForwardMessage,
@@ -204,6 +211,13 @@ export function MessengerShell({
             onOpenChats={openChats}
             onSend={onSend}
             {...(onAttach === undefined ? {} : { onAttach })}
+            {...(attachmentState === undefined ? {} : { attachmentState })}
+            {...(onRetryAttachment === undefined
+              ? {}
+              : { onRetryAttachment })}
+            {...(onCancelAttachment === undefined
+              ? {}
+              : { onCancelAttachment })}
             {...(onEditMessage === undefined ? {} : { onEditMessage })}
             {...(onDeleteMessage === undefined ? {} : { onDeleteMessage })}
             {...(onForwardMessage === undefined ? {} : {

@@ -14,6 +14,7 @@ import {
 } from "./MediaMessage.js";
 import { MessageBubble } from "./MessageBubble.js";
 import type {
+  AttachmentSendState,
   MessengerChat,
   MessengerForwardedSource,
   MessengerMessage,
@@ -29,6 +30,9 @@ type ConversationProps = Readonly<{
   onOpenChats(): void;
   onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
+  attachmentState?: AttachmentSendState;
+  onRetryAttachment?(): void;
+  onCancelAttachment?(): void;
   historyLoading?: boolean;
   onEditMessage?(messageId: string, text: string): void;
   onDeleteMessage?(messageId: string): void;
@@ -56,6 +60,9 @@ export function Conversation({
   active = true,
   onSend,
   onAttach,
+  attachmentState,
+  onRetryAttachment,
+  onCancelAttachment,
   historyLoading = false,
   onEditMessage,
   onDeleteMessage,
@@ -266,6 +273,13 @@ export function Conversation({
         disabled={chat === undefined}
         onSend={onSend}
         {...(onAttach === undefined ? {} : { onAttach })}
+        {...(attachmentState === undefined ? {} : { attachmentState })}
+        {...(onRetryAttachment === undefined
+          ? {}
+          : { onRetryAttachment })}
+        {...(onCancelAttachment === undefined
+          ? {}
+          : { onCancelAttachment })}
         {...(
           composerContext?.kind === "reply"
             ? { replyingTo: composerContext.message }

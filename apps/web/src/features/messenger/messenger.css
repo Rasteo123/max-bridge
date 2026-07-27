@@ -944,6 +944,51 @@
   grid-template-rows: auto auto;
 }
 
+.composer--attachment-state {
+  grid-template-rows: auto auto;
+}
+
+.composer__attachment-state {
+  display: flex;
+  min-width: 0;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.composer__attachment-state[role="alert"] {
+  color: var(--danger);
+}
+
+.composer__attachment-state > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__attachment-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.composer__attachment-actions button {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  color: var(--accent);
+  font: inherit;
+  font-weight: 750;
+}
+
 .composer__context {
   display: grid;
   min-width: 0;

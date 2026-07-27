@@ -99,6 +99,17 @@ export type MessengerSticker = Readonly<{
   previewDataUrl: string;
 }>;
 
+export type AttachmentSendState =
+  | Readonly<{ state: "idle" }>
+  | Readonly<{ state: "sending"; fileName: string }>
+  | Readonly<{
+      state: "failed";
+      fileName: string;
+      file: File;
+      kind: "media" | "file";
+      ambiguous: boolean;
+    }>;
+
 export type MessengerMedia = Readonly<{
   handle: string;
   mimeType: string;

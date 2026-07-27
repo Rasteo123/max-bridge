@@ -1200,7 +1200,7 @@ git commit -m "fix: send MAX attachments through selected mode"
 - Modify: `apps/web/src/features/messenger/Composer.tsx`
 - Modify: `apps/web/src/features/messenger/messenger.css`
 
-- [ ] **Step 1: Write failing UI state tests**
+- [x] **Step 1: Write failing UI state tests**
 
 Use a deferred `client.sendAttachment`. After choosing a file, assert
 `Отправляем photo.jpg…`, disabled attachment selection, and no duplicate call.
@@ -1217,7 +1217,7 @@ Change chat and assert retry state disappears. Return `state: "ambiguous"` and
 assert the UI says the result is unknown and requires deliberate retry, not an
 automatic second call.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run:
 
@@ -1228,7 +1228,7 @@ npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/Conn
 Expected: FAIL because attachment errors are collapsed into the global action
 banner and no retry file state exists.
 
-- [ ] **Step 3: Implement attachment state**
+- [x] **Step 3: Implement attachment state**
 
 Define:
 
@@ -1255,7 +1255,7 @@ sending, and exposes explicit Retry/Cancel buttons. Keep the existing 20 MB
 label consistent with the API limit and reject oversized files before fetch
 with a user-facing error.
 
-- [ ] **Step 4: Run and verify GREEN**
+- [x] **Step 4: Run and verify GREEN**
 
 Run the Step 2 command plus:
 
@@ -1265,7 +1265,7 @@ npx vitest run --config vitest.workspace.ts apps/web/src/features/messenger/swip
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/features/messenger/types.ts apps/web/src/features/messenger/ConnectedMessenger.tsx apps/web/src/features/messenger/ConnectedMessenger.test.tsx apps/web/src/features/messenger/Composer.tsx apps/web/src/features/messenger/messenger.css
