@@ -57,6 +57,8 @@ export type MediaTransformControls = Readonly<{
     onPointerMove(event: MediaPointerEvent): void;
     onPointerUp(event: MediaPointerEvent): void;
     onPointerCancel(event: MediaPointerEvent): void;
+    onPointerLeave(event: MediaPointerEvent): void;
+    onLostPointerCapture(event: MediaPointerEvent): void;
     onWheel(event: MediaWheelEvent): void;
   }>;
   zoomIn(): void;
@@ -127,8 +129,8 @@ export function clampTranslation(
     return { x: 0, y: 0 };
   }
 
-  const maxX = mediaWidth * (scale - MIN_MEDIA_SCALE) / 2;
-  const maxY = mediaHeight * (scale - MIN_MEDIA_SCALE) / 2;
+  const maxX = Math.max(0, (mediaWidth * scale - viewportWidth) / 2);
+  const maxY = Math.max(0, (mediaHeight * scale - viewportHeight) / 2);
   return {
     x: clampFinite(translation.x, -maxX, maxX),
     y: clampFinite(translation.y, -maxY, maxY)
@@ -143,6 +145,7 @@ export function useMediaTransform(
   bounds: MediaTransformBounds
 ): MediaTransformControls {
   const activePointers = useRef(new Map<number, MediaPoint>());
+  const capturedPointers = useRef(new Map<number, MediaPointerTarget>());
   const pinchGesture = useRef<PinchGesture | null>(null);
   const transformRef = useRef<MediaTransform>(resetMediaTransform());
   const [transform, setTransform] = useState<MediaTransform>(
@@ -172,19 +175,11 @@ export function useMediaTransform(
       return;
     }
     activePointers.current.set(event.pointerId, pointFromEvent(event));
-    capturePointer(event.currentTarget, event.pointerId);
-
-    if (activePointers.current.size === 2) {
-      const [first, second] = activePointers.current.values();
-      if (first !== undefined && second !== undefined) {
-        pinchGesture.current = {
-          initialDistance: distance(first, second),
-          initialScale: transformRef.current.scale
-        };
-      }
-    } else if (activePointers.current.size > 2) {
-      pinchGesture.current = null;
+    if (capturePointer(event.currentTarget, event.pointerId)) {
+      capturedPointers.current.set(event.pointerId, event.currentTarget);
     }
+
+    rebasePinch();
   }
 
   function onPointerMove(event: MediaPointerEvent): void {
@@ -238,14 +233,43 @@ export function useMediaTransform(
       return;
     }
     activePointers.current.delete(event.pointerId);
-    releasePointer(event.currentTarget, event.pointerId);
-    pinchGesture.current = null;
+    const capturedTarget = capturedPointers.current.get(event.pointerId);
+    capturedPointers.current.delete(event.pointerId);
+    if (capturedTarget !== undefined) {
+      releasePointer(capturedTarget, event.pointerId);
+    }
+    rebasePinch();
+  }
+
+  function onPointerLeave(event: MediaPointerEvent): void {
+    if (
+      !activePointers.current.has(event.pointerId) ||
+      capturedPointers.current.has(event.pointerId)
+    ) {
+      return;
+    }
+    activePointers.current.delete(event.pointerId);
+    rebasePinch();
+  }
+
+  function onLostPointerCapture(event: MediaPointerEvent): void {
+    if (!activePointers.current.has(event.pointerId)) {
+      return;
+    }
+    activePointers.current.delete(event.pointerId);
+    capturedPointers.current.delete(event.pointerId);
+    rebasePinch();
   }
 
   function onWheel(event: MediaWheelEvent): void {
-    if (!event.ctrlKey) {
+    if (
+      !event.ctrlKey ||
+      !Number.isFinite(event.deltaY) ||
+      event.deltaY === 0
+    ) {
       return;
     }
+    event.preventDefault();
     const scale = scaleFromWheel(
       transformRef.current.scale,
       event.deltaY,
@@ -254,14 +278,33 @@ export function useMediaTransform(
     if (scale === transformRef.current.scale) {
       return;
     }
-    event.preventDefault();
     setScale(scale);
   }
 
   function reset(): void {
+    for (const [pointerId, target] of capturedPointers.current) {
+      releasePointer(target, pointerId);
+    }
     activePointers.current.clear();
+    capturedPointers.current.clear();
     pinchGesture.current = null;
     commitTransform(resetMediaTransform());
+  }
+
+  function rebasePinch(): void {
+    if (activePointers.current.size !== 2) {
+      pinchGesture.current = null;
+      return;
+    }
+    const [first, second] = activePointers.current.values();
+    if (first === undefined || second === undefined) {
+      pinchGesture.current = null;
+      return;
+    }
+    pinchGesture.current = {
+      initialDistance: distance(first, second),
+      initialScale: transformRef.current.scale
+    };
   }
 
   return {
@@ -271,6 +314,8 @@ export function useMediaTransform(
       onPointerMove,
       onPointerUp: finishPointer,
       onPointerCancel: finishPointer,
+      onPointerLeave,
+      onLostPointerCapture,
       onWheel
     },
     zoomIn() {
@@ -303,17 +348,25 @@ function finiteNonNegative(value: number): number {
 }
 
 function clampFinite(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
+  if (!Number.isFinite(value) || max === 0) {
     return 0;
   }
   return Math.min(max, Math.max(min, value));
 }
 
-function capturePointer(target: MediaPointerTarget, pointerId: number): void {
+function capturePointer(
+  target: MediaPointerTarget,
+  pointerId: number
+): boolean {
+  if (target.setPointerCapture === undefined) {
+    return false;
+  }
   try {
-    target.setPointerCapture?.(pointerId);
+    target.setPointerCapture(pointerId);
+    return target.hasPointerCapture?.(pointerId) ?? true;
   } catch {
     // Pointer capture is an enhancement and can be unavailable in WebViews.
+    return false;
   }
 }
 
