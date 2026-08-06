@@ -102,7 +102,7 @@ export class MaxWireClient {
           "timeout"
         ));
       }, timeoutMs);
-      timer.unref?.();
+      timer.unref();
       this.pending.set(sequence, { opcode, resolve, reject, timer });
     });
 
