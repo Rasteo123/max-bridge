@@ -33,6 +33,7 @@ maxExtensionCodec.register({
 export type DecodedMaxFrame = Readonly<{
   protocolVersion: number;
   command: number;
+  sequence: number;
   opcode: number;
   compressed: boolean;
   payload: unknown;
@@ -68,6 +69,7 @@ export function decodeMaxFrame(
       throw new MaxFrameDecodeError();
     }
     const command = header.getUint8(1);
+    const sequence = header.getUint16(2);
     const opcode = header.getInt16(4);
     const compressionMultiplier = header.getUint8(6);
     const payloadLength = (
@@ -82,6 +84,7 @@ export function decodeMaxFrame(
       return {
         protocolVersion,
         command,
+        sequence,
         opcode,
         compressed: false,
         payload: undefined
@@ -112,6 +115,7 @@ export function decodeMaxFrame(
       return {
         protocolVersion,
         command,
+        sequence,
         opcode,
         compressed: compressionMultiplier > 0,
         payload

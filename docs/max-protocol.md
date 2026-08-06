@@ -31,13 +31,55 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 35 | out | `{contactIds: [int]}` | `{presence: {userId: {seen: <epoch СЕКУНДЫ>}}, time: <epoch мс>}` |
 | 49 | out | `{chatId, from: <epoch мс>, forward: int, backward: int, getMessages: true}` | `{messages: [...]}` — история. Пагинация по `from`, курсора и `hasMore` НЕТ. |
 | 75 | out | `{chatId, subscribe: bool}` | пусто — подписка на события чата |
-| 163 | out | — | `{callHistoryItems, callHistorySync}` |
 | 180 | out | `{chatId, messageIds: [int]}` | `{messagesReactions: {messageId: {...}}}` |
 | 208 | out | `{cursor, count}` | `{storiesPreviews: []}` |
+| 83 | out | `{videoId, token, chatId, messageId}` | `{cache, EXTERNAL, MP4_144, MP4_240, …}` — ссылки на воспроизведение видео по качествам |
+| 88 | out | `{fileId, chatId, messageId, itemType: "REGULAR"}` | `{url: "https://fd.oneme.ru/getfile?rq=…&expires=…", unsafe}` — ссылка на скачивание файла |
+| 163 | out | — | `{callHistoryItems, callHistorySync}` |
 | 300 | out | — | рекомендации каналов |
 | 302 | in | — | приходит в стартовой синхронизации |
 
-Не разобрано: 27x/30x прочие, отправка сообщения, редактирование, удаление, отметка о прочтении, поиск.
+Не разобрано: отправка сообщения, редактирование, удаление, отметка о прочтении, поиск, комментарии к постам каналов.
+
+## Вложения (`attaches[]`)
+
+Различаются по `_type`:
+
+```
+PHOTO   { _type, photoId, photoToken, baseUrl, width, height, previewData: <bin> }
+VIDEO   { _type, videoId, token, thumbnail: <url>, duration, width, height,
+          videoType, previewData: <bin> }
+FILE    { _type, fileId, token, name, size, preview?: <PHOTO-подобный объект> }
+CALL    { _type, callType: "AUDIO"|"VIDEO", hangupType: "CANCELED"|"HUNGUP",
+          duration, conversationId, contactIds }
+CONTROL { _type, event: "system", message, shortMessage }
+```
+
+Ссылок на сам файл в сообщении нет — их нужно получать:
+
+- **PHOTO** — `baseUrl` уже готовая подписанная ссылка на `i.oneme.ru`, но с `expires`
+  (несколько часов). Перезапрашивается вместе с историей.
+- **VIDEO** — опкод 83. `thumbnail` доступен сразу (CDN `iv.okcdn.ru`).
+- **FILE** — опкод 88.
+
+`previewData` — крошечная бинарная превьюшка, годится как заглушка при загрузке.
+
+## Реакции
+
+В сообщении:
+
+```
+reactionInfo: {
+  counters: [ { reaction: "👍", count: 1 } ],
+  yourReaction: "👍",
+  totalCount: 1
+}
+```
+
+Реакция — **обычная строка-эмодзи**, а не идентификатор и не фиксированный ключ.
+Список доступных реакций для пикера — опкод 27 (`type: "REACTION"`, `sync: 0`):
+секция `POPULAR` с 74 идентификаторами анимоджи, которые разворачиваются опкодом 28
+(`type: "ANIMOJI"`) в `{id, emoji, iconUrl, lottieUrl}`.
 
 ## Объект контакта
 

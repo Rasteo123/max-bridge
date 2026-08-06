@@ -11,5 +11,6 @@ export * from "./login/login-state.js";
 export * from "./max-session.js";
 export * from "./send/send-controller.js";
 export * from "./wire/max-frame-decoder.js";
+export * from "./wire/max-frame-encoder.js";
 export * from "./wire/wire-classifier.js";
 export * from "./web/client-bindings.js";

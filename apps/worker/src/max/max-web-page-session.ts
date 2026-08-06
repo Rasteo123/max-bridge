@@ -27,6 +27,11 @@ import {
   instrumentMaxNodeModule,
   MAX_SESSION_ACCESSOR_KEY
 } from "./max-node-instrumentation.js";
+import {
+  MAX_SOCKET_ORIGIN,
+  MAX_WIRE_INIT_SCRIPT,
+  MaxWireClient
+} from "./max-wire-client.js";
 import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 
 const MAX_WEB_URL = "https://web.max.ru/";
@@ -84,6 +89,7 @@ export class MaxWebPageSession {
   private bindings: MaxClientBindings | undefined;
   private adapter: MaxSession | undefined;
   private readonly login: MaxLoginController;
+  private readonly wire: MaxWireClient;
   private pendingSend: PendingSend | undefined;
   private captchaPointerDown = false;
   private stopped = false;
@@ -96,12 +102,14 @@ export class MaxWebPageSession {
     this.login = new MaxLoginController(options.page, {
       isNetworkAuthenticated: async () => this.isAuthenticated()
     });
+    this.wire = new MaxWireClient(options.page);
     options.page.on("websocket", (socket) => {
       this.observeSocket(socket);
     });
   }
 
   async start(): Promise<MaxLoginResult> {
+    await this.options.page.addInitScript(MAX_WIRE_INIT_SCRIPT);
     await this.options.page.route(
       "**/_app/immutable/nodes/0.*.js",
       async (route) => {
@@ -2554,9 +2562,12 @@ export class MaxWebPageSession {
   }
 
   private observeSocket(socket: WebSocket): void {
-    if (!socket.url().startsWith("wss://api.oneme.ru/")) {
+    if (!socket.url().startsWith(`${MAX_SOCKET_ORIGIN}/`)) {
       return;
     }
+    socket.on("close", () => {
+      this.wire.reset("MAX socket closed");
+    });
     socket.on("framereceived", (event) => {
       if (this.stopped || typeof event.payload === "string") {
         return;
@@ -2564,6 +2575,9 @@ export class MaxWebPageSession {
       const frame = Buffer.from(event.payload);
       try {
         const decoded = decodeMaxFrame(frame);
+        if (this.wire.ingest(decoded)) {
+          return;
+        }
         if (decoded.command === 0 && decoded.opcode === 128) {
           const events = this.adapter?.ingestLive(decoded.payload) ?? [];
           if (events.length > 0) {
