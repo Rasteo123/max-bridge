@@ -66,7 +66,11 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
   };
   globalThis[key] = function (bytes) {
     if (socket === null) { return "absent"; }
+    if (socket.readyState === 0) { return "connecting"; }
+    if (socket.readyState === 2) { return "closing"; }
     if (socket.readyState !== 1) { return "closed"; }
+    // A null payload asks for the status only; nothing reaches MAX.
+    if (bytes === null) { return "open"; }
     nativeSend.call(socket, new Uint8Array(bytes).buffer);
     return "sent";
   };
@@ -74,7 +78,14 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
 })()`;
 
 /** What the in-page sender reports back for a single attempt. */
-export type WireSendOutcome = "sent" | "absent" | "closed" | "unhooked";
+export type WireSendOutcome =
+  | "sent"
+  | "open"
+  | "absent"
+  | "connecting"
+  | "closing"
+  | "closed"
+  | "unhooked";
 
 export class MaxWireError extends Error {
   constructor(
@@ -153,6 +164,24 @@ export class MaxWireClient {
       throw error;
     }
     return response;
+  }
+
+  /**
+   * Reports what a send would do right now without sending anything, so the
+   * transport can be watched without the Mini App driving it.
+   */
+  probe(): Promise<WireSendOutcome> {
+    return this.page.evaluate((key) => {
+      const send = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(key)];
+      if (typeof send !== "function") {
+        return "unhooked" as const;
+      }
+      return (send as (value: readonly number[] | null) => WireSendOutcome)(
+        null
+      );
+    }, MAX_WIRE_SEND_KEY);
   }
 
   reset(reason: string): void {

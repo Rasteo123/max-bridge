@@ -39,6 +39,7 @@ const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
 const MAX_HISTORY_PAGE_SIZE = 100;
+const MAX_WIRE_PROBE_INTERVAL_MS = 60_000;
 const MAX_HISTORY_POLL_MS = 150;
 const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
 const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
@@ -85,6 +86,7 @@ export class MaxWebPageSession {
   private pendingSend: PendingSend | undefined;
   private captchaPointerDown = false;
   private stopped = false;
+  private probeTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly options: Readonly<{
     page: Page;
@@ -126,7 +128,37 @@ export class MaxWebPageSession {
     if (state.state === "authenticated") {
       await this.ensureAdapter();
     }
+    this.startWireProbe();
     return state;
+  }
+
+  /**
+   * Records the state of the MAX connection on a timer. Reading history is
+   * driven by the Mini App, so without this the transport can only be observed
+   * by asking someone to open a chat.
+   */
+  private startWireProbe(): void {
+    if (this.probeTimer !== undefined) {
+      return;
+    }
+    this.probeTimer = setInterval(() => {
+      void (async () => {
+        if (this.stopped) {
+          return;
+        }
+        try {
+          const outcome = await this.wire.probe();
+          process.stderr.write(`${JSON.stringify({
+            event: "max_wire_probe",
+            outcome,
+            page: await this.describePageState()
+          })}\n`);
+        } catch {
+          // A probe is diagnostic only and never disturbs the session.
+        }
+      })();
+    }, MAX_WIRE_PROBE_INTERVAL_MS);
+    this.probeTimer.unref();
   }
 
   async background(): Promise<void> {
@@ -1613,6 +1645,11 @@ export class MaxWebPageSession {
 
   async close(): Promise<void> {
     this.stopped = true;
+    if (this.probeTimer !== undefined) {
+      clearInterval(this.probeTimer);
+      this.probeTimer = undefined;
+    }
+    this.wire.reset("MAX session closed");
     this.clearPendingSend();
     this.adapter?.close();
     this.adapter = undefined;
