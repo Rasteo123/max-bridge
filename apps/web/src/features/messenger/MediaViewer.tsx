@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import type {
   TelegramMediaFullscreenLease
 } from "../auth/telegram.js";
+import { pushBackHandler } from "./back-navigation.js";
 import {
   resolveMediaUrl,
   safeMaxMediaUrl
@@ -52,6 +53,9 @@ type MediaResolutionGeneration = {
 };
 
 const VIDEO_CONTROL_STRIP_PX = 64;
+const DISMISS_DISTANCE_PX = 96;
+const DISMISS_VELOCITY_PX_PER_MS = 0.6;
+const DISMISS_AXIS_LOCK_PX = 10;
 
 export function MediaViewer({
   items,
@@ -111,6 +115,15 @@ function MediaViewerDialog({
   const previousItemId = useRef(current.id);
   const previousVideo = useRef<HTMLVideoElement | null>(null);
   const lastTouchAt = useRef(0);
+  const [dismissOffset, setDismissOffset] = useState(0);
+  const dismiss = useRef<{
+    id: number;
+    y: number;
+    x: number;
+    startedAt: number;
+    axis: "pending" | "vertical" | "horizontal";
+  } | null>(null);
+  const closeRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (fullscreenExitTimer.current !== null) {
@@ -169,13 +182,91 @@ function MediaViewerDialog({
     };
   }, []);
 
+  const dismissProgress = Math.min(
+    1,
+    Math.abs(dismissOffset) / (DISMISS_DISTANCE_PX * 2)
+  );
+  const dismissing = dismissOffset !== 0;
   const style = {
-    "--carousel-offset": `${String(carousel.offset)}px`
+    "--carousel-offset": `${String(carousel.offset)}px`,
+    "--dismiss-offset": `${String(dismissOffset)}px`,
+    "--dismiss-scale": String(1 - dismissProgress * 0.2)
+  } as CSSProperties;
+  const dialogStyle = {
+    "--dismiss-backdrop": `${String(Math.round(96 - dismissProgress * 60))}%`
   } as CSSProperties;
 
   function close(): void {
     releaseOwnedFullscreen();
     onClose();
+  }
+
+  closeRef.current = close;
+
+  // The Telegram back button must dismiss the viewer rather than navigate the
+  // pane underneath it, otherwise an opened image has no exit at all.
+  useEffect(() => pushBackHandler(() => {
+    closeRef.current();
+  }), []);
+
+  function beginDismiss(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!event.isPrimary || transform.transform.scale > 1) {
+      dismiss.current = null;
+      return;
+    }
+    dismiss.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      startedAt: Date.now(),
+      axis: "pending"
+    };
+  }
+
+  function trackDismiss(event: ReactPointerEvent<HTMLDivElement>): void {
+    const pointer = dismiss.current;
+    if (pointer === null || pointer.id !== event.pointerId) {
+      return;
+    }
+    const deltaX = event.clientX - pointer.x;
+    const deltaY = event.clientY - pointer.y;
+    if (pointer.axis === "pending") {
+      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < DISMISS_AXIS_LOCK_PX) {
+        return;
+      }
+      pointer.axis = Math.abs(deltaY) > Math.abs(deltaX)
+        ? "vertical"
+        : "horizontal";
+      if (pointer.axis === "vertical") {
+        carousel.cancel();
+      }
+    }
+    if (pointer.axis === "vertical") {
+      setDismissOffset(deltaY);
+    }
+  }
+
+  function endDismiss(event: ReactPointerEvent<HTMLDivElement>): void {
+    const pointer = dismiss.current;
+    dismiss.current = null;
+    if (
+      pointer === null ||
+      pointer.id !== event.pointerId ||
+      pointer.axis !== "vertical"
+    ) {
+      setDismissOffset(0);
+      return;
+    }
+    const deltaY = event.clientY - pointer.y;
+    const elapsed = Math.max(16, Date.now() - pointer.startedAt);
+    if (
+      Math.abs(deltaY) >= DISMISS_DISTANCE_PX ||
+      Math.abs(deltaY) / elapsed >= DISMISS_VELOCITY_PX_PER_MS
+    ) {
+      close();
+      return;
+    }
+    setDismissOffset(0);
   }
 
   function releaseOwnedFullscreen(): void {
@@ -231,7 +322,26 @@ function MediaViewerDialog({
     ) {
       return;
     }
+    beginDismiss(event);
     carousel.handlers.onPointerDown(event);
+  }
+
+  function onStagePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    trackDismiss(event);
+    carousel.handlers.onPointerMove(event);
+  }
+
+  function onStagePointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    endDismiss(event);
+    carousel.handlers.onPointerUp(event);
+  }
+
+  function onStagePointerCancel(
+    event: ReactPointerEvent<HTMLDivElement>
+  ): void {
+    dismiss.current = null;
+    setDismissOffset(0);
+    carousel.handlers.onPointerCancel(event);
   }
 
   function renderSlide(itemIndex: number) {
@@ -356,6 +466,8 @@ function MediaViewerDialog({
           : "Просмотр видео"
       }
       data-no-swipe
+      data-dismissing={dismissing ? "true" : "false"}
+      style={dialogStyle}
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
@@ -377,13 +489,14 @@ function MediaViewerDialog({
         className="media-viewer__stage"
         data-testid="media-viewer-stage"
         data-dragging={carousel.dragging ? "true" : "false"}
+        data-dismissing={dismissing ? "true" : "false"}
         data-transitioning={carousel.transitioning ? "true" : "false"}
         data-reduced-motion={carousel.reducedMotion ? "true" : "false"}
         style={style}
         onPointerDown={onStagePointerDown}
-        onPointerMove={carousel.handlers.onPointerMove}
-        onPointerUp={carousel.handlers.onPointerUp}
-        onPointerCancel={carousel.handlers.onPointerCancel}
+        onPointerMove={onStagePointerMove}
+        onPointerUp={onStagePointerUp}
+        onPointerCancel={onStagePointerCancel}
         onPointerLeave={carousel.handlers.onPointerLeave}
         onLostPointerCapture={carousel.handlers.onLostPointerCapture}
       >

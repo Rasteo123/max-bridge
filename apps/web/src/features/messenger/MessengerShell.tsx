@@ -7,6 +7,16 @@ import {
 
 import { currentTelegramWebApp } from "../auth/telegram.js";
 import type { MessageSendResult } from "../../api/client.js";
+import {
+  runTopBackHandler,
+  useBackHandlerDepth
+} from "./back-navigation.js";
+import {
+  CHAT_FOLDERS,
+  folderAt,
+  folderIndexOf,
+  type ChatFolderId
+} from "./chat-folders.js";
 import { ChatList } from "./ChatList.js";
 import { Conversation } from "./Conversation.js";
 import { ForwardMessagePicker } from "./ForwardMessagePicker.js";
@@ -91,12 +101,30 @@ export function MessengerShell({
     [chats, selectedChatId]
   );
   const hasSelectedChat = selectedChat !== undefined;
+  const [folder, setFolder] = useState<ChatFolderId>("all");
+  const selectFolderIndex = useCallback((index: number) => {
+    setFolder(folderAt(index));
+  }, []);
   const swipe = useSwipeNavigation({
     pane,
     setPane,
-    disabled: wide
+    disabled: wide,
+    folders: {
+      index: folderIndexOf(folder),
+      count: CHAT_FOLDERS.length,
+      onSelect: selectFolderIndex
+    }
   });
+  const overlayDepth = useBackHandlerDepth();
   const openChats = useCallback(() => {
+    setPane("list");
+  }, []);
+  // An open overlay owns the back button; only when none is open does back
+  // return from the conversation to the chat list.
+  const goBack = useCallback(() => {
+    if (runTopBackHandler()) {
+      return;
+    }
     setPane("list");
   }, []);
 
@@ -135,17 +163,18 @@ export function MessengerShell({
     if (backButton === undefined) {
       return;
     }
-    if (wide || pane !== "conversation" || !hasSelectedChat) {
+    const returnsToList = !wide && pane === "conversation" && hasSelectedChat;
+    if (overlayDepth === 0 && !returnsToList) {
       backButton.hide();
       return;
     }
-    backButton.onClick(openChats);
+    backButton.onClick(goBack);
     backButton.show();
     return () => {
-      backButton.offClick(openChats);
+      backButton.offClick(goBack);
       backButton.hide();
     };
-  }, [hasSelectedChat, openChats, pane, telegram, wide]);
+  }, [goBack, hasSelectedChat, overlayDepth, pane, telegram, wide]);
 
   function selectChat(chatId: string) {
     setSelectedChatId(chatId);
@@ -197,6 +226,9 @@ export function MessengerShell({
               ? {}
               : { selectedChatId })}
             onSelectChat={selectChat}
+            folder={folder}
+            onFolderChange={setFolder}
+            folderOffset={swipe.folderOffset}
             theme={theme}
             onThemeChange={onThemeChange}
             {...(onLogout === undefined ? {} : { onLogout })}

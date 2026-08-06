@@ -196,10 +196,54 @@
   color: var(--text);
 }
 
+.chat-folders {
+  display: flex;
+  overflow-x: auto;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 18px;
+  scrollbar-width: none;
+}
+
+.chat-folders::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-folders__tab {
+  position: relative;
+  padding: 8px 2px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chat-folders__tab[aria-selected="true"] {
+  color: var(--accent, #2f7ff5);
+}
+
+.chat-folders__tab[aria-selected="true"]::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: currentcolor;
+  content: "";
+}
+
 .chat-list__scroll {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  transform: translate3d(
+    clamp(-24px, calc(var(--folder-offset, 0px) * 0.25), 24px),
+    0,
+    0
+  );
 }
 
 .chat-row {
@@ -755,16 +799,28 @@
     max(52px, var(--tg-safe-area-inset-left, env(safe-area-inset-left)));
   transform: translate3d(
     calc(var(--slide-position) * 100% + var(--carousel-offset)),
-    0,
+    var(--dismiss-offset, 0px),
     0
-  );
+  ) scale(var(--dismiss-scale, 1));
   transition: transform 220ms cubic-bezier(0.22, 0.7, 0, 1);
   will-change: transform;
   place-items: center;
 }
 
-.media-viewer__stage[data-dragging="true"] .media-viewer__slide {
+.media-viewer__stage[data-dragging="true"] .media-viewer__slide,
+.media-viewer__stage[data-dismissing="true"] .media-viewer__slide {
   transition: none;
+}
+
+.media-viewer[data-dismissing="true"] {
+  background: rgb(4 8 18 / var(--dismiss-backdrop, 96%));
+}
+
+.media-viewer[data-dismissing="true"] .media-viewer__close,
+.media-viewer[data-dismissing="true"] .media-viewer__previous,
+.media-viewer[data-dismissing="true"] .media-viewer__next,
+.media-viewer[data-dismissing="true"] .media-viewer__zoom {
+  opacity: 0;
 }
 
 .media-viewer__stage[data-reduced-motion="true"] .media-viewer__slide {
@@ -1273,6 +1329,14 @@
   padding: 28px 18px;
   color: var(--muted);
   text-align: center;
+}
+
+.press-context-menu__backdrop {
+  position: fixed;
+  z-index: 999;
+  inset: 0;
+  background: transparent;
+  touch-action: none;
 }
 
 .press-context-menu {

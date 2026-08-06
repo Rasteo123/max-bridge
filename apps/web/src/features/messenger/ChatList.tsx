@@ -1,5 +1,10 @@
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 
+import {
+  CHAT_FOLDERS,
+  chatsInFolder,
+  type ChatFolderId
+} from "./chat-folders.js";
 import { ChatRow } from "./ChatRow.js";
 import type {
   MessengerChat,
@@ -15,6 +20,9 @@ type ChatListProps = Readonly<{
   onThemeChange(theme: MessengerTheme): void;
   onLogout?(): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
+  folder?: ChatFolderId;
+  onFolderChange?(folder: ChatFolderId): void;
+  folderOffset?: number;
 }>;
 
 export function ChatList({
@@ -24,20 +32,30 @@ export function ChatList({
   theme,
   onThemeChange,
   onLogout,
-  onChatAction
+  onChatAction,
+  folder = "all",
+  onFolderChange,
+  folderOffset = 0
 }: ChatListProps) {
   const [query, setQuery] = useState("");
+  const folderChats = useMemo(
+    () => chatsInFolder(chats, folder),
+    [chats, folder]
+  );
   const visibleChats = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru-RU");
     if (normalized.length === 0) {
-      return chats;
+      return folderChats;
     }
-    return chats.filter((chat) =>
+    return folderChats.filter((chat) =>
       `${chat.title}\n${chat.preview}`
         .toLocaleLowerCase("ru-RU")
         .includes(normalized)
     );
-  }, [chats, query]);
+  }, [folderChats, query]);
+  const folderStyle = {
+    "--folder-offset": `${String(folderOffset)}px`
+  } as CSSProperties;
 
   return (
     <aside className="chat-list" data-testid="chat-list" aria-label="Список чатов">
@@ -96,12 +114,31 @@ export function ChatList({
           }}
         />
       </label>
-      <div className="chat-list__scroll">
+      <div className="chat-folders" role="tablist" aria-label="Папки чатов">
+        {CHAT_FOLDERS.map((entry) => (
+          <button
+            key={entry.id}
+            className="chat-folders__tab"
+            type="button"
+            role="tab"
+            data-no-swipe
+            aria-selected={entry.id === folder}
+            onClick={() => {
+              onFolderChange?.(entry.id);
+            }}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+      <div
+        className="chat-list__scroll"
+        data-folder={folder}
+        style={folderStyle}
+      >
         {visibleChats.length === 0 ? (
           <p className="empty-state">
-            {chats.length === 0
-              ? "Пока нет доступных чатов"
-              : "Ничего не найдено"}
+            {emptyFolderMessage(chats.length, folderChats.length, folder)}
           </p>
         ) : visibleChats.map((chat) => (
           <ChatRow
@@ -115,4 +152,23 @@ export function ChatList({
       </div>
     </aside>
   );
+}
+
+function emptyFolderMessage(
+  total: number,
+  inFolder: number,
+  folder: ChatFolderId
+): string {
+  if (total === 0) {
+    return "Пока нет доступных чатов";
+  }
+  if (inFolder > 0) {
+    return "Ничего не найдено";
+  }
+  if (folder === "unread") {
+    return "Непрочитанных чатов нет";
+  }
+  return folder === "channels"
+    ? "Вы пока не подписаны ни на один канал"
+    : "Ничего не найдено";
 }

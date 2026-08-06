@@ -3,6 +3,7 @@
 import {
   act,
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen
@@ -192,8 +193,29 @@ describe("message context menu", () => {
       window.innerHeight
     );
 
-    fireEvent.pointerDown(document.body);
+    fireEvent.pointerDown(screen.getByTestId("context-menu-backdrop"));
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("does not let a dismissing tap reach the surface underneath", () => {
+    const onSelect = vi.fn();
+    render(
+      <div>
+        <button type="button" onClick={onSelect}>Чат под меню</button>
+        <MessageBubble message={incomingMessage()} />
+      </div>
+    );
+    openMessageMenu("Входящее сообщение");
+
+    const backdrop = screen.getByTestId("context-menu-backdrop");
+    const pointerDown = createEvent.pointerDown(backdrop);
+    fireEvent(backdrop, pointerDown);
+
+    expect(pointerDown.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Чат под меню" }));
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -10,10 +10,19 @@ import {
 
 import type { MessengerPane } from "./types.js";
 
+export type SwipeFolderNavigation = Readonly<{
+  index: number;
+  count: number;
+  onSelect(index: number): void;
+}>;
+
 type SwipeNavigationOptions = Readonly<{
   pane: MessengerPane;
   setPane(pane: MessengerPane): void;
   disabled: boolean;
+  // On the chat list a horizontal swipe pages through folders, the way
+  // Telegram does; it never opens the conversation pane.
+  folders?: SwipeFolderNavigation;
 }>;
 
 type GestureAxis = "pending" | "horizontal" | "vertical" | "rejected";
@@ -32,6 +41,7 @@ type Gesture = {
 export type SwipeNavigation = Readonly<{
   dragging: boolean;
   trackStyle: CSSProperties;
+  folderOffset: number;
   onPointerDown(event: ReactPointerEvent<HTMLElement>): void;
   onPointerMove(event: ReactPointerEvent<HTMLElement>): void;
   onPointerUp(event: ReactPointerEvent<HTMLElement>): void;
@@ -52,7 +62,8 @@ const MAX_OVERSCROLL_RATIO = 1;
 export function useSwipeNavigation({
   pane,
   setPane,
-  disabled
+  disabled,
+  folders
 }: SwipeNavigationOptions): SwipeNavigation {
   const gesture = useRef<Gesture | null>(null);
   const suppressClick = useRef(false);
@@ -101,7 +112,7 @@ export function useSwipeNavigation({
     ) {
       current.axis = Math.abs(deltaX) <= Math.abs(deltaY)
         ? "vertical"
-        : isCorrectDirection(pane, deltaX)
+        : isCorrectDirection(deltaX)
           ? "horizontal"
           : "rejected";
     }
@@ -114,11 +125,7 @@ export function useSwipeNavigation({
     setDragging(true);
     const width = event.currentTarget.getBoundingClientRect().width ||
       window.innerWidth;
-    current.offset = clampOffset(
-      pane,
-      deltaX,
-      width * MAX_OVERSCROLL_RATIO
-    );
+    current.offset = clampOffset(deltaX, width * MAX_OVERSCROLL_RATIO);
     setOffset(current.offset);
   }
 
@@ -138,7 +145,7 @@ export function useSwipeNavigation({
     );
     if (
       current.axis === "horizontal" &&
-      isCorrectDirection(pane, deltaX) &&
+      isCorrectDirection(deltaX) &&
       (
         Math.abs(deltaX) >= distanceThreshold ||
         (
@@ -147,7 +154,7 @@ export function useSwipeNavigation({
         )
       )
     ) {
-      setPane(pane === "conversation" ? "list" : "conversation");
+      commitGesture(deltaX);
     }
     releasePointer(event.currentTarget, event.pointerId);
     resetGesture();
@@ -237,10 +244,15 @@ export function useSwipeNavigation({
     ) {
       return;
     }
-    if (pane === "conversation" && event.deltaX < 0) {
-      setPane("list");
-    } else if (pane === "list" && event.deltaX > 0) {
-      setPane("conversation");
+    if (pane === "conversation") {
+      if (event.deltaX < 0) {
+        setPane("list");
+      }
+      return;
+    }
+    const target = targetFolderIndex(-event.deltaX);
+    if (target !== undefined) {
+      folders?.onSelect(target);
     }
   }
 
@@ -258,11 +270,16 @@ export function useSwipeNavigation({
     setDragging(false);
   }
 
+  // Only the conversation pane rides the shell track; on the list the offset
+  // belongs to the folder strip instead.
+  const paneOffset = pane === "conversation" ? offset : 0;
+
   return {
     dragging,
+    folderOffset: pane === "list" ? offset : 0,
     trackStyle: {
-      "--swipe-offset": `${String(offset)}px`,
-      "--swipe-progress": String(swipeProgress(offset))
+      "--swipe-offset": `${String(paneOffset)}px`,
+      "--swipe-progress": String(swipeProgress(paneOffset))
     } as CSSProperties,
     onPointerDown,
     onPointerMove,
@@ -292,16 +309,12 @@ export function useSwipeNavigation({
     ) {
       current.axis = Math.abs(deltaX) <= Math.abs(deltaY)
         ? "vertical"
-        : isCorrectDirection(pane, deltaX)
+        : isCorrectDirection(deltaX)
           ? "horizontal"
           : "rejected";
     }
     if (current.axis === "horizontal") {
-      current.offset = clampOffset(
-        pane,
-        deltaX,
-        width * MAX_OVERSCROLL_RATIO
-      );
+      current.offset = clampOffset(deltaX, width * MAX_OVERSCROLL_RATIO);
     }
   }
 
@@ -318,35 +331,53 @@ export function useSwipeNavigation({
       Math.max(56, width * 0.18)
     );
     if (
-      current.axis === "horizontal" &&
-      isCorrectDirection(pane, deltaX) &&
+      current.axis !== "horizontal" ||
+      !isCorrectDirection(deltaX) ||
       (
-        Math.abs(deltaX) >= distanceThreshold ||
+        Math.abs(deltaX) < distanceThreshold &&
         (
-          Math.abs(deltaX) >= MIN_FAST_DISTANCE_PX &&
-          velocity >= VELOCITY_THRESHOLD_PX_MS
+          Math.abs(deltaX) < MIN_FAST_DISTANCE_PX ||
+          velocity < VELOCITY_THRESHOLD_PX_MS
         )
       )
     ) {
-      setPane(pane === "conversation" ? "list" : "conversation");
+      return;
+    }
+    commitGesture(deltaX);
+  }
+
+  function commitGesture(deltaX: number): void {
+    if (pane === "conversation") {
+      setPane("list");
+      return;
+    }
+    const target = targetFolderIndex(deltaX);
+    if (target !== undefined) {
+      folders?.onSelect(target);
     }
   }
-}
 
-function clampOffset(
-  pane: MessengerPane,
-  deltaX: number,
-  width: number
-): number {
-  const limit = Math.max(1, width);
-  if (pane === "conversation") {
-    return Math.min(limit, Math.max(0, deltaX));
+  function targetFolderIndex(deltaX: number): number | undefined {
+    if (folders === undefined || deltaX === 0) {
+      return undefined;
+    }
+    const target = folders.index + (deltaX < 0 ? 1 : -1);
+    return target >= 0 && target < folders.count ? target : undefined;
   }
-  return Math.max(-limit, Math.min(0, deltaX));
-}
 
-function isCorrectDirection(pane: MessengerPane, deltaX: number): boolean {
-  return pane === "conversation" ? deltaX > 0 : deltaX < 0;
+  function isCorrectDirection(deltaX: number): boolean {
+    return pane === "conversation"
+      ? deltaX > 0
+      : targetFolderIndex(deltaX) !== undefined;
+  }
+
+  function clampOffset(deltaX: number, width: number): number {
+    const limit = Math.max(1, width);
+    if (pane === "conversation") {
+      return Math.min(limit, Math.max(0, deltaX));
+    }
+    return Math.max(-limit, Math.min(limit, deltaX));
+  }
 }
 
 function swipeProgress(offset: number): number {

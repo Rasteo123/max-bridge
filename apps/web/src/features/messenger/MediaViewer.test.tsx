@@ -20,6 +20,11 @@ import {
 
 import "../../test-setup.js";
 import {
+  backHandlerDepth,
+  resetBackHandlers,
+  runTopBackHandler
+} from "./back-navigation.js";
+import {
   Conversation,
   mediaGalleryForConversation
 } from "./Conversation.js";
@@ -429,6 +434,95 @@ describe("MediaViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Предыдущее медиа" }));
     expect(onIndexChange).toHaveBeenLastCalledWith(0);
     expect(screen.getByRole("status")).toHaveTextContent("2 из 3");
+  });
+
+  it.each([
+    ["down", 260],
+    ["up", -60]
+  ] as const)("closes on a vertical %s swipe", (_direction, endY) => {
+    const onClose = vi.fn();
+    render(
+      <MediaViewer
+        items={items}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    const stage = screen.getByTestId("media-viewer-stage");
+    mockRect(stage, { width: 320, height: 500 });
+
+    fireEvent.pointerDown(stage, pointer(1, 200, 100));
+    fireEvent.pointerMove(stage, pointer(1, 202, 100 + (endY - 100) / 2));
+    expect(stage).toHaveAttribute("data-dismissing", "true");
+    fireEvent.pointerUp(stage, pointer(1, 202, endY));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("springs back when the vertical swipe is too short", () => {
+    const onClose = vi.fn();
+    let clock = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    render(
+      <MediaViewer
+        items={items}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    const stage = screen.getByTestId("media-viewer-stage");
+    mockRect(stage, { width: 320, height: 500 });
+
+    fireEvent.pointerDown(stage, pointer(1, 200, 100));
+    fireEvent.pointerMove(stage, pointer(1, 202, 130));
+    clock += 900;
+    fireEvent.pointerUp(stage, pointer(1, 202, 130));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(stage).toHaveStyle({ "--dismiss-offset": "0px" });
+  });
+
+  it("does not treat a horizontal swipe as a dismissal", () => {
+    const onClose = vi.fn();
+    render(
+      <MediaViewer
+        items={items}
+        index={1}
+        onIndexChange={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    const stage = screen.getByTestId("media-viewer-stage");
+    mockRect(stage, { width: 320, height: 500 });
+
+    fireEvent.pointerDown(stage, pointer(1, 200, 100));
+    fireEvent.pointerMove(stage, pointer(1, 290, 106));
+    fireEvent.pointerUp(stage, pointer(1, 290, 106));
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("claims the back handler while open and releases it on close", () => {
+    resetBackHandlers();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <MediaViewer
+        items={items}
+        index={0}
+        onIndexChange={vi.fn()}
+        onClose={onClose}
+      />
+    );
+
+    expect(backHandlerDepth()).toBe(1);
+    expect(runTopBackHandler()).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(backHandlerDepth()).toBe(0);
+    expect(runTopBackHandler()).toBe(false);
   });
 
   it("reserves the lower 64 pixels of video for native controls", () => {

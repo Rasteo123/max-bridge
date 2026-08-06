@@ -88,11 +88,40 @@ describe("narrow messenger gestures", () => {
       .toHaveAttribute("data-pane", "list");
   });
 
-  it("hides the chat list with a left swipe", () => {
+  it("pages folders with a left swipe instead of opening the chat", () => {
+    renderShell("list");
+    expect(screen.getByRole("tab", { name: "Все" }))
+      .toHaveAttribute("aria-selected", "true");
+
+    swipe(260, 70);
+
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
+    expect(screen.getByRole("tab", { name: "Новые" }))
+      .toHaveAttribute("aria-selected", "true");
+  });
+
+  it("pages back to the previous folder with a right swipe", () => {
     renderShell("list");
     swipe(260, 70);
+    swipe(70, 260);
+
+    expect(screen.getByRole("tab", { name: "Все" }))
+      .toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("messenger-shell"))
-      .toHaveAttribute("data-pane", "conversation");
+      .toHaveAttribute("data-pane", "list");
+  });
+
+  it("stays on the last folder when swiping past the end", () => {
+    renderShell("list");
+    swipe(260, 70);
+    swipe(260, 70);
+    swipe(260, 70);
+
+    expect(screen.getByRole("tab", { name: "Каналы" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("messenger-shell"))
+      .toHaveAttribute("data-pane", "list");
   });
 
   it("snaps back after an insufficient horizontal gesture", () => {

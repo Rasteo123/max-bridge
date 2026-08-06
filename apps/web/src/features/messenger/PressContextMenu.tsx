@@ -74,15 +74,6 @@ export function PressContextMenu({
   }, [point]);
 
   useEffect(() => {
-    function closeOnOutsidePointer(event: PointerEvent) {
-      const target = event.target;
-      if (
-        target instanceof Node &&
-        menuRef.current?.contains(target) !== true
-      ) {
-        onClose();
-      }
-    }
     function closeOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -92,16 +83,10 @@ export function PressContextMenu({
     function closeOnViewportChange() {
       onClose();
     }
-    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("scroll", closeOnViewportChange, true);
     window.addEventListener("resize", closeOnViewportChange);
     return () => {
-      document.removeEventListener(
-        "pointerdown",
-        closeOnOutsidePointer,
-        true
-      );
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("scroll", closeOnViewportChange, true);
       window.removeEventListener("resize", closeOnViewportChange);
@@ -120,6 +105,13 @@ export function PressContextMenu({
   function choose(action: () => void) {
     onClose();
     action();
+  }
+
+  // A tap that dismisses the menu must not reach whatever sits underneath it,
+  // otherwise dismissing a chat row menu also opens that chat.
+  function dismissWithoutPassThrough() {
+    swallowNextClick();
+    onClose();
   }
 
   function navigateMenu(event: KeyboardEvent<HTMLDivElement>) {
@@ -157,70 +149,103 @@ export function PressContextMenu({
   }
 
   return createPortal(
-    <div
-      ref={menuRef}
-      className="press-context-menu"
-      role="menu"
-      aria-label={ariaLabel}
-      data-no-swipe
-      onContextMenu={(event) => {
-        event.preventDefault();
-      }}
-      onKeyDown={navigateMenu}
-      style={{
-        left: position.x,
-        top: position.y,
-        visibility: measured ? "visible" : "hidden"
-      }}
-    >
-      {reactions.length > 0 && (
-        <div
-          className="press-context-menu__reactions"
-          aria-label="Реакции"
-        >
-          {reactions.map((reaction) => (
+    <>
+      <div
+        className="press-context-menu__backdrop"
+        data-testid="context-menu-backdrop"
+        data-no-swipe
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          dismissWithoutPassThrough();
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+        }}
+      />
+      <div
+        ref={menuRef}
+        className="press-context-menu"
+        role="menu"
+        aria-label={ariaLabel}
+        data-no-swipe
+        onContextMenu={(event) => {
+          event.preventDefault();
+        }}
+        onKeyDown={navigateMenu}
+        style={{
+          left: position.x,
+          top: position.y,
+          visibility: measured ? "visible" : "hidden"
+        }}
+      >
+        {reactions.length > 0 && (
+          <div
+            className="press-context-menu__reactions"
+            aria-label="Реакции"
+          >
+            {reactions.map((reaction) => (
+              <button
+                key={reaction.emoji}
+                className="press-context-menu__reaction"
+                type="button"
+                role="menuitemcheckbox"
+                aria-label={reaction.label}
+                aria-checked={reaction.selected === true}
+                onClick={() => {
+                  choose(reaction.onSelect);
+                }}
+              >
+                {reaction.emoji}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="press-context-menu__actions">
+          {actions.map((action) => (
             <button
-              key={reaction.emoji}
-              className="press-context-menu__reaction"
+              key={action.id}
+              className={
+                action.danger === true
+                  ? "press-context-menu__action press-context-menu__action--danger"
+                  : "press-context-menu__action"
+              }
               type="button"
-              role="menuitemcheckbox"
-              aria-label={reaction.label}
-              aria-checked={reaction.selected === true}
+              role="menuitem"
+              disabled={action.disabled}
               onClick={() => {
-                choose(reaction.onSelect);
+                choose(action.onSelect);
               }}
             >
-              {reaction.emoji}
+              {action.icon !== undefined && (
+                <span aria-hidden="true">{action.icon}</span>
+              )}
+              <span>{action.label}</span>
             </button>
           ))}
         </div>
-      )}
-      <div className="press-context-menu__actions">
-        {actions.map((action) => (
-          <button
-            key={action.id}
-            className={
-              action.danger === true
-                ? "press-context-menu__action press-context-menu__action--danger"
-                : "press-context-menu__action"
-            }
-            type="button"
-            role="menuitem"
-            disabled={action.disabled}
-            onClick={() => {
-              choose(action.onSelect);
-            }}
-          >
-            {action.icon !== undefined && (
-              <span aria-hidden="true">{action.icon}</span>
-            )}
-            <span>{action.label}</span>
-          </button>
-        ))}
       </div>
-    </div>,
+    </>,
     document.body
   );
+}
+
+const SWALLOWED_CLICK_WINDOW_MS = 400;
+
+// Cancelling `pointerdown` suppresses the compatibility click on touch, but not
+// reliably for mouse input, so the next click is also swallowed explicitly.
+function swallowNextClick(): void {
+  function swallow(event: globalThis.MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    release();
+  }
+  function release() {
+    document.removeEventListener("click", swallow, true);
+    clearTimeout(timer);
+  }
+  const timer = setTimeout(release, SWALLOWED_CLICK_WINDOW_MS);
+  document.addEventListener("click", swallow, true);
 }
 
 type LongPressOptions = Readonly<{

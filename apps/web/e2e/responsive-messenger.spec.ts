@@ -53,7 +53,9 @@ test("switches between wide and narrow modes without reload", async ({
   await expectFullWidthConversation(page);
 });
 
-test("supports edge swipe right and swipe left", async ({ page }) => {
+test("returns to the list by swipe and then pages folders", async ({
+  page
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/preview.html");
   const shell = page.getByTestId("messenger-shell");
@@ -62,7 +64,9 @@ test("supports edge swipe right and swipe left", async ({ page }) => {
   await expect(shell).toHaveAttribute("data-pane", "list");
 
   await drag(page, 300, 60, 180);
-  await expect(shell).toHaveAttribute("data-pane", "conversation");
+  await expect(shell).toHaveAttribute("data-pane", "list");
+  await expect(page.getByRole("tab", { name: "Новые" }))
+    .toHaveAttribute("aria-selected", "true");
 });
 
 test("keeps the responsive track aligned during a gesture", async ({
