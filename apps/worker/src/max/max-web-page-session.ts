@@ -30,7 +30,8 @@ import {
 import {
   MAX_SOCKET_ORIGIN,
   MAX_WIRE_INIT_SCRIPT,
-  MaxWireClient
+  MaxWireClient,
+  MaxWireError
 } from "./max-wire-client.js";
 import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 
@@ -661,18 +662,42 @@ export class MaxWebPageSession {
     if (!chats.some((chat) => chat.id === chatId)) {
       return null;
     }
-    const context = await this.readChatWireContext(chatId);
-    const payload = await this.wire.request(49, {
-      chatId: wireChatId(chatId),
-      from: Date.now(),
-      forward: 0,
-      backward: MAX_HISTORY_PAGE_SIZE,
-      getMessages: true
-    });
+    try {
+      const context = await this.readChatWireContext(chatId);
+      const payload = await this.wire.request(49, {
+        chatId: wireChatId(chatId),
+        from: Date.now(),
+        forward: 0,
+        backward: MAX_HISTORY_PAGE_SIZE,
+        getMessages: true
+      });
+      adapter.openChat(chatId);
+      adapter.replaceOpenWireHistory(payload, {
+        readMarks: context.readMarks
+      });
+      return adapter.openMessages;
+    } catch (error: unknown) {
+      // The protocol path is the only one that reads messages correctly, but a
+      // failure must not leave the chat empty: fall back to the client's own
+      // rendered history and report why, so the cause is visible in the logs.
+      process.stderr.write(`${JSON.stringify({
+        event: "max_wire_history_failed",
+        stage: describeWireFailure(error)
+      })}\n`);
+      return this.renderedHistory(chatId);
+    }
+  }
+
+  private async renderedHistory(
+    chatId: string
+  ): Promise<readonly Message[] | null> {
+    const adapter = await this.ensureAdapter();
+    if (!await this.openChatForActions(chatId)) {
+      return null;
+    }
+    const messages = await this.readMessages(chatId);
     adapter.openChat(chatId);
-    adapter.replaceOpenWireHistory(payload, {
-      readMarks: context.readMarks
-    });
+    adapter.replaceOpenHistory({ messages });
     return adapter.openMessages;
   }
 
@@ -2624,6 +2649,21 @@ function wireChatId(chatId: string): number | bigint {
   }
   const numeric = Number(chatId);
   return Number.isSafeInteger(numeric) ? numeric : BigInt(chatId);
+}
+
+/**
+ * Describes a failure without echoing anything the user wrote. Playwright and
+ * the wire client only ever put diagnostics in their messages.
+ */
+function describeWireFailure(error: unknown): string {
+  if (error instanceof MaxWireError) {
+    return `wire_${error.reason}`;
+  }
+  if (!(error instanceof Error)) {
+    return "unknown";
+  }
+  return `${error.name}: ${error.message.slice(0, 200)}`
+    .replace(/\s+/gu, " ");
 }
 
 function wireMessageId(messageId: string): number | bigint {

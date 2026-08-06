@@ -137,24 +137,35 @@ export class MaxWireClient {
   private async transmit(frame: Uint8Array): Promise<void> {
     const bytes = [...frame];
     const deadline = Date.now() + SOCKET_WAIT_MS;
+    let installed = false;
     for (;;) {
-      const delivered = await this.page.evaluate(
+      const outcome = await this.page.evaluate(
         (input) => {
           const send = (
             globalThis as Record<PropertyKey, unknown>
           )[Symbol.for(input.key)];
-          return typeof send === "function"
-            ? (send as (value: readonly number[]) => boolean)(input.bytes)
-            : false;
+          if (typeof send !== "function") {
+            return "missing";
+          }
+          return (send as (value: readonly number[]) => boolean)(input.bytes)
+            ? "sent"
+            : "closed";
         },
         { key: MAX_WIRE_SEND_KEY, bytes }
       );
-      if (delivered) {
+      if (outcome === "sent") {
         return;
+      }
+      // A page that was already loaded when the session attached never ran the
+      // init script, so install the hook in place and let the next client ping
+      // hand us the socket.
+      if (outcome === "missing" && !installed) {
+        installed = true;
+        await this.page.evaluate(MAX_WIRE_INIT_SCRIPT);
       }
       if (Date.now() >= deadline) {
         throw new MaxWireError(
-          "MAX socket is unavailable",
+          `MAX socket is ${outcome === "missing" ? "unhooked" : "closed"}`,
           "unavailable"
         );
       }
