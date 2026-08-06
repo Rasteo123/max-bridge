@@ -238,7 +238,11 @@ describe("WorkerRuntimeRequestHandler", () => {
       "message-1",
       "Исправлено"
     );
-    expect(deleteMessage).toHaveBeenCalledWith("chat-1", "message-1");
+    expect(deleteMessage).toHaveBeenCalledWith(
+      "chat-1",
+      "message-1",
+      false
+    );
     expect(forwardMessage).toHaveBeenCalledWith(
       "chat-1",
       "message-1",

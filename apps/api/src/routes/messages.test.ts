@@ -198,14 +198,14 @@ describe("message routes", () => {
     expect(injectedIdentity.statusCode).toBe(400);
   });
 
-  it("sets and removes an allowlisted reaction", async () => {
+  it("sets and removes an emoji reaction", async () => {
     const set = await app.inject({
       method: "PUT",
       url: "/api/chats/1001/messages/message-1/reaction",
       headers: { origin: allowedOrigin },
       payload: {
         clientRequestId: "client-reaction-1",
-        reaction: "heart"
+        reaction: "❤️"
       }
     });
     const remove = await app.inject({
@@ -220,18 +220,18 @@ describe("message routes", () => {
 
     expect(set.statusCode).toBe(200);
     expect(remove.statusCode).toBe(200);
-    expect(gateway.reactions).toEqual(["heart", null]);
+    expect(gateway.reactions).toEqual(["❤️", null]);
 
-    const unknown = await app.inject({
+    const oversized = await app.inject({
       method: "PUT",
       url: "/api/chats/1001/messages/message-1/reaction",
       headers: { origin: allowedOrigin },
       payload: {
         clientRequestId: "client-reaction-3",
-        reaction: "unknown"
+        reaction: "x".repeat(33)
       }
     });
-    expect(unknown.statusCode).toBe(400);
+    expect(oversized.statusCode).toBe(400);
   });
 
   it("requires confirmation before clearing or deleting a chat", async () => {

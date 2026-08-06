@@ -30,7 +30,15 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 32 | out | `{contactIds: [int]}` | `{contacts: [{id, names:[{name, firstName, lastName, type}], baseUrl, baseRawUrl, photoId, gender, options: [...], flags, link, accountStatus, updateTime, registrationTime}]}` |
 | 35 | out | `{contactIds: [int]}` | `{presence: {userId: {seen: <epoch СЕКУНДЫ>}}, time: <epoch мс>}` |
 | 49 | out | `{chatId, from: <epoch мс>, forward: int, backward: int, getMessages: true}` | `{messages: [...]}` — история. Пагинация по `from`, курсора и `hasMore` НЕТ. |
+| 48 | out | `{chatIds: [int]}` | чаты по идентификаторам |
+| 64 | out | `{chatId, message: {text, cid, elements: [], attaches: []}, notify}` | `{message: {...}}` — отправка. `cid` — отрицательный клиентский идентификатор |
+| 65 | out | `{chatId, type: "TEXT"}` | уведомление «печатает» |
+| 66 | out | `{chatId, messageIds: [int], forMe: bool}` | удаление. **`forMe: false` = удалить у всех** |
+| 67 | out | `{chatId, messageId, text, elements: [], attachments: []}` | редактирование |
 | 75 | out | `{chatId, subscribe: bool}` | пусто — подписка на события чата |
+| 177 | out | `{userId, time}` | отметка о прочтении |
+| 178 | out | `{chatId, messageId, reaction: {reactionType: "EMOJI", id: "❤️"}}` | `{reactionInfo}` — поставить реакцию |
+| 179 | out | `{chatId, messageId}` | снять свою реакцию |
 | 180 | out | `{chatId, messageIds: [int]}` | `{messagesReactions: {messageId: {...}}}` |
 | 208 | out | `{cursor, count}` | `{storiesPreviews: []}` |
 | 83 | out | `{videoId, token, chatId, messageId}` | `{cache, EXTERNAL, MP4_144, MP4_240, …}` — ссылки на воспроизведение видео по качествам |

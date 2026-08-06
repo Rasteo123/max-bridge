@@ -1357,10 +1357,21 @@
 
 .press-context-menu__reactions {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
   padding: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+.press-context-menu__reactions[data-expanded="true"] {
+  max-height: 216px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.press-context-menu__reaction--more {
+  color: var(--muted);
+  font-size: 18px;
 }
 
 .press-context-menu__reaction {
@@ -1565,7 +1576,8 @@
   }
 }
 
-.forward-picker-backdrop {
+.forward-picker-backdrop,
+.modal-backdrop {
   position: fixed;
   z-index: 80;
   inset: 0;
@@ -1573,6 +1585,59 @@
   place-items: center;
   padding: 20px;
   background: color-mix(in srgb, #000000 44%, transparent);
+}
+
+.modal-backdrop {
+  z-index: 1100;
+}
+
+.modal {
+  display: grid;
+  gap: 14px;
+  width: min(360px, 100%);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px #00000040;
+  color: var(--text);
+}
+
+.modal h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.modal p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.modal__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal__actions {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 10px;
+}
+
+.modal__action {
+  padding: 12px;
+  border: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.modal__action--danger {
+  background: #f05a5a;
+  color: #ffffff;
 }
 
 .forward-picker {

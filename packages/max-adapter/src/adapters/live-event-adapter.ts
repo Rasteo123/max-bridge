@@ -3,23 +3,26 @@ import {
   type BridgeEvent
 } from "@maxbridge/core";
 
-import {
-  adaptWireMessage,
-  type MessageAdapterContext
-} from "./history-adapter.js";
 import type { RuntimeMediaAdapter } from "./media-adapter.js";
 import {
+  adaptWireHistoryMessage,
+  type WireMessageContext
+} from "./wire-message-adapter.js";
+import {
   asWireRecord,
+  optionalWireRecord,
   readOpaqueId,
   readWireArray,
   readWireBoolean,
+  readWireNumber,
+  readWireString,
   requireOpaqueId,
   toIsoTimestamp
 } from "./wire-values.js";
 import { MaxCompatibilityError } from "./errors.js";
 
 export class LiveEventAdapter {
-  private readonly context: Omit<MessageAdapterContext, "chatId">;
+  private readonly context: Omit<WireMessageContext, "chatId">;
   private readonly seen = new Set<string>();
   private readonly seenOrder: string[] = [];
   private readonly maxSeen: number;
@@ -116,7 +119,7 @@ export class LiveEventAdapter {
       )) {
         continue;
       }
-      const message = adaptWireMessage(value, {
+      const message = adaptWireHistoryMessage(value, {
         ...this.context,
         chatId
       });
@@ -160,24 +163,20 @@ export class LiveEventAdapter {
 }
 
 function reactionRevision(message: Readonly<Record<string, unknown>>): string {
-  const values = readWireArray(message, "reactions", "reactionSummary") ?? [];
-  return values.slice(0, 32).map((value) => {
-    const reaction = asWireRecord(value);
+  const info = optionalWireRecord(message["reactionInfo"]);
+  if (info === undefined) {
+    return "";
+  }
+  const counters = readWireArray(info, "counters") ?? [];
+  const summary = counters.slice(0, 32).map((value) => {
+    const counter = optionalWireRecord(value);
+    if (counter === undefined) {
+      return "";
+    }
     return [
-      reactionRevisionValue(reaction["key"] ?? reaction["type"]),
-      reactionRevisionValue(reaction["count"] ?? reaction["total"]),
-      reaction["selectedByMe"] === true || reaction["mine"] === true
-        ? "mine"
-        : ""
+      readWireString(counter, "reaction") ?? "",
+      String(readWireNumber(counter, "count") ?? 0)
     ].join(":");
   }).join(",");
-}
-
-function reactionRevisionValue(value: unknown): string {
-  return typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "bigint" ||
-    typeof value === "boolean"
-    ? String(value)
-    : "";
+  return `${summary}|${readWireString(info, "yourReaction") ?? ""}`;
 }

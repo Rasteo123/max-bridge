@@ -336,22 +336,18 @@ describe("message domain", () => {
     }).reactions).toEqual([]);
     expect(parseMessage({
       ...message,
-      reactions: [{
-        key: "heart",
-        emoji: "❤️",
-        count: 2,
-        selectedByMe: true
-      }]
-    }).reactions).toEqual([{
-      key: "heart",
-      emoji: "❤️",
-      count: 2,
-      selectedByMe: true
-    }]);
+      reactions: [
+        { emoji: "❤️", count: 2, selectedByMe: true },
+        { emoji: "🫡", count: 1, selectedByMe: false }
+      ]
+    }).reactions).toEqual([
+      { emoji: "❤️", count: 2, selectedByMe: true },
+      { emoji: "🫡", count: 1, selectedByMe: false }
+    ]);
   });
 
-  it("rejects unknown reaction keys", () => {
-    expect(() => parseMessage({
+  it("rejects malformed message reactions", () => {
+    const message = {
       id: "message_reactions",
       chatId: syntheticChat.id,
       senderId: "sender_synthetic",
@@ -359,13 +355,20 @@ describe("message domain", () => {
       kind: "text",
       text: "Синтетический текст",
       sentAt: "2026-07-26T12:01:00.000Z",
-      status: "delivered",
-      reactions: [{
-        key: "unknown",
-        emoji: "⭐",
-        count: 1,
-        selectedByMe: false
-      }]
+      status: "delivered"
+    } as const;
+
+    expect(() => parseMessage({
+      ...message,
+      reactions: [{ emoji: "", count: 1, selectedByMe: false }]
+    })).toThrow(DomainValidationError);
+    expect(() => parseMessage({
+      ...message,
+      reactions: [{ emoji: "⭐", count: 0, selectedByMe: false }]
+    })).toThrow(DomainValidationError);
+    expect(() => parseMessage({
+      ...message,
+      reactions: [{ key: "heart", emoji: "❤️", count: 1, selectedByMe: false }]
     })).toThrow(DomainValidationError);
   });
 

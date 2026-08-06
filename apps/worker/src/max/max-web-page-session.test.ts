@@ -678,7 +678,7 @@ describe("MaxWebPageSession history navigation", () => {
       chat("alternate")
     ]));
 
-    await expect(session.history("target")).resolves.toHaveLength(2);
+    await expect(internals.openChatForActions("target")).resolves.toBe(true);
 
     expect(openChat.mock.calls.map(([, id]) => id)).toEqual([
       "alternate",
@@ -704,6 +704,7 @@ type SessionInternals = {
     routerExport: string;
   }>;
   readMessages: (chatId: string) => Promise<readonly unknown[]>;
+  openChatForActions: (chatId: string) => Promise<boolean>;
   openChat: (
     bindings: { moduleUrl: string; routerExport: string },
     chatId: string
@@ -866,12 +867,12 @@ function forwardingSession(
     page: page as unknown as Page,
     context: {} as BrowserContext
   });
-  session.history = vi.fn(() => Promise.resolve([]));
   session.listChats = vi.fn(() => Promise.resolve([
     { ...chat("destination-1"), title: "Получатель 1" },
     { ...chat("destination-2"), title: "Получатель 2" }
   ]));
   const internals = session as unknown as SessionInternals;
+  internals.openChatForActions = vi.fn(() => Promise.resolve(true));
   const openMessageMenu = vi.fn(() => Promise.resolve(menu));
   const clickMenuItem = vi.fn(() => Promise.resolve());
   internals.openMessageMenu = openMessageMenu;

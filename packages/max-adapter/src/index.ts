@@ -3,6 +3,7 @@ export * from "./adapters/errors.js";
 export * from "./adapters/history-adapter.js";
 export * from "./adapters/live-event-adapter.js";
 export * from "./adapters/media-adapter.js";
+export * from "./adapters/wire-message-adapter.js";
 export * from "./discovery/sanitizer.js";
 export * from "./discovery/schema-observer.js";
 export * from "./login/login-controller.js";

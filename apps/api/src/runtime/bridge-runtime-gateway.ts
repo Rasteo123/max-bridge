@@ -8,7 +8,7 @@ import {
   type ChatAction,
   type ChatSummary,
   type Message,
-  type ReactionKey,
+  type ReactionEmoji,
   type StickerSummary,
   type UserRecord,
   type UserState
@@ -329,6 +329,7 @@ export class BridgeRuntimeGateway implements
       messageId: string;
       clientRequestId: string;
       confirmedByUser: true;
+      forEveryone: boolean;
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
@@ -367,7 +368,7 @@ export class BridgeRuntimeGateway implements
       chatId: string;
       messageId: string;
       clientRequestId: string;
-      reaction: ReactionKey | null;
+      reaction: ReactionEmoji | null;
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);

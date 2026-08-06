@@ -29,7 +29,7 @@ import type {
   MessengerPane,
   MessengerSticker,
   MessengerTheme,
-  ReactionKey
+  ReactionEmoji
 } from "./types.js";
 import { useResponsivePane } from "./useResponsivePane.js";
 import { useSwipeNavigation } from "./useSwipeNavigation.js";
@@ -47,12 +47,12 @@ type MessengerShellProps = Readonly<{
   onRetryAttachment?(): void;
   onCancelAttachment?(): void;
   onEditMessage?(messageId: string, text: string): void;
-  onDeleteMessage?(messageId: string): void;
+  onDeleteMessage?(messageId: string, forEveryone: boolean): void;
   onForwardMessage?(
     sourceMessageId: string,
     destinationIds: readonly string[]
   ): Promise<MessageSendResult>;
-  onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;

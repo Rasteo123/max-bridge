@@ -35,22 +35,35 @@ type PressContextMenuProps = Readonly<{
   point: ContextMenuPoint;
   actions: readonly ContextMenuAction[];
   reactions?: readonly ContextMenuReaction[];
+  /**
+   * Full reaction catalogue. When it holds more than the quick row, the menu
+   * grows a chevron that opens the whole set, as the MAX web client does.
+   */
+  allReactions?: readonly ContextMenuReaction[];
   ariaLabel: string;
   onClose(): void;
 }>;
 
 const VIEWPORT_MARGIN = 8;
+const MORE_REACTIONS_CLASS = [
+  "press-context-menu__reaction",
+  "press-context-menu__reaction--more"
+].join(" ");
 
 export function PressContextMenu({
   point,
   actions,
   reactions = [],
+  allReactions = [],
   ariaLabel,
   onClose
 }: PressContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(point);
   const [measured, setMeasured] = useState(false);
+  const [reactionsExpanded, setReactionsExpanded] = useState(false);
+  const canExpand = allReactions.length > reactions.length;
+  const visibleReactions = reactionsExpanded ? allReactions : reactions;
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -179,12 +192,13 @@ export function PressContextMenu({
           visibility: measured ? "visible" : "hidden"
         }}
       >
-        {reactions.length > 0 && (
+        {visibleReactions.length > 0 && (
           <div
             className="press-context-menu__reactions"
+            data-expanded={reactionsExpanded ? "true" : "false"}
             aria-label="Реакции"
           >
-            {reactions.map((reaction) => (
+            {visibleReactions.map((reaction) => (
               <button
                 key={reaction.emoji}
                 className="press-context-menu__reaction"
@@ -199,6 +213,19 @@ export function PressContextMenu({
                 {reaction.emoji}
               </button>
             ))}
+            {canExpand && !reactionsExpanded && (
+              <button
+                className={MORE_REACTIONS_CLASS}
+                type="button"
+                role="menuitem"
+                aria-label="Показать все реакции"
+                onClick={() => {
+                  setReactionsExpanded(true);
+                }}
+              >
+                <span aria-hidden="true">⌄</span>
+              </button>
+            )}
           </div>
         )}
         <div className="press-context-menu__actions">

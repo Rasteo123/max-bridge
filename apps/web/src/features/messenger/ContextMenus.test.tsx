@@ -112,7 +112,6 @@ describe("message context menu", () => {
         message={{
           ...incomingMessage(),
           reactions: [{
-            key: "heart",
             emoji: "❤️",
             count: 3,
             selectedByMe: true
@@ -130,9 +129,119 @@ describe("message context menu", () => {
 
     openMessageMenu("Входящее сообщение");
     fireEvent.click(screen.getByRole("menuitemcheckbox", {
-      name: "Огонь"
+      name: "Реакция 🔥"
     }));
-    expect(onReact).toHaveBeenLastCalledWith("message-in", "fire");
+    expect(onReact).toHaveBeenLastCalledWith("message-in", "🔥");
+  });
+
+  it("expands the whole MAX reaction set behind the chevron", () => {
+    const onReact = vi.fn();
+    render(
+      <MessageBubble message={incomingMessage()} onReact={onReact} />
+    );
+
+    openMessageMenu("Входящее сообщение");
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Реакция 🫡" }))
+      .toBeNull();
+
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Показать все реакции"
+    }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", {
+      name: "Реакция 🫡"
+    }));
+
+    expect(onReact).toHaveBeenLastCalledWith("message-in", "🫡");
+  });
+
+  it("keeps a reaction already on the message reachable without expanding", () => {
+    const onReact = vi.fn();
+    render(
+      <MessageBubble
+        message={{
+          ...incomingMessage(),
+          reactions: [{ emoji: "🫡", count: 1, selectedByMe: true }]
+        }}
+        onReact={onReact}
+      />
+    );
+
+    openMessageMenu("Входящее сообщение");
+    fireEvent.click(screen.getByRole("menuitemcheckbox", {
+      name: "Убрать реакцию 🫡"
+    }));
+
+    expect(onReact).toHaveBeenLastCalledWith("message-in", null);
+  });
+
+  it("asks before deleting and offers to withdraw for everyone", () => {
+    const onDelete = vi.fn();
+    render(
+      <MessageBubble
+        message={outgoingMessage()}
+        onDelete={onDelete}
+        canDeleteForEveryone
+      />
+    );
+
+    openMessageMenu("Исходящее сообщение");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+
+    expect(onDelete).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Удалить сообщение");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Удалить у всех" }));
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    expect(onDelete).toHaveBeenCalledWith("message-out", true);
+  });
+
+  it("deletes only for the viewer when the box stays unchecked", () => {
+    const onDelete = vi.fn();
+    render(
+      <MessageBubble
+        message={outgoingMessage()}
+        onDelete={onDelete}
+        canDeleteForEveryone
+      />
+    );
+
+    openMessageMenu("Исходящее сообщение");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    expect(onDelete).toHaveBeenCalledWith("message-out", false);
+  });
+
+  it("hides the withdraw option where MAX does not offer it", () => {
+    render(
+      <MessageBubble
+        message={outgoingMessage()}
+        onDelete={vi.fn()}
+        canDeleteForEveryone={false}
+      />
+    );
+
+    openMessageMenu("Исходящее сообщение");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+
+    expect(screen.queryByRole("checkbox", { name: "Удалить у всех" }))
+      .toBeNull();
+  });
+
+  it("abandons the deletion when the dialog is dismissed", () => {
+    const onDelete = vi.fn();
+    render(
+      <MessageBubble message={outgoingMessage()} onDelete={onDelete} />
+    );
+
+    openMessageMenu("Исходящее сообщение");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("shows the original source for a forwarded message", () => {

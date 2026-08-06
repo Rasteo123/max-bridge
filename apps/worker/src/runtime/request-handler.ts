@@ -4,7 +4,7 @@ import type {
   ChatAction,
   ChatSummary,
   Message,
-  ReactionKey,
+  ReactionEmoji,
   StickerSummary
 } from "@maxbridge/core";
 import type { MaxLoginResult } from "@maxbridge/max-adapter";
@@ -38,7 +38,8 @@ export interface RuntimeMaxSession {
   ): Promise<RuntimeMutationResult>;
   deleteMessage(
     chatId: string,
-    messageId: string
+    messageId: string,
+    forEveryone?: boolean
   ): Promise<RuntimeMutationResult>;
   forwardMessage(
     sourceChatId: string,
@@ -48,7 +49,7 @@ export interface RuntimeMaxSession {
   setReaction(
     chatId: string,
     messageId: string,
-    reaction: ReactionKey | null
+    reaction: ReactionEmoji | null
   ): Promise<RuntimeMutationResult>;
   chatAction(
     chatId: string,
@@ -211,7 +212,11 @@ export class WorkerRuntimeRequestHandler {
           const input = readDeleteMessage(request.payload);
           return success(
             request,
-            await session.deleteMessage(input.chatId, input.messageId)
+            await session.deleteMessage(
+              input.chatId,
+              input.messageId,
+              input.forEveryone
+            )
           );
         }
         case "message.forward": {
@@ -555,20 +560,27 @@ function readEditMessage(value: unknown): Readonly<{
 function readDeleteMessage(value: unknown): Readonly<{
   chatId: string;
   messageId: string;
+  forEveryone: boolean;
 }> {
   const input = exact(value, [
     "chatId",
     "messageId",
     "clientRequestId",
-    "confirmedByUser"
+    "confirmedByUser",
+    "forEveryone"
   ]);
   readClientRequestId(input["clientRequestId"]);
   if (input["confirmedByUser"] !== true) {
     throw new TypeError("Invalid worker payload");
   }
+  const forEveryone = input["forEveryone"];
+  if (forEveryone !== undefined && typeof forEveryone !== "boolean") {
+    throw new TypeError("Invalid worker payload");
+  }
   return {
     chatId: readChatId({ chatId: input["chatId"] }),
-    messageId: readOpaqueId(input["messageId"])
+    messageId: readOpaqueId(input["messageId"]),
+    forEveryone: forEveryone === true
   };
 }
 
@@ -609,7 +621,7 @@ function readForwardMessage(value: unknown): Readonly<{
 function readSetReaction(value: unknown): Readonly<{
   chatId: string;
   messageId: string;
-  reaction: ReactionKey | null;
+  reaction: ReactionEmoji | null;
 }> {
   const input = exact(value, [
     "chatId",
@@ -684,19 +696,19 @@ function optionalOpaqueId(value: unknown): string | undefined {
   return value === undefined ? undefined : readOpaqueId(value);
 }
 
-function readReaction(value: unknown): ReactionKey | null {
-  if (
-    value === null
-    || value === "like"
-    || value === "heart"
-    || value === "laugh"
-    || value === "fire"
-    || value === "cry"
-    || value === "celebrate"
-  ) {
-    return value;
+function readReaction(value: unknown): ReactionEmoji | null {
+  if (value === null) {
+    return null;
   }
-  throw new TypeError("Invalid worker payload");
+  if (
+    typeof value !== "string"
+    || value.length < 1
+    || value.length > 32
+    || hasControlCharacter(value)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return value;
 }
 
 function readAction(value: unknown): ChatAction {

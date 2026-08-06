@@ -13,22 +13,16 @@ export const MessageDirectionSchema = Type.Union([
   Type.Literal("outgoing")
 ]);
 
-export const REACTION_KEYS = [
-  "like",
-  "heart",
-  "laugh",
-  "fire",
-  "cry",
-  "celebrate"
-] as const;
+// MAX identifies a reaction by the emoji itself, not by a fixed key set.
+export const MAX_DISTINCT_REACTIONS = 32;
 
-export const ReactionKeySchema = Type.Union(
-  REACTION_KEYS.map((key) => Type.Literal(key))
-);
+export const ReactionEmojiSchema = Type.String({
+  minLength: 1,
+  maxLength: 32
+});
 
 export const MessageReactionSchema = Type.Object({
-  key: ReactionKeySchema,
-  emoji: Type.String({ minLength: 1, maxLength: 32 }),
+  emoji: ReactionEmojiSchema,
   count: Type.Integer({ minimum: 1, maximum: 999_999 }),
   selectedByMe: Type.Boolean()
 }, strictObjectOptions);
@@ -95,7 +89,7 @@ const MessageBaseProperties = {
   deleted: Type.Optional(Type.Boolean()),
   reactions: Type.Optional(Type.Array(
     MessageReactionSchema,
-    { maxItems: REACTION_KEYS.length }
+    { maxItems: MAX_DISTINCT_REACTIONS }
   ))
 } as const;
 
@@ -134,7 +128,7 @@ export const MessageSchema = Type.Union([
 ]);
 
 export type MessageDirection = Static<typeof MessageDirectionSchema>;
-export type ReactionKey = Static<typeof ReactionKeySchema>;
+export type ReactionEmoji = Static<typeof ReactionEmojiSchema>;
 export type MessageReaction = Static<typeof MessageReactionSchema>;
 export type StickerSummary = Static<typeof StickerSummarySchema>;
 export type MediaMetadata = Static<typeof MediaMetadataSchema>;

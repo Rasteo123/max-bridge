@@ -297,7 +297,8 @@ describe("BridgeRuntimeGateway", () => {
       chatId: "chat-1",
       messageId: "message-1",
       clientRequestId: "request-3",
-      confirmedByUser: true
+      confirmedByUser: true,
+      forEveryone: false
     });
     await gateway.forwardMessage(userLookup, {
       sourceChatId: "chat-1",
@@ -352,7 +353,8 @@ describe("BridgeRuntimeGateway", () => {
           chatId: "chat-1",
           messageId: "message-1",
           clientRequestId: "request-3",
-          confirmedByUser: true
+          confirmedByUser: true,
+          forEveryone: false
         }
       },
       {

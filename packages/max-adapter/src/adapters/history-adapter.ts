@@ -1,10 +1,9 @@
 import {
-  REACTION_KEYS,
+  MAX_DISTINCT_REACTIONS,
   parseMessage,
   type DeliveryStatus,
   type Message,
-  type MessageReaction,
-  type ReactionKey
+  type MessageReaction
 } from "@maxbridge/core";
 
 import { MaxCompatibilityError } from "./errors.js";
@@ -318,16 +317,13 @@ function adaptReactions(
   if (values === undefined) {
     return [];
   }
-  return values.slice(0, REACTION_KEYS.length).flatMap((value) => {
+  return values.slice(0, MAX_DISTINCT_REACTIONS).flatMap((value) => {
     const reaction = asWireRecord(value);
-    const keyValue = reaction["key"];
     const emoji = reaction["emoji"];
     const count = reaction["count"];
     const selectedByMe = reaction["selectedByMe"];
     if (
-      typeof keyValue !== "string"
-      || !isReactionKey(keyValue)
-      || typeof emoji !== "string"
+      typeof emoji !== "string"
       || emoji.length < 1
       || emoji.length > 32
       || typeof count !== "number"
@@ -338,12 +334,8 @@ function adaptReactions(
     ) {
       return [];
     }
-    return [{ key: keyValue, emoji, count, selectedByMe }];
+    return [{ emoji, count, selectedByMe }];
   });
-}
-
-function isReactionKey(value: string): value is ReactionKey {
-  return (REACTION_KEYS as readonly string[]).includes(value);
 }
 
 function displayText(value: string | undefined): string | undefined {

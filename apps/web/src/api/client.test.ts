@@ -54,6 +54,7 @@ describe("ApiClient messenger actions", () => {
     await client.deleteMessage(
       "chat/with space",
       "message/?target",
+      true,
       "request-delete"
     );
 
@@ -64,7 +65,8 @@ describe("ApiClient messenger actions", () => {
       "POST",
       {
         clientRequestId: "request-delete",
-        confirmedByUser: true
+        confirmedByUser: true,
+        forEveryone: true
       }
     );
   });

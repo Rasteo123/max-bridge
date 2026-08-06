@@ -19,7 +19,7 @@ import type {
   MessengerForwardedSource,
   MessengerMessage,
   MessengerSticker,
-  ReactionKey
+  ReactionEmoji
 } from "./types.js";
 
 type ConversationProps = Readonly<{
@@ -35,9 +35,9 @@ type ConversationProps = Readonly<{
   onCancelAttachment?(): void;
   historyLoading?: boolean;
   onEditMessage?(messageId: string, text: string): void;
-  onDeleteMessage?(messageId: string): void;
+  onDeleteMessage?(messageId: string, forEveryone: boolean): void;
   onForwardMessage?(message: MessengerMessage): void;
-  onReactMessage?(messageId: string, reaction: ReactionKey | null): void;
+  onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -90,6 +90,9 @@ export function Conversation({
     setComposerContext(null);
     setOpenMedia(null);
   }, [chat?.id]);
+
+  // Saved messages have no second side to withdraw a message from.
+  const canDeleteForEveryone = chat !== undefined && chat.id !== "0";
 
   const mediaGallery = useMemo<readonly MediaViewerItem[]>(() => {
     return mediaGalleryForConversation(chat, messages);
@@ -238,6 +241,7 @@ export function Conversation({
                     }
                   }
                 })}
+                canDeleteForEveryone={canDeleteForEveryone}
                 {...(onDeleteMessage === undefined
                   ? {}
                   : { onDelete: onDeleteMessage })}

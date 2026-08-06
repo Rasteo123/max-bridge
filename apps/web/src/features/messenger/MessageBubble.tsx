@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { DeleteMessageDialog } from "./DeleteMessageDialog.js";
 import { DeliveryIndicator } from "./DeliveryIndicator.js";
 import {
   MediaMessage,
@@ -12,11 +13,12 @@ import {
   type ContextMenuReaction,
   useLongPressContextMenu
 } from "./PressContextMenu.js";
+import { MAX_REACTIONS, quickReactions } from "./reactions.js";
 import { RichMessageText } from "./RichMessageText.js";
 import type {
   MessengerForwardedSource,
   MessengerMessage,
-  ReactionKey
+  ReactionEmoji
 } from "./types.js";
 import { useSwipeToReply } from "./useSwipeToReply.js";
 
@@ -25,25 +27,14 @@ type MessageBubbleProps = Readonly<{
   showSender?: boolean;
   onReply?(message: MessengerMessage): void;
   onEdit?(messageId: string, text: string): void;
-  onDelete?(messageId: string): void;
+  onDelete?(messageId: string, forEveryone: boolean): void;
+  canDeleteForEveryone?: boolean;
   onForward?(message: MessengerMessage): void;
-  onReact?(messageId: string, reaction: ReactionKey | null): void;
+  onReact?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
 }>;
 
-const REACTIONS: readonly Readonly<{
-  key: ReactionKey;
-  emoji: string;
-  label: string;
-}>[] = [
-  { key: "like", emoji: "👍", label: "Нравится" },
-  { key: "heart", emoji: "❤️", label: "Сердце" },
-  { key: "laugh", emoji: "😂", label: "Смешно" },
-  { key: "fire", emoji: "🔥", label: "Огонь" },
-  { key: "cry", emoji: "😭", label: "Грусть" },
-  { key: "celebrate", emoji: "🎉", label: "Праздник" }
-];
 
 export function MessageBubble({
   message,
@@ -51,12 +42,14 @@ export function MessageBubble({
   onReply,
   onEdit,
   onDelete,
+  canDeleteForEveryone = false,
   onForward,
   onReact,
   onOpenForwardedSource,
   onOpenMedia
 }: MessageBubbleProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const replySwipe = useSwipeToReply({
     disabled: onReply === undefined,
     onReply: () => {
@@ -81,21 +74,26 @@ export function MessageBubble({
     onEdit !== undefined
   );
   const reactions = message.reactions ?? [];
+  const mine = reactions
+    .filter((item) => item.selectedByMe)
+    .map((item) => item.emoji);
+  const toMenuReaction = (emoji: ReactionEmoji): ContextMenuReaction => {
+    const selected = mine.includes(emoji);
+    return {
+      emoji,
+      label: selected ? `Убрать реакцию ${emoji}` : `Реакция ${emoji}`,
+      selected,
+      onSelect: () => {
+        onReact?.(message.id, selected ? null : emoji);
+      }
+    };
+  };
   const menuReactions: readonly ContextMenuReaction[] = onReact === undefined
     ? []
-    : REACTIONS.map((reaction) => {
-      const selected = reactions.some((item) =>
-        item.key === reaction.key && item.selectedByMe
-      );
-      return {
-        emoji: reaction.emoji,
-        label: reaction.label,
-        selected,
-        onSelect: () => {
-          onReact(message.id, selected ? null : reaction.key);
-        }
-      };
-    });
+    : quickReactions(mine).map(toMenuReaction);
+  const allMenuReactions: readonly ContextMenuReaction[] = onReact === undefined
+    ? []
+    : MAX_REACTIONS.map(toMenuReaction);
   const actions: readonly ContextMenuAction[] = [
     ...(onReply === undefined ? [] : [{
       id: "reply",
@@ -135,9 +133,7 @@ export function MessageBubble({
       icon: "⌫",
       danger: true,
       onSelect: () => {
-        if (window.confirm("Удалить сообщение?")) {
-          onDelete(message.id);
-        }
+        setConfirmingDelete(true);
       }
     }])
   ];
@@ -253,7 +249,7 @@ export function MessageBubble({
                 const label = `${reaction.emoji} ${String(reaction.count)}`;
                 return onReact === undefined ? (
                   <span
-                    key={reaction.key}
+                    key={reaction.emoji}
                     className={
                       reaction.selectedByMe
                         ? "message__reaction message__reaction--selected"
@@ -266,7 +262,7 @@ export function MessageBubble({
                   </span>
                 ) : (
                   <button
-                    key={reaction.key}
+                    key={reaction.emoji}
                     className={
                       reaction.selectedByMe
                         ? "message__reaction message__reaction--selected"
@@ -279,7 +275,7 @@ export function MessageBubble({
                     onClick={() => {
                       onReact(
                         message.id,
-                        reaction.selectedByMe ? null : reaction.key
+                        reaction.selectedByMe ? null : reaction.emoji
                       );
                     }}
                   >
@@ -296,9 +292,24 @@ export function MessageBubble({
           point={menuPoint}
           ariaLabel="Действия с сообщением"
           reactions={menuReactions}
+          allReactions={allMenuReactions}
           actions={actions}
           onClose={() => {
             setMenuPoint(null);
+          }}
+        />
+      )}
+      {confirmingDelete && onDelete !== undefined && (
+        <DeleteMessageDialog
+          canDeleteForEveryone={
+            canDeleteForEveryone && message.direction === "outgoing"
+          }
+          onCancel={() => {
+            setConfirmingDelete(false);
+          }}
+          onConfirm={(forEveryone) => {
+            setConfirmingDelete(false);
+            onDelete(message.id, forEveryone);
           }}
         />
       )}

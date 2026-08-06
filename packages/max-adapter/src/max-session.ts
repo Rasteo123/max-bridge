@@ -8,6 +8,7 @@ import { adaptChatList } from "./adapters/chat-list-adapter.js";
 import { adaptHistoryPage } from "./adapters/history-adapter.js";
 import { LiveEventAdapter } from "./adapters/live-event-adapter.js";
 import { RuntimeMediaAdapter } from "./adapters/media-adapter.js";
+import { adaptWireHistory } from "./adapters/wire-message-adapter.js";
 
 export class MaxSession {
   private readonly media = new RuntimeMediaAdapter();
@@ -80,6 +81,33 @@ export class MaxSession {
       media: this.media
     });
     this.selectedMessages = page.messages.slice(-this.maxOpenMessages);
+  }
+
+  /** Replaces the open history from a raw opcode 49 response. */
+  replaceOpenWireHistory(
+    payload: unknown,
+    options: Readonly<{
+      readMarks?: readonly number[];
+      senderNames?: ReadonlyMap<string, string>;
+    }> = {}
+  ): void {
+    if (this.selectedChatId === undefined) {
+      throw new Error("No MAX chat is selected");
+    }
+    const messages = adaptWireHistory(payload, {
+      chatId: this.selectedChatId,
+      viewerId: this.viewerId,
+      media: this.media,
+      ...(options.readMarks === undefined
+        ? {}
+        : { readMarks: options.readMarks }),
+      ...(options.senderNames === undefined
+        ? {}
+        : { senderNames: options.senderNames })
+    });
+    this.selectedMessages = [...messages]
+      .sort((left, right) => left.sentAt.localeCompare(right.sentAt))
+      .slice(-this.maxOpenMessages);
   }
 
   ingestLive(payload: unknown): readonly BridgeEvent[] {

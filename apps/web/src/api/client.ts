@@ -2,7 +2,7 @@ import type {
   MessengerChat,
   MessengerChatAction,
   MessengerSticker,
-  ReactionKey
+  ReactionEmoji
 } from "../features/messenger/types.js";
 
 export type UserState =
@@ -155,6 +155,7 @@ export class ApiClient {
   async deleteMessage(
     chatId: string,
     messageId: string,
+    forEveryone = false,
     clientRequestId: string = globalThis.crypto.randomUUID()
   ): Promise<MessageSendResult> {
     return this.requestJson(
@@ -164,7 +165,8 @@ export class ApiClient {
         method: "POST",
         body: JSON.stringify({
           clientRequestId,
-          confirmedByUser: true
+          confirmedByUser: true,
+          forEveryone
         })
       }
     );
@@ -192,7 +194,7 @@ export class ApiClient {
   async setReaction(
     chatId: string,
     messageId: string,
-    reaction: ReactionKey | null,
+    reaction: ReactionEmoji | null,
     clientRequestId: string = globalThis.crypto.randomUUID()
   ): Promise<MessageSendResult> {
     return this.requestJson(

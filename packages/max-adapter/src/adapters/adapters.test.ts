@@ -492,14 +492,12 @@ describe("MAX history and media adapters", () => {
         edited: true,
         reactions: [
           {
-            key: "like",
             emoji: "👍",
             count: 2,
             selectedByMe: true
           },
           {
-            key: "not-supported",
-            emoji: "?",
+            emoji: "",
             count: 1,
             selectedByMe: false
           }
@@ -516,7 +514,6 @@ describe("MAX history and media adapters", () => {
       forwardedFrom: "Исходный канал",
       edited: true,
       reactions: [{
-        key: "like",
         emoji: "👍",
         count: 2,
         selectedByMe: true
@@ -688,24 +685,21 @@ describe("MAX live event adapter", () => {
       ...base,
       message: {
         ...base.message,
-        reactions: [{
-          key: "like",
-          emoji: "👍",
-          count: 1,
-          selectedByMe: false
-        }]
+        reactionInfo: {
+          counters: [{ reaction: "👍", count: 1 }],
+          totalCount: 1
+        }
       }
     });
     const changed = adapter.adapt({
       ...base,
       message: {
         ...base.message,
-        reactions: [{
-          key: "like",
-          emoji: "👍",
-          count: 2,
-          selectedByMe: true
-        }]
+        reactionInfo: {
+          counters: [{ reaction: "👍", count: 2 }],
+          yourReaction: "👍",
+          totalCount: 2
+        }
       }
     });
 
@@ -715,7 +709,7 @@ describe("MAX live event adapter", () => {
       type: "message.upsert",
       message: {
         reactions: [{
-          key: "like",
+          emoji: "👍",
           count: 2,
           selectedByMe: true
         }]

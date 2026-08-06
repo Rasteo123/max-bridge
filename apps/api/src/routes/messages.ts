@@ -7,7 +7,7 @@ import type {
 import {
   zeroBuffer,
   type ChatAction,
-  type ReactionKey,
+  type ReactionEmoji,
   type StickerSummary
 } from "@maxbridge/core";
 
@@ -74,6 +74,7 @@ export interface MessageGateway {
       messageId: string;
       clientRequestId: string;
       confirmedByUser: true;
+      forEveryone: boolean;
     }>
   ): Promise<MessageRouteResult>;
   forwardMessage(
@@ -91,7 +92,7 @@ export interface MessageGateway {
       chatId: string;
       messageId: string;
       clientRequestId: string;
-      reaction: ReactionKey | null;
+      reaction: ReactionEmoji | null;
     }>
   ): Promise<MessageRouteResult>;
   chatAction(
@@ -149,6 +150,7 @@ type EditMessageBody = {
 type DeleteMessageBody = {
   clientRequestId: string;
   confirmedByUser: boolean;
+  forEveryone?: boolean;
 };
 type ForwardMessageBody = {
   clientRequestId: string;
@@ -156,7 +158,7 @@ type ForwardMessageBody = {
 };
 type SetReactionBody = {
   clientRequestId: string;
-  reaction: ReactionKey | null;
+  reaction: ReactionEmoji | null;
 };
 type ChatActionBody = {
   clientRequestId: string;
@@ -430,7 +432,8 @@ export const registerMessageRoutes: FastifyPluginCallback<
         required: ["clientRequestId", "confirmedByUser"],
         properties: {
           clientRequestId: clientRequestIdSchema,
-          confirmedByUser: { type: "boolean" }
+          confirmedByUser: { type: "boolean" },
+          forEveryone: { type: "boolean" }
         }
       }
     }
@@ -451,7 +454,8 @@ export const registerMessageRoutes: FastifyPluginCallback<
         chatId: request.params.chatId,
         messageId: request.params.messageId,
         clientRequestId: request.body.clientRequestId,
-        confirmedByUser: true
+        confirmedByUser: true,
+        forEveryone: request.body.forEveryone === true
       }
     ));
   });
@@ -514,17 +518,7 @@ export const registerMessageRoutes: FastifyPluginCallback<
           clientRequestId: clientRequestIdSchema,
           reaction: {
             anyOf: [
-              {
-                type: "string",
-                enum: [
-                  "like",
-                  "heart",
-                  "laugh",
-                  "fire",
-                  "cry",
-                  "celebrate"
-                ]
-              },
+              { type: "string", minLength: 1, maxLength: 32 },
               { type: "null" }
             ]
           }

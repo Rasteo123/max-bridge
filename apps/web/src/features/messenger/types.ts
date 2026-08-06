@@ -73,17 +73,11 @@ export type MessengerChatAction =
   | "clear"
   | "delete";
 
-export type ReactionKey =
-  | "like"
-  | "heart"
-  | "laugh"
-  | "fire"
-  | "cry"
-  | "celebrate";
+/** MAX identifies a reaction by the emoji itself. */
+export type ReactionEmoji = string;
 
 export type MessengerReaction = Readonly<{
-  key: ReactionKey;
-  emoji: string;
+  emoji: ReactionEmoji;
   count: number;
   selectedByMe: boolean;
 }>;

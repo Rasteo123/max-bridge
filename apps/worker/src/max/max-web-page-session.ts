@@ -37,6 +37,7 @@ import type { CaptchaPointerInput } from "../runtime/request-handler.js";
 const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
+const MAX_HISTORY_PAGE_SIZE = 100;
 const MAX_HISTORY_POLL_MS = 150;
 const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
 const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
@@ -51,16 +52,6 @@ const MAX_COMPOSER_SELECTOR = [
   "textarea"
 ].join(", ");
 
-const MAX_REACTION_ORDER = [
-  "like",
-  "heart",
-  "laugh",
-  "fire",
-  "cry",
-  "celebrate"
-] as const;
-
-type MaxReactionKey = typeof MAX_REACTION_ORDER[number];
 type MaxChatAction =
   | "pin"
   | "unpin"
@@ -659,11 +650,40 @@ export class MaxWebPageSession {
     return adapter.chats;
   }
 
+  /**
+   * Reads history straight off the MAX protocol. The client's own store keeps
+   * messages in a shape the bridge cannot reliably interpret, so opcode 49 is
+   * the only source that carries text, attachments and reactions intact.
+   */
   async history(chatId: string): Promise<readonly Message[] | null> {
     const adapter = await this.ensureAdapter();
     const chats = await this.listChats();
     if (!chats.some((chat) => chat.id === chatId)) {
       return null;
+    }
+    const context = await this.readChatWireContext(chatId);
+    const payload = await this.wire.request(49, {
+      chatId: wireChatId(chatId),
+      from: Date.now(),
+      forward: 0,
+      backward: MAX_HISTORY_PAGE_SIZE,
+      getMessages: true
+    });
+    adapter.openChat(chatId);
+    adapter.replaceOpenWireHistory(payload, {
+      readMarks: context.readMarks
+    });
+    return adapter.openMessages;
+  }
+
+  /**
+   * Brings a chat on screen for the interactions that are still driven through
+   * the MAX interface, and waits for its message list to stop moving.
+   */
+  private async openChatForActions(chatId: string): Promise<boolean> {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
+      return false;
     }
     const before = await this.readMessages(chatId);
     const currentChatId = chatIdFromPageUrl(this.options.page.url());
@@ -679,12 +699,11 @@ export class MaxWebPageSession {
 
     const startedAt = Date.now();
     const deadline = Date.now() + MAX_HISTORY_WAIT_MS;
-    let messages: unknown[] = before;
     let previousFingerprint = "";
     let stableReads = 0;
     while (Date.now() <= deadline) {
       await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
-      messages = await this.readMessages(chatId);
+      const messages = await this.readMessages(chatId);
       const fingerprint = historyFingerprint(messages);
       if (fingerprint === previousFingerprint) {
         stableReads += 1;
@@ -700,9 +719,71 @@ export class MaxWebPageSession {
         break;
       }
     }
-    adapter.openChat(chatId);
-    adapter.replaceOpenHistory({ messages });
-    return adapter.openMessages;
+    return true;
+  }
+
+  /**
+   * Reads the per-participant read markers MAX keeps on a chat. There is no
+   * delivery status on a message, so these markers decide the tick a sent
+   * message gets.
+   */
+  private async readChatWireContext(
+    chatId: string
+  ): Promise<Readonly<{ readMarks: readonly number[] }>> {
+    const marks = await this.options.page.evaluate((input) => {
+      const accessorValue = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(input.accessorKey)];
+      if (typeof accessorValue !== "function") {
+        return [];
+      }
+      const accessor = accessorValue as () => {
+        viewer?: {
+          id?: unknown;
+          folders?: { all?: { chats?: unknown } };
+        };
+      };
+      const session = accessor();
+      const viewerId = scalarText(session.viewer?.id);
+      const source = session.viewer?.folders?.all?.chats;
+      const entries = source !== null
+        && typeof source === "object"
+        && Symbol.iterator in source
+        ? Array.from(source as Iterable<unknown>)
+        : [];
+      for (const entry of entries) {
+        const tuple = Array.isArray(entry) ? entry as unknown[] : undefined;
+        const candidate = tuple?.length === 2 ? tuple[1] : entry;
+        const chat = candidate !== null && typeof candidate === "object"
+          ? candidate as Record<string, unknown>
+          : undefined;
+        const raw = chat?.["$"] !== null && typeof chat?.["$"] === "object"
+          ? chat["$"] as Record<string, unknown>
+          : undefined;
+        const id = scalarText(chat?.["id"] ?? raw?.["id"] ?? tuple?.[0]);
+        if (id !== input.chatId) {
+          continue;
+        }
+        const participants = raw?.["participants"] ?? chat?.["participants"];
+        if (participants === null || typeof participants !== "object") {
+          return [];
+        }
+        return Object.entries(participants as Record<string, unknown>)
+          .filter(([participantId]) => participantId !== viewerId)
+          .map(([, value]) => (typeof value === "number" ? value : 0))
+          .filter((value) => Number.isSafeInteger(value) && value > 0);
+      }
+      return [];
+
+      function scalarText(value: unknown): string {
+        return typeof value === "string"
+          || typeof value === "number"
+          || typeof value === "bigint"
+          ? String(value)
+          : "";
+      }
+    }, { accessorKey: MAX_SESSION_ACCESSOR_KEY, chatId });
+    return { readMarks: marks };
   }
 
   async sendText(
@@ -717,7 +798,7 @@ export class MaxWebPageSession {
     if (textValue.length < 1 || textValue.length > 65_536) {
       throw new TypeError("Message is invalid");
     }
-    if (await this.history(chatId) === null) {
+    if (!await this.openChatForActions(chatId)) {
       throw new TypeError("Chat is unavailable");
     }
     if (replyToId !== undefined) {
@@ -762,47 +843,42 @@ export class MaxWebPageSession {
     if (textValue.length < 1 || textValue.length > 65_536) {
       throw new TypeError("Message is invalid");
     }
-    if (await this.history(chatId) === null) {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
       throw new TypeError("Chat is unavailable");
     }
-    const dialog = await this.openMessageMenu(chatId, messageId);
-    await this.clickMenuItem(dialog, "Редактировать");
-    const editor = this.options.page.locator(MAX_COMPOSER_SELECTOR).last();
-    await editor.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
-    await editor.fill(textValue);
-    await editor.press("Enter");
-    const confirmed = await this.waitForMessage(
-      chatId,
-      messageId,
-      (message) => message["text"] === textValue
-    );
+    await this.wire.request(67, {
+      chatId: wireChatId(chatId),
+      messageId: wireMessageId(messageId),
+      text: textValue,
+      elements: [],
+      attachments: []
+    });
     return {
-      state: confirmed ? "confirmed" : "ambiguous",
+      state: "confirmed",
       operationId: createOperationId()
     };
   }
 
   async deleteMessage(
     chatId: string,
-    messageId: string
+    messageId: string,
+    forEveryone = false
   ): Promise<Readonly<{
     state: "confirmed" | "ambiguous";
     operationId: string;
   }>> {
-    if (await this.history(chatId) === null) {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
       throw new TypeError("Chat is unavailable");
     }
-    const dialog = await this.openMessageMenu(chatId, messageId);
-    await this.clickMenuItem(dialog, "Удалить");
-    await this.confirmDestructiveAction(["Удалить", "Удалить у всех"]);
-    const confirmed = await this.waitForMessage(
-      chatId,
-      messageId,
-      (message) => message["deleted"] === true,
-      true
-    );
+    await this.wire.request(66, {
+      chatId: wireChatId(chatId),
+      messageIds: [wireMessageId(messageId)],
+      forMe: !forEveryone
+    });
     return {
-      state: confirmed ? "confirmed" : "ambiguous",
+      state: "confirmed",
       operationId: createOperationId()
     };
   }
@@ -822,7 +898,7 @@ export class MaxWebPageSession {
     ) {
       throw new TypeError("Forward destinations are invalid");
     }
-    if (await this.history(sourceChatId) === null) {
+    if (!await this.openChatForActions(sourceChatId)) {
       throw new TypeError("Chat is unavailable");
     }
     const chats = await this.listChats();
@@ -913,43 +989,28 @@ export class MaxWebPageSession {
   async setReaction(
     chatId: string,
     messageId: string,
-    reaction: MaxReactionKey | null
+    reaction: string | null
   ): Promise<Readonly<{
     state: "confirmed" | "ambiguous";
     operationId: string;
   }>> {
-    if (await this.history(chatId) === null) {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
       throw new TypeError("Chat is unavailable");
     }
-    const dialog = await this.openMessageMenu(chatId, messageId);
-    const reactionButtons = dialog.locator("button.reaction");
-    const count = await reactionButtons.count();
-    if (count < 1) {
-      throw new Error("MAX reactions are unavailable");
-    }
-    const current = await this.readSelectedReaction(chatId, messageId);
-    const requested = reaction ?? current;
-    if (requested === undefined) {
-      await dialog.press("Escape");
-      return {
-        state: "confirmed",
-        operationId: createOperationId()
-      };
-    }
-    const index = MAX_REACTION_ORDER.indexOf(requested);
-    if (index < 0 || index >= count) {
-      await dialog.press("Escape");
-      throw new TypeError("Reaction is unsupported");
-    }
-    await reactionButtons.nth(index).click({ timeout: MAX_ACTION_WAIT_MS });
-    const expected = reaction === null ? undefined : reaction;
-    const confirmed = await this.waitForSelectedReaction(
-      chatId,
-      messageId,
-      expected
-    );
+    const target = {
+      chatId: wireChatId(chatId),
+      messageId: wireMessageId(messageId)
+    };
+    // Opcode 178 sets a reaction, 179 withdraws the viewer's own one.
+    await (reaction === null
+      ? this.wire.request(179, target)
+      : this.wire.request(178, {
+        ...target,
+        reaction: { reactionType: "EMOJI", id: reaction }
+      }));
     return {
-      state: confirmed ? "confirmed" : "ambiguous",
+      state: "confirmed",
       operationId: createOperationId()
     };
   }
@@ -1002,7 +1063,7 @@ export class MaxWebPageSession {
     id: string;
     previewDataUrl: string;
   }>[]> {
-    if (await this.history(chatId) === null) {
+    if (!await this.openChatForActions(chatId)) {
       throw new TypeError("Chat is unavailable");
     }
     const dialog = await this.openStickerPanel();
@@ -1064,7 +1125,7 @@ export class MaxWebPageSession {
     if (!/^[A-Za-z0-9_-]{1,128}$/u.test(stickerId)) {
       throw new TypeError("Sticker is invalid");
     }
-    if (await this.history(chatId) === null) {
+    if (!await this.openChatForActions(chatId)) {
       throw new TypeError("Chat is unavailable");
     }
     const dialog = await this.openStickerPanel();
@@ -1105,7 +1166,7 @@ export class MaxWebPageSession {
     messageId?: string;
   }>> {
     const filePath = await validateTransientFile(input.filePath);
-    if (await this.history(input.chatId) === null) {
+    if (!await this.openChatForActions(input.chatId)) {
       throw new TypeError("Chat is unavailable");
     }
     return this.sendAttachmentThroughUi(filePath, input.kind);
@@ -1391,73 +1452,6 @@ export class MaxWebPageSession {
     const confirmation = dialogs.last();
     await confirmation.press("Escape").catch(() => undefined);
     throw new Error("MAX confirmation is unavailable");
-  }
-
-  private async waitForMessage(
-    chatId: string,
-    messageId: string,
-    predicate: (message: Record<string, unknown>) => boolean,
-    acceptMissing = false
-  ): Promise<boolean> {
-    const deadline = Date.now() + MAX_ACTION_WAIT_MS;
-    while (Date.now() <= deadline) {
-      const messages = await this.readMessages(chatId);
-      const message = messages
-        .map(asRecord)
-        .find((candidate) => opaqueId(candidate?.["id"]) === messageId);
-      if (message === undefined) {
-        if (acceptMissing) {
-          return true;
-        }
-      } else if (predicate(message)) {
-        return true;
-      }
-      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
-    }
-    return false;
-  }
-
-  private async readSelectedReaction(
-    chatId: string,
-    messageId: string
-  ): Promise<MaxReactionKey | undefined> {
-    const messages = await this.readMessages(chatId);
-    const message = messages
-      .map(asRecord)
-      .find((candidate) => opaqueId(candidate?.["id"]) === messageId);
-    const reactions = Array.isArray(message?.["reactions"])
-      ? message["reactions"] as unknown[]
-      : [];
-    for (const value of reactions) {
-      const reaction = asRecord(value);
-      const key = reaction?.["key"];
-      if (
-        reaction?.["selectedByMe"] === true
-        && typeof key === "string"
-        && isMaxReactionKey(key)
-      ) {
-        return key;
-      }
-    }
-    return undefined;
-  }
-
-  private async waitForSelectedReaction(
-    chatId: string,
-    messageId: string,
-    expected: MaxReactionKey | undefined
-  ): Promise<boolean> {
-    const deadline = Date.now() + MAX_ACTION_WAIT_MS;
-    while (Date.now() <= deadline) {
-      if (
-        await this.readSelectedReaction(chatId, messageId)
-        === expected
-      ) {
-        return true;
-      }
-      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
-    }
-    return false;
   }
 
   private readChatDomIndex(
@@ -2616,16 +2610,28 @@ export class MaxWebPageSession {
   }
 }
 
-function isMaxReactionKey(value: string): value is MaxReactionKey {
-  return (MAX_REACTION_ORDER as readonly string[]).includes(value);
-}
-
 function createOperationId(): string {
   const suffix = randomBytes(8).readBigUInt64BE();
   return (
     BigInt(Date.now()) * 10_000_000_000_000_000n
     + suffix % 10_000_000_000_000_000n
   ).toString();
+}
+
+function wireChatId(chatId: string): number | bigint {
+  if (!/^-?\d{1,19}$/u.test(chatId)) {
+    throw new TypeError("Chat is unavailable");
+  }
+  const numeric = Number(chatId);
+  return Number.isSafeInteger(numeric) ? numeric : BigInt(chatId);
+}
+
+function wireMessageId(messageId: string): number | bigint {
+  if (!/^-?\d{1,19}$/u.test(messageId)) {
+    throw new TypeError("Message is unavailable");
+  }
+  const numeric = Number(messageId);
+  return Number.isSafeInteger(numeric) ? numeric : BigInt(messageId);
 }
 
 function chatIdFromPageUrl(value: string): string | undefined {

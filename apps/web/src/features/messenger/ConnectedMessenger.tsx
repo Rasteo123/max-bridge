@@ -21,7 +21,7 @@ import type {
   MessengerMessage,
   MessengerReaction,
   MessengerTheme,
-  ReactionKey
+  ReactionEmoji
 } from "./types.js";
 import { useLiveEvents } from "./useLiveEvents.js";
 
@@ -282,12 +282,12 @@ export function ConnectedMessenger({
     await refreshHistory(chatId);
   }
 
-  async function deleteMessage(messageId: string) {
+  async function deleteMessage(messageId: string, forEveryone: boolean) {
     const chatId = store.getSnapshot().selectedChatId;
     if (chatId === undefined) {
       return;
     }
-    await client.deleteMessage(chatId, messageId);
+    await client.deleteMessage(chatId, messageId, forEveryone);
     store.applyEvent({
       type: "message.deleted",
       sequence: 0,
@@ -315,7 +315,7 @@ export function ConnectedMessenger({
 
   async function reactMessage(
     messageId: string,
-    reaction: ReactionKey | null
+    reaction: ReactionEmoji | null
   ) {
     const chatId = store.getSnapshot().selectedChatId;
     if (chatId === undefined) {
@@ -477,8 +477,8 @@ export function ConnectedMessenger({
         onEditMessage={(messageId, text) => {
           void runAction(() => editMessage(messageId, text));
         }}
-        onDeleteMessage={(messageId) => {
-          void runAction(() => deleteMessage(messageId));
+        onDeleteMessage={(messageId, forEveryone) => {
+          void runAction(() => deleteMessage(messageId, forEveryone));
         }}
         onForwardMessage={forwardMessage}
         onReactMessage={(messageId, reaction) => {
@@ -598,9 +598,11 @@ function readReactions(value: unknown): readonly MessengerReaction[] {
       return [];
     }
     const record = item as Record<string, unknown>;
+    const emoji = record["emoji"];
     if (
-      !isReactionKey(record["key"]) ||
-      typeof record["emoji"] !== "string" ||
+      typeof emoji !== "string" ||
+      emoji.length < 1 ||
+      emoji.length > 32 ||
       typeof record["count"] !== "number" ||
       !Number.isInteger(record["count"]) ||
       record["count"] < 1 ||
@@ -609,18 +611,11 @@ function readReactions(value: unknown): readonly MessengerReaction[] {
       return [];
     }
     return [{
-      key: record["key"],
-      emoji: record["emoji"],
+      emoji,
       count: record["count"],
       selectedByMe: record["selectedByMe"]
     }];
   });
-}
-
-function isReactionKey(value: unknown): value is ReactionKey {
-  return value === "like" || value === "heart" ||
-    value === "laugh" || value === "fire" ||
-    value === "cry" || value === "celebrate";
 }
 
 function messageKind(value: unknown): NonNullable<MessengerMessage["kind"]> {
