@@ -36,7 +36,15 @@ function installHook() {
 
   // Symbol-keyed globals do not surface on the sandbox object, so the hook is
   // always reached from inside the context.
-  const context = createContext({ WebSocket: FakeWebSocket });
+  const listeners: string[] = [];
+  const document = {
+    visibilityState: "hidden",
+    hidden: true,
+    addEventListener: (type: string) => {
+      listeners.push(type);
+    }
+  };
+  const context = createContext({ WebSocket: FakeWebSocket, document });
   const sender = `globalThis[Symbol.for(${
     JSON.stringify(MAX_WIRE_SEND_KEY)
   })]`;
@@ -45,6 +53,7 @@ function installHook() {
     outcome,
     context,
     sockets,
+    listeners,
     reinstall: (): string =>
       runInContext(MAX_WIRE_INIT_SCRIPT, context) as string,
     run: (source: string): unknown => runInContext(source, context),
@@ -112,6 +121,14 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
 
     expect(hook.send([7])).toBe("sent");
     expect(hook.run("legacy.sent.length")).toBe(2);
+  });
+
+  it("keeps the tab reported as visible so MAX holds the socket open", () => {
+    const hook = installHook();
+
+    expect(hook.run("document.visibilityState")).toBe("visible");
+    expect(hook.run("document.hidden")).toBe(false);
+    expect(hook.listeners).toContain("visibilitychange");
   });
 
   it("stays inert when installed twice", () => {

@@ -30,6 +30,22 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
   var Native = globalThis.WebSocket;
   var nativeSend = Native.prototype.send;
   var socket = null;
+  // A bridge tab is never looked at, and MAX drops its socket once it decides
+  // the tab is in the background. Pin it visible so the connection survives
+  // between requests.
+  try {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: function () { return "visible"; }
+    });
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: function () { return false; }
+    });
+    document.addEventListener("visibilitychange", function (event) {
+      event.stopImmediatePropagation();
+    }, true);
+  } catch (error) { void error; }
   function remember(candidate, url) {
     try {
       if (typeof url === "string" && url.indexOf(origin) === 0) {
