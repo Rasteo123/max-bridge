@@ -666,18 +666,20 @@ export class MaxWebPageSession {
       return await this.wireHistory(adapter, chatId);
     } catch (error: unknown) {
       const stage = describeWireFailure(error);
-      // A closed socket usually means the MAX tab has been sitting idle;
-      // reloading reconnects it. One retry, then the rendered fallback.
+      // Snapshot before touching the page, otherwise the recovery below is all
+      // the snapshot ends up describing.
+      const before = await this.describePageState();
       if (error instanceof MaxWireError && error.reason === "unavailable") {
         try {
-          await this.options.page.reload({ waitUntil: "domcontentloaded" });
+          await this.restartMaxApp();
           return await this.wireHistory(adapter, chatId);
         } catch (retryError: unknown) {
           process.stderr.write(`${JSON.stringify({
             event: "max_wire_history_failed",
             stage,
+            before,
             afterReload: describeWireFailure(retryError),
-            page: await this.describePageState()
+            after: await this.describePageState()
           })}\n`);
           return this.renderedHistory(chatId);
         }
@@ -688,9 +690,36 @@ export class MaxWebPageSession {
       process.stderr.write(`${JSON.stringify({
         event: "max_wire_history_failed",
         stage,
-        page: await this.describePageState()
+        before
       })}\n`);
       return this.renderedHistory(chatId);
+    }
+  }
+
+  /**
+   * Reloads the MAX tab and waits for its application to come back up. A
+   * reload alone is not enough: the retry would land while the bundle is still
+   * booting and see no socket at all.
+   */
+  private async restartMaxApp(): Promise<void> {
+    this.bindings = undefined;
+    await this.options.page.goto(MAX_WEB_URL, {
+      waitUntil: "domcontentloaded"
+    });
+    const deadline = Date.now() + MAX_SESSION_READY_WAIT_MS;
+    for (;;) {
+      const ready = await this.options.page.evaluate((accessorKey) =>
+        typeof (
+          globalThis as Record<PropertyKey, unknown>
+        )[Symbol.for(accessorKey)] === "function",
+      MAX_SESSION_ACCESSOR_KEY);
+      if (ready) {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("MAX application did not start");
+      }
+      await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
     }
   }
 

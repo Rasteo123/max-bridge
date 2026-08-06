@@ -49,12 +49,16 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
     return nativeSend.call(this, data);
   };
   globalThis[key] = function (bytes) {
-    if (socket === null || socket.readyState !== 1) { return false; }
+    if (socket === null) { return "absent"; }
+    if (socket.readyState !== 1) { return "closed"; }
     nativeSend.call(socket, new Uint8Array(bytes).buffer);
-    return true;
+    return "sent";
   };
   return "installed"
 })()`;
+
+/** What the in-page sender reports back for a single attempt. */
+export type WireSendOutcome = "sent" | "absent" | "closed" | "unhooked";
 
 export class MaxWireError extends Error {
   constructor(
@@ -161,11 +165,11 @@ export class MaxWireClient {
             globalThis as Record<PropertyKey, unknown>
           )[Symbol.for(input.key)];
           if (typeof send !== "function") {
-            return "missing";
+            return "unhooked" as const;
           }
-          return (send as (value: readonly number[]) => boolean)(input.bytes)
-            ? "sent"
-            : "closed";
+          return (
+            send as (value: readonly number[]) => WireSendOutcome
+          )(input.bytes);
         },
         { key: MAX_WIRE_SEND_KEY, bytes }
       );
@@ -173,15 +177,15 @@ export class MaxWireClient {
         return;
       }
       // A page that was already loaded when the session attached never ran the
-      // init script, so install the hook in place and let the next client ping
-      // hand us the socket.
-      if (outcome === "missing" && !installed) {
+      // init script, so install the hook in place and let the next socket the
+      // client opens hand itself over.
+      if (outcome === "unhooked" && !installed) {
         installed = true;
         await this.page.evaluate(MAX_WIRE_INIT_SCRIPT);
       }
       if (Date.now() >= deadline) {
         throw new MaxWireError(
-          `MAX socket is ${outcome === "missing" ? "unhooked" : "closed"}`,
+          `MAX socket is ${outcome}`,
           "unavailable"
         );
       }

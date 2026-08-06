@@ -55,11 +55,11 @@ function installHook() {
         `new WebSocket(${JSON.stringify(url)})`,
         context
       ) as FakeSocket,
-    send: (bytes: readonly number[]): boolean =>
+    send: (bytes: readonly number[]): string =>
       runInContext(
         `${sender}(${JSON.stringify(bytes)})`,
         context
-      ) as boolean
+      ) as string
   };
 }
 
@@ -77,7 +77,7 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
 
     // No send has happened yet: capture-on-construct is the whole point,
     // because MAX only pings every thirty seconds or so.
-    expect(hook.send([1, 2, 3])).toBe(true);
+    expect(hook.send([1, 2, 3])).toBe("sent");
     expect(socket.sent).toHaveLength(1);
     expect([...new Uint8Array(socket.sent[0] as ArrayBuffer)])
       .toEqual([1, 2, 3]);
@@ -87,7 +87,7 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
     const hook = installHook();
     hook.connect("wss://telemetry.example.com/socket");
 
-    expect(hook.send([1])).toBe(false);
+    expect(hook.send([1])).toBe("absent");
   });
 
   it("reports a closed socket instead of sending into it", () => {
@@ -95,7 +95,7 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
     const socket = hook.connect(`${MAX_SOCKET_ORIGIN}/websocket`);
     socket.readyState = 3;
 
-    expect(hook.send([1])).toBe(false);
+    expect(hook.send([1])).toBe("closed");
   });
 
   it("also recovers a socket that only reveals itself by sending", () => {
@@ -110,7 +110,7 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
       legacy.send(new Uint8Array([9]).buffer)
     `);
 
-    expect(hook.send([7])).toBe(true);
+    expect(hook.send([7])).toBe("sent");
     expect(hook.run("legacy.sent.length")).toBe(2);
   });
 
