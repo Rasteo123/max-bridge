@@ -2657,7 +2657,7 @@ function wireChatId(chatId: string): number | bigint {
  */
 function describeWireFailure(error: unknown): string {
   if (error instanceof MaxWireError) {
-    return `wire_${error.reason}`;
+    return `wire_${error.reason}: ${error.message}`;
   }
   if (!(error instanceof Error)) {
     return "unknown";

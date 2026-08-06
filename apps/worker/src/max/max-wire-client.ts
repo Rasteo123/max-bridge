@@ -10,35 +10,51 @@ export const MAX_SOCKET_ORIGIN = "wss://api.oneme.ru";
 const REQUEST_COMMAND = 0;
 const RESPONSE_COMMAND = 1;
 const DEFAULT_TIMEOUT_MS = 12_000;
-const SOCKET_WAIT_MS = 8_000;
+const SOCKET_WAIT_MS = 15_000;
 const SOCKET_POLL_MS = 100;
 // The MAX client numbers its own frames from 1 upward, so bridge requests use
 // a high band that it will not reach within a connection.
 const FIRST_SEQUENCE = 40_000;
 const LAST_SEQUENCE = 60_000;
 
-// Installed before the MAX bundle runs so the authenticated socket is captured
-// the first time the client sends anything on it.
+// Installed before the MAX bundle runs. The socket is claimed as it is
+// constructed rather than on its first send: MAX pings roughly every thirty
+// seconds, so waiting for traffic would routinely miss the whole window.
+// Patching `send` as well recovers the socket on a page that was already
+// running when the session attached.
+// Evaluated as an expression, so it must not end in a semicolon.
 export const MAX_WIRE_INIT_SCRIPT = `(() => {
   var key = Symbol.for(${JSON.stringify(MAX_WIRE_SEND_KEY)});
-  if (globalThis[key] !== undefined) { return; }
+  if (globalThis[key] !== undefined) { return "present"; }
   var origin = ${JSON.stringify(MAX_SOCKET_ORIGIN)};
+  var Native = globalThis.WebSocket;
+  var nativeSend = Native.prototype.send;
   var socket = null;
-  var send = WebSocket.prototype.send;
-  WebSocket.prototype.send = function (data) {
+  function remember(candidate, url) {
     try {
-      if (typeof this.url === "string" && this.url.indexOf(origin) === 0) {
-        socket = this;
+      if (typeof url === "string" && url.indexOf(origin) === 0) {
+        socket = candidate;
       }
     } catch (error) { void error; }
-    return send.call(this, data);
+  }
+  globalThis.WebSocket = new Proxy(Native, {
+    construct: function (target, args) {
+      var instance = Reflect.construct(target, args);
+      remember(instance, args[0]);
+      return instance;
+    }
+  });
+  Native.prototype.send = function (data) {
+    remember(this, this.url);
+    return nativeSend.call(this, data);
   };
   globalThis[key] = function (bytes) {
     if (socket === null || socket.readyState !== 1) { return false; }
-    send.call(socket, new Uint8Array(bytes).buffer);
+    nativeSend.call(socket, new Uint8Array(bytes).buffer);
     return true;
   };
-})();`;
+  return "installed"
+})()`;
 
 export class MaxWireError extends Error {
   constructor(
