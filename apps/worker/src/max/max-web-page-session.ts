@@ -663,28 +663,88 @@ export class MaxWebPageSession {
       return null;
     }
     try {
-      const context = await this.readChatWireContext(chatId);
-      const payload = await this.wire.request(49, {
-        chatId: wireChatId(chatId),
-        from: Date.now(),
-        forward: 0,
-        backward: MAX_HISTORY_PAGE_SIZE,
-        getMessages: true
-      });
-      adapter.openChat(chatId);
-      adapter.replaceOpenWireHistory(payload, {
-        readMarks: context.readMarks
-      });
-      return adapter.openMessages;
+      return await this.wireHistory(adapter, chatId);
     } catch (error: unknown) {
+      const stage = describeWireFailure(error);
+      // A closed socket usually means the MAX tab has been sitting idle;
+      // reloading reconnects it. One retry, then the rendered fallback.
+      if (error instanceof MaxWireError && error.reason === "unavailable") {
+        try {
+          await this.options.page.reload({ waitUntil: "domcontentloaded" });
+          return await this.wireHistory(adapter, chatId);
+        } catch (retryError: unknown) {
+          process.stderr.write(`${JSON.stringify({
+            event: "max_wire_history_failed",
+            stage,
+            afterReload: describeWireFailure(retryError),
+            page: await this.describePageState()
+          })}\n`);
+          return this.renderedHistory(chatId);
+        }
+      }
       // The protocol path is the only one that reads messages correctly, but a
       // failure must not leave the chat empty: fall back to the client's own
       // rendered history and report why, so the cause is visible in the logs.
       process.stderr.write(`${JSON.stringify({
         event: "max_wire_history_failed",
-        stage: describeWireFailure(error)
+        stage,
+        page: await this.describePageState()
       })}\n`);
       return this.renderedHistory(chatId);
+    }
+  }
+
+  private async wireHistory(
+    adapter: MaxSession,
+    chatId: string
+  ): Promise<readonly Message[]> {
+    const context = await this.readChatWireContext(chatId);
+    const payload = await this.wire.request(49, {
+      chatId: wireChatId(chatId),
+      from: Date.now(),
+      forward: 0,
+      backward: MAX_HISTORY_PAGE_SIZE,
+      getMessages: true
+    });
+    adapter.openChat(chatId);
+    adapter.replaceOpenWireHistory(payload, {
+      readMarks: context.readMarks
+    });
+    return adapter.openMessages;
+  }
+
+  /**
+   * A content-free snapshot of what the MAX tab is showing, so a failure can
+   * be told apart from a signed-out session without reading any messages.
+   */
+  private async describePageState(): Promise<Readonly<{
+    path: string;
+    hasComposer: boolean;
+    hasLogin: boolean;
+    sessionBinding: boolean;
+  }>> {
+    try {
+      return await this.options.page.evaluate((input) => ({
+        path: location.pathname.length > 24
+          ? "long"
+          : location.pathname,
+        hasComposer: document.querySelector(input.composer) !== null,
+        hasLogin: document.querySelector('input[type="tel"]') !== null
+          || /\/login/u.test(location.pathname),
+        sessionBinding: typeof (
+          globalThis as Record<PropertyKey, unknown>
+        )[Symbol.for(input.accessorKey)] === "function"
+      }), {
+        composer: MAX_COMPOSER_SELECTOR,
+        accessorKey: MAX_SESSION_ACCESSOR_KEY
+      });
+    } catch {
+      return {
+        path: "unavailable",
+        hasComposer: false,
+        hasLogin: false,
+        sessionBinding: false
+      };
     }
   }
 
