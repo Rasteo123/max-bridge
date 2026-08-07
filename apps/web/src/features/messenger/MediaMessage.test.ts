@@ -217,8 +217,36 @@ describe("message media URLs", () => {
     });
   });
 
-  it("rejects a handle response with a mismatched MIME type", async () => {
+  it("rejects a handle response of an entirely different kind", async () => {
     const createObjectURL = vi.fn(() => "blob:wrong");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(
+      new Blob(["<html>"], { type: "text/html" }),
+      { status: 200, headers: { "content-type": "text/html" } }
+    ))));
+
+    render(
+      createElement(MediaMessage, {
+        kind: "image",
+        media: {
+          handle: "image_handle",
+          mimeType: "image/jpeg",
+          size: 64
+        }
+      })
+    );
+
+    expect(await screen.findByText("Медиа недоступно")).toBeVisible();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  // MAX stores whichever subtype it likes and states no size for a video, so
+  // neither can be demanded of the response.
+  it("accepts another subtype of the same kind", async () => {
+    const createObjectURL = vi.fn(() => "blob:ok");
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
       value: createObjectURL
@@ -239,8 +267,36 @@ describe("message media URLs", () => {
       })
     );
 
-    expect(await screen.findByText("Медиа недоступно")).toBeVisible();
-    expect(createObjectURL).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("accepts a video whose size MAX never stated", async () => {
+    const createObjectURL = vi.fn(() => "blob:video");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(
+      new Blob(["x".repeat(200_000)], { type: "video/mp4" }),
+      { status: 200, headers: { "content-type": "video/mp4" } }
+    ))));
+
+    render(
+      createElement(MediaMessage, {
+        kind: "video",
+        media: {
+          handle: "video_handle",
+          mimeType: "video/mp4",
+          size: 0
+        }
+      })
+    );
+
+    await waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalledOnce();
+    });
   });
 
   it("requests Telegram fullscreen synchronously only from a supported click", async () => {

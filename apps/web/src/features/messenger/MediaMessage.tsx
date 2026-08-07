@@ -155,6 +155,14 @@ export type ResolvedMediaUrl = Readonly<{
   revoke: boolean;
 }>;
 
+const SIZE_TOLERANCE_BYTES = 1_024;
+const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
+
+/** The part of a MIME type that decides how the bytes will be rendered. */
+function mediaCategory(mime: string): string {
+  return mime.split("/")[0] ?? "";
+}
+
 export async function resolveMediaUrl(
   media: MessengerMedia,
   signal?: AbortSignal
@@ -177,14 +185,24 @@ export async function resolveMediaUrl(
     throw new Error("media_unavailable");
   }
   const blob = await response.blob();
-  if (blob.size > Math.max(media.size, 1) + 1_024) {
+  // MAX states no size for a video, so a declared zero means "unknown" and
+  // only the transfer ceiling applies.
+  const ceiling = media.size > 0
+    ? media.size + SIZE_TOLERANCE_BYTES
+    : MAX_MEDIA_BYTES;
+  if (blob.size > ceiling) {
     throw new Error("media_size_mismatch");
   }
   const expectedMime = normalizedMime(media.mimeType);
   const actualMime = normalizedMime(
     blob.type || response.headers.get("content-type") || ""
   );
-  if (expectedMime.length === 0 || actualMime !== expectedMime) {
+  // The subtype is whatever MAX stored; what matters is that a video did not
+  // arrive where an image was expected.
+  if (
+    expectedMime.length === 0
+    || mediaCategory(actualMime) !== mediaCategory(expectedMime)
+  ) {
     throw new Error("media_mime_mismatch");
   }
   return {
