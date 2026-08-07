@@ -46,11 +46,24 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
       event.stopImmediatePropagation();
     }, true);
   } catch (error) { void error; }
+  var lastClose = null;
   function remember(candidate, url) {
     try {
-      if (typeof url === "string" && url.indexOf(origin) === 0) {
-        socket = candidate;
+      if (typeof url !== "string" || url.indexOf(origin) !== 0) { return; }
+      if (socket !== candidate) {
+        // Recording the close is diagnostic; never let it cost us the socket.
+        try {
+          candidate.addEventListener("close", function (event) {
+            lastClose = {
+              code: event.code,
+              reason: String(event.reason || "").slice(0, 200),
+              wasClean: event.wasClean,
+              at: Date.now()
+            };
+          });
+        } catch (listenerError) { void listenerError; }
       }
+      socket = candidate;
     } catch (error) { void error; }
   }
   globalThis.WebSocket = new Proxy(Native, {
@@ -65,6 +78,9 @@ export const MAX_WIRE_INIT_SCRIPT = `(() => {
     return nativeSend.call(this, data);
   };
   globalThis[key] = function (bytes) {
+    // Asked for before the socket checks: the close record matters most
+    // exactly when there is no usable socket left.
+    if (bytes === "lastClose") { return lastClose; }
     if (socket === null) { return "absent"; }
     if (socket.readyState === 0) { return "connecting"; }
     if (socket.readyState === 2) { return "closing"; }
@@ -181,6 +197,18 @@ export class MaxWireClient {
       return (send as (value: readonly number[] | null) => WireSendOutcome)(
         null
       );
+    }, MAX_WIRE_SEND_KEY);
+  }
+
+  /** How MAX last closed its socket, when it did. */
+  lastClose(): Promise<unknown> {
+    return this.page.evaluate((key) => {
+      const send = (
+        globalThis as Record<PropertyKey, unknown>
+      )[Symbol.for(key)];
+      return typeof send === "function"
+        ? (send as (value: string) => unknown)("lastClose")
+        : null;
     }, MAX_WIRE_SEND_KEY);
   }
 

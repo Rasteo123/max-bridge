@@ -731,6 +731,7 @@ export class MaxWebPageSession {
             stage,
             trail,
             before,
+            lastClose: await this.wire.lastClose(),
             afterReload: describeWireFailure(retryError),
             after: await this.describePageState()
           })}\n`);
@@ -807,6 +808,7 @@ export class MaxWebPageSession {
         trail.push(`history:ok:${String(Date.now() - startedAt)}ms`);
       } catch (error: unknown) {
         trail.push(`history:${describeWireFailure(error)}`);
+        trail.push(`close:${JSON.stringify(await this.wire.lastClose())}`);
       }
       return trail.join(" ");
     } catch (error: unknown) {

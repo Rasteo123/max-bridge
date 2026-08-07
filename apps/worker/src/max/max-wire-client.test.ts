@@ -11,6 +11,8 @@ type FakeSocket = {
   url: string;
   readyState: number;
   sent: ArrayBuffer[];
+  closeListeners: ((event: unknown) => void)[];
+  addEventListener(type: string, listener: (event: unknown) => void): void;
   send(data: ArrayBuffer): void;
 };
 
@@ -23,10 +25,17 @@ function installHook() {
   class FakeWebSocket implements FakeSocket {
     static readonly OPEN = 1;
     readonly sent: ArrayBuffer[] = [];
+    readonly closeListeners: ((event: unknown) => void)[] = [];
     readyState = 1;
 
     constructor(readonly url: string) {
       sockets.push(this);
+    }
+
+    addEventListener(type: string, listener: (event: unknown) => void): void {
+      if (type === "close") {
+        this.closeListeners.push(listener);
+      }
     }
 
     send(data: ArrayBuffer): void {
@@ -64,6 +73,8 @@ function installHook() {
         `new WebSocket(${JSON.stringify(url)})`,
         context
       ) as FakeSocket,
+    lastClose: (): unknown =>
+      runInContext(`${sender}("lastClose")`, context),
     send: (bytes: readonly number[]): string =>
       runInContext(
         `${sender}(${JSON.stringify(bytes)})`,
@@ -129,6 +140,24 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
     expect(hook.run("document.visibilityState")).toBe("visible");
     expect(hook.run("document.hidden")).toBe(false);
     expect(hook.listeners).toContain("visibilitychange");
+  });
+
+  it("records how MAX closed the socket", () => {
+    const hook = installHook();
+    const socket = hook.connect(`${MAX_SOCKET_ORIGIN}/websocket`);
+
+    expect(hook.lastClose()).toBeNull();
+
+    socket.readyState = 3;
+    for (const listener of socket.closeListeners) {
+      listener({ code: 1008, reason: "policy", wasClean: false });
+    }
+
+    expect(hook.lastClose()).toMatchObject({
+      code: 1008,
+      reason: "policy",
+      wasClean: false
+    });
   });
 
   it("stays inert when installed twice", () => {
