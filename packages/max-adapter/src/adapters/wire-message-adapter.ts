@@ -10,6 +10,7 @@ import { MaxCompatibilityError } from "./errors.js";
 import type { RuntimeMediaAdapter } from "./media-adapter.js";
 import {
   asWireRecord,
+  boundedInteger,
   boundedText,
   optionalWireRecord,
   readOpaqueId,
@@ -31,6 +32,8 @@ export type WireMessageContext = Readonly<{
    */
   readMarks?: readonly number[];
   senderNames?: ReadonlyMap<string, string>;
+  /** Comment totals per post id, as returned by opcode 91 for channels. */
+  commentCounts?: ReadonlyMap<string, number>;
 }>;
 
 const SUPPORTED_MEDIA_TYPES = new Set([
@@ -74,6 +77,14 @@ export function adaptWireHistoryMessage(
   const type = readWireString(message, "type")?.toUpperCase();
   // A forwarded message is an empty shell: its text, attachments and
   // formatting all live on the message carried inside `link`.
+  const views = boundedInteger(
+    readWireNumber(optionalWireRecord(message["stats"]) ?? {}, "views"),
+    0,
+    1_000_000_000
+  ) || undefined;
+  const commentCount = context.commentCounts?.get(
+    readOpaqueId(message, "id") ?? ""
+  );
   const forward = forwardedLink(message);
   const content = forward?.content ?? message;
   const attachments = readWireArray(content, "attaches") ?? [];
@@ -107,7 +118,9 @@ export function adaptWireHistoryMessage(
     ...(textLinks.length === 0 ? {} : { textLinks }),
     ...(adaptReactionInfo(message["reactionInfo"]).length === 0
       ? {}
-      : { reactions: adaptReactionInfo(message["reactionInfo"]) })
+      : { reactions: adaptReactionInfo(message["reactionInfo"]) }),
+    ...(views === undefined ? {} : { views }),
+    ...(commentCount === undefined ? {} : { commentCount })
   };
 
   if (attachmentType === "CONTROL" || type?.includes("CONTROL") === true) {

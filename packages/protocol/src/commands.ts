@@ -12,6 +12,7 @@ export const WORKER_OPERATIONS = [
   "chats.list",
   "chats.search",
   "messages.history",
+  "messages.comments",
   "message.send",
   "message.sendAttachment",
   "message.edit",

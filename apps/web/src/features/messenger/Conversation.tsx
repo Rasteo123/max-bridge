@@ -47,6 +47,7 @@ type ConversationProps = Readonly<{
   onDeleteMessage?(messageId: string, forEveryone: boolean): void;
   onForwardMessage?(message: MessengerMessage): void;
   onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
+  onOpenComments?(message: MessengerMessage): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -79,6 +80,7 @@ export function Conversation({
   onDeleteMessage,
   onForwardMessage,
   onReactMessage,
+  onOpenComments,
   onOpenForwardedSource,
   onLoadStickers,
   onSendSticker
@@ -323,6 +325,9 @@ export function Conversation({
                 {...(onReactMessage === undefined
                   ? {}
                   : { onReact: onReactMessage })}
+                {...(onOpenComments === undefined
+                  ? {}
+                  : { onOpenComments })}
                 {...(onOpenForwardedSource === undefined
                   ? {}
                   : { onOpenForwardedSource })}

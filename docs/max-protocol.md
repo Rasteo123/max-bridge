@@ -32,6 +32,8 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 49 | out | `{chatId, from: <epoch мс>, forward: int, backward: int, getMessages: true}` | `{messages: [...]}` — история. Пагинация по `from`, курсора и `hasMore` НЕТ. |
 | 48 | out | `{chatIds: [int]}` | чаты по идентификаторам |
 | 60 | out | `{query, count, type: "ALL"}` | `{result: [{chat: {...}, highlights: [...]}], total, marker, ucpQId}` — **глобальный поиск** по каналам и чатам |
+| 91 | out | `{chatId, postIds}` | `{commentsInfoUpdates: [{postId, commentsInfo: {totalCount}}]}` — счётчики комментариев к постам канала |
+| 180 | out | `{chatId, messageIds}` | `{messagesReactions: {<messageId>: {counters, totalCount}}}` — массовое обновление реакций; в канале клиент дополняет им уже полученную историю |
 | 64 | out | `{chatId, message: {text, cid, elements: [], attaches: []}, notify}` | `{message: {...}}` — отправка. `cid` — отрицательный клиентский идентификатор |
 | 68 | out | `{query, count}` | `{result, ucpQId}` — поиск по своим чатам и контактам |
 | 65 | out | `{chatId, type: "TEXT"}` | уведомление «печатает» |
@@ -54,7 +56,25 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 и `options` — объект флагов, где **`OFFICIAL` означает верификацию канала**,
 а `COMMENTS` — включены ли комментарии к постам.
 
-Не разобрано: комментарии к постам каналов.
+## Комментарии к постам канала
+
+Отдельного опкода у комментариев нет: это та же история (**49**) с добавленным
+`postId`. Ветка комментариев к посту `postId` запрашивается так:
+
+```
+49 → {chatId, postId, from, forward, backward, getMessages: true}
+```
+
+Ответ — обычный `{messages: [...]}`, где каждый комментарий имеет `sender`,
+`text` и `attaches`, то есть разбирается тем же адаптером, что и сообщения.
+
+Пост канала (`type: "CHANNEL"`) несёт сверх обычного сообщения:
+
+- `reactionInfo: {counters: [{reaction, count}], totalCount}` — реакции приходят
+  прямо в истории, **своей реакции в них нет**;
+- `stats: {views}` — число просмотров.
+
+Не разобрано: подписка на канал и отписка.
 
 ## Вложения (`attaches[]`)
 

@@ -107,6 +107,7 @@ export class MaxSession {
     options: Readonly<{
       readMarks?: readonly number[];
       senderNames?: ReadonlyMap<string, string>;
+      commentCounts?: ReadonlyMap<string, number>;
     }> = {}
   ): void {
     if (this.selectedChatId === undefined) {
@@ -121,7 +122,10 @@ export class MaxSession {
         : { readMarks: options.readMarks }),
       ...(options.senderNames === undefined
         ? {}
-        : { senderNames: options.senderNames })
+        : { senderNames: options.senderNames }),
+      ...(options.commentCounts === undefined
+        ? {}
+        : { commentCounts: options.commentCounts })
     });
     this.selectedMessages = [...messages]
       .sort((left, right) => left.sentAt.localeCompare(right.sentAt))

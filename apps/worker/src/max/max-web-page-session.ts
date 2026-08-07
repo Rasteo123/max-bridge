@@ -56,6 +56,7 @@ const MAX_STICKER_SETS = 8;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 const MEDIA_OWNER = "max-bridge-media";
 const MAX_SEARCH_RESULTS = 40;
+const MAX_COMMENT_PAGE_SIZE = 60;
 const MAX_RECIPIENT_LOOKUPS = 200;
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
@@ -921,10 +922,68 @@ export class MaxWebPageSession {
       backward: MAX_HISTORY_PAGE_SIZE,
       getMessages: true
     });
+    const commentCounts = await this.readCommentCounts(chatId, payload);
     adapter.openChat(chatId);
     adapter.replaceOpenWireHistory(payload, {
-      readMarks: context.readMarks
+      readMarks: context.readMarks,
+      ...(commentCounts === undefined ? {} : { commentCounts })
     });
+    return adapter.openMessages;
+  }
+
+  /**
+   * Channel posts show how many comments they carry, and MAX keeps that count
+   * outside the post: opcode 91 answers for a batch of post ids at once. Other
+   * chats have no comments, so they are not asked about.
+   */
+  private async readCommentCounts(
+    chatId: string,
+    payload: unknown
+  ): Promise<ReadonlyMap<string, number> | undefined> {
+    const chat = (await this.listChats()).find((entry) => entry.id === chatId);
+    if (chat?.kind !== "channel") {
+      return undefined;
+    }
+    const postIds = wireMessageIds(payload);
+    if (postIds.length === 0) {
+      return undefined;
+    }
+    const response = await this.wire
+      .request(91, {
+        chatId: wireChatId(chatId),
+        postIds
+      }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    return commentCountsFrom(response);
+  }
+
+  /**
+   * Comments live in the same history opcode as messages; a `postId` scopes it
+   * to the thread hanging off one channel post.
+   */
+  async comments(
+    chatId: string,
+    postId: string
+  ): Promise<readonly Message[] | null> {
+    const adapter = await this.ensureAdapter();
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
+      return null;
+    }
+    const post = wireChatId(postId);
+    if (typeof post !== "bigint" && typeof post !== "number") {
+      return null;
+    }
+    const payload = await this.wire.request(49, {
+      chatId: wireChatId(chatId),
+      postId: post,
+      from: Date.now(),
+      forward: 0,
+      backward: MAX_COMMENT_PAGE_SIZE,
+      getMessages: true
+    });
+    adapter.openChat(chatId);
+    adapter.replaceOpenWireHistory(payload, {});
     return adapter.openMessages;
   }
 
@@ -3005,6 +3064,47 @@ function stickerImageUrl(value: unknown): string | undefined {
 
 function readArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+/** Ids of every message in an opcode 49 response, in wire form. */
+function wireMessageIds(payload: unknown): readonly (number | bigint)[] {
+  const messages = asRecord(payload)?.["messages"];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  return messages.flatMap<number | bigint>((message) => {
+    const id: unknown = asRecord(message)?.["id"];
+    if (typeof id === "bigint") {
+      return [id];
+    }
+    return typeof id === "number" && Number.isSafeInteger(id) ? [id] : [];
+  }).slice(0, MAX_HISTORY_PAGE_SIZE);
+}
+
+/** Reads opcode 91's `commentsInfoUpdates` into a count per post id. */
+function commentCountsFrom(
+  payload: unknown
+): ReadonlyMap<string, number> | undefined {
+  const updates = asRecord(payload)?.["commentsInfoUpdates"];
+  if (!Array.isArray(updates)) {
+    return undefined;
+  }
+  const counts = new Map<string, number>();
+  for (const update of updates.slice(0, MAX_HISTORY_PAGE_SIZE)) {
+    const record = asRecord(update);
+    const postId = record?.["postId"];
+    const total = asRecord(record?.["commentsInfo"])?.["totalCount"];
+    if (
+      (typeof postId !== "number" && typeof postId !== "bigint")
+      || typeof total !== "number"
+      || !Number.isSafeInteger(total)
+      || total < 0
+    ) {
+      continue;
+    }
+    counts.set(postId.toString(), Math.min(total, 1_000_000));
+  }
+  return counts.size === 0 ? undefined : counts;
 }
 
 function wireChatId(chatId: string): number | bigint {

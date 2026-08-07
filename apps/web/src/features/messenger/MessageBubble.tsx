@@ -33,6 +33,7 @@ type MessageBubbleProps = Readonly<{
   onReact?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
+  onOpenComments?(message: MessengerMessage): void;
 }>;
 
 
@@ -46,7 +47,8 @@ export function MessageBubble({
   onForward,
   onReact,
   onOpenForwardedSource,
-  onOpenMedia
+  onOpenMedia,
+  onOpenComments
 }: MessageBubbleProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -234,6 +236,15 @@ export function MessageBubble({
         )}
         <div className="message__meta">
           {message.edited === true && <span>изменено</span>}
+          {message.views !== undefined && (
+            <span
+              className="message__views"
+              aria-label={`Просмотров: ${String(message.views)}`}
+            >
+              <span aria-hidden="true">👁</span>
+              {formatViews(message.views)}
+            </span>
+          )}
           <time dateTime={message.sentAt}>
             {message.formattedTime ?? formatMessageTime(message.sentAt)}
           </time>
@@ -286,6 +297,22 @@ export function MessageBubble({
               })}
           </div>
         )}
+        {message.commentCount !== undefined && onOpenComments !== undefined && (
+          <button
+            className="message__comments"
+            type="button"
+            data-no-swipe
+            onClick={() => {
+              onOpenComments(message);
+            }}
+          >
+            <span aria-hidden="true">💬</span>
+            <span>{commentsLabel(message.commentCount)}</span>
+            <span className="message__comments-chevron" aria-hidden="true">
+              ›
+            </span>
+          </button>
+        )}
       </article>
       {menuPoint !== null && (
         <PressContextMenu
@@ -315,6 +342,34 @@ export function MessageBubble({
       )}
     </>
   );
+}
+
+/** MAX abbreviates large view counts: 5,3К rather than 5312. */
+function formatViews(views: number): string {
+  if (views < 1_000) {
+    return String(views);
+  }
+  if (views < 1_000_000) {
+    return `${(views / 1_000).toFixed(views < 10_000 ? 1 : 0)
+      .replace(".", ",")}К`;
+  }
+  return `${(views / 1_000_000).toFixed(1).replace(".", ",")}М`;
+}
+
+function commentsLabel(count: number): string {
+  if (count === 0) {
+    return "Комментировать";
+  }
+  const tens = count % 100;
+  const ones = count % 10;
+  const word = tens >= 11 && tens <= 14
+    ? "комментариев"
+    : ones === 1
+      ? "комментарий"
+      : ones >= 2 && ones <= 4
+        ? "комментария"
+        : "комментариев";
+  return `${String(count)} ${word}`;
 }
 
 async function copyText(text: string): Promise<void> {

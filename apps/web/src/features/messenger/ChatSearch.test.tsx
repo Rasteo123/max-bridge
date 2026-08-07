@@ -86,7 +86,7 @@ describe("global chat search", () => {
     const titles = [...document.querySelectorAll(".chat-row__name")]
       .map((node) => node.textContent);
     expect(titles).toEqual(["Новости отдела", "Москва Новости"]);
-    expect(screen.getByText("47 242 подписчика · Новости города")).toBeTruthy();
+    expect(screen.getByText("Новости города")).toBeTruthy();
   });
 
   it("waits for typing to stop before asking MAX", async () => {
@@ -131,6 +131,8 @@ describe("global chat search", () => {
     fireEvent.click(screen.getByRole("button", { name: /Москва Новости/u }));
 
     const profile = screen.getByTestId("contact-profile");
+    expect(profile.textContent.replace(/\s/gu, " "))
+      .toContain("47 242 подписчика");
     expect(profile.textContent).toContain("Москва Новости");
     expect(profile.textContent).toContain("Новости города");
     expect(profile.textContent).toContain("max.ru/moscwlife_vmax");

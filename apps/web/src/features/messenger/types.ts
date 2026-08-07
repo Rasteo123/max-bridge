@@ -53,6 +53,8 @@ export type MessengerMessage = Readonly<{
   textLinks?: readonly MessengerTextLink[];
   attachmentType?: string;
   reactions?: readonly MessengerReaction[];
+  views?: number;
+  commentCount?: number;
 }>;
 
 export type MessengerForwardedSource = Readonly<{

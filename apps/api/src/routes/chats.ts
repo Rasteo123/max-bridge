@@ -21,6 +21,11 @@ export interface ChatGateway {
     chatId: string,
     cursor?: string
   ): Promise<readonly Message[] | null>;
+  comments(
+    userLookup: string,
+    chatId: string,
+    postId: string
+  ): Promise<readonly Message[] | null>;
 }
 
 export type ChatRouteOptions = Readonly<{
@@ -31,6 +36,7 @@ export type ChatRouteOptions = Readonly<{
 }>;
 
 type SearchQuery = { q: string };
+type CommentParams = { id: string; messageId: string };
 type HistoryParams = { id: string };
 type HistoryQuery = { cursor?: string };
 
@@ -112,6 +118,40 @@ export const registerChatRoutes: FastifyPluginCallback<
       .header("cache-control", "no-store")
       .send({ messages });
   });
+  app.get<{ Params: CommentParams }>(
+    "/api/chats/:id/messages/:messageId/comments",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "messageId"],
+          properties: {
+            id: { type: "string", minLength: 1, maxLength: 512 },
+            messageId: { type: "string", minLength: 1, maxLength: 512 }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = authorize(request, reply, options);
+      if (principal === null) {
+        return;
+      }
+      const messages = await options.gateway.comments(
+        principal.userLookup,
+        request.params.id,
+        request.params.messageId
+      );
+      if (messages === null) {
+        await reply.code(404).send({ code: "chat_not_found" });
+        return;
+      }
+      await reply
+        .header("cache-control", "no-store")
+        .send({ messages });
+    }
+  );
   done();
 };
 

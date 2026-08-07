@@ -92,7 +92,14 @@ const MessageBaseProperties = {
   reactions: Type.Optional(Type.Array(
     MessageReactionSchema,
     { maxItems: MAX_DISTINCT_REACTIONS }
-  ))
+  )),
+  // Channel posts carry an audience: how many read the post, and how many
+  // comments hang off it.
+  views: Type.Optional(Type.Integer({ minimum: 0, maximum: 1_000_000_000 })),
+  commentCount: Type.Optional(Type.Integer({
+    minimum: 0,
+    maximum: 1_000_000
+  }))
 } as const;
 
 const TextMessageSchema = Type.Object({

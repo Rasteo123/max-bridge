@@ -128,6 +128,16 @@ export class ApiClient {
     );
   }
 
+  async getComments(
+    chatId: string,
+    messageId: string
+  ): Promise<Readonly<{ messages: readonly unknown[] }>> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/messages/`
+      + `${encodeURIComponent(messageId)}/comments`
+    );
+  }
+
   async sendText(
     chatId: string,
     text: string,

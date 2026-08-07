@@ -216,6 +216,27 @@ export class BridgeRuntimeGateway implements
     return chats.map(parseChatSummary);
   }
 
+  async comments(
+    userLookup: string,
+    chatId: string,
+    postId: string
+  ): Promise<readonly Message[] | null> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "messages.comments",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { chatId, postId }
+    }));
+    const messages = response["messages"];
+    if (messages === null) {
+      return null;
+    }
+    if (!Array.isArray(messages)) {
+      throw new TypeError("MAX comments are invalid");
+    }
+    return messages.map(parseMessage);
+  }
+
   async search(
     userLookup: string,
     query: string

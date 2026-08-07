@@ -27,6 +27,10 @@ export interface RuntimeMaxSession {
   listChats(): Promise<readonly ChatSummary[]>;
   searchChats(query: string): Promise<readonly ChatSummary[]>;
   history(chatId: string): Promise<readonly Message[] | null>;
+  comments(
+    chatId: string,
+    postId: string
+  ): Promise<readonly Message[] | null>;
   sendText(
     chatId: string,
     text: string,
@@ -188,6 +192,12 @@ export class WorkerRuntimeRequestHandler {
           return success(request, {
             messages: await session.history(readChatId(request.payload))
           });
+        case "messages.comments": {
+          const input = readComments(request.payload);
+          return success(request, {
+            messages: await session.comments(input.chatId, input.postId)
+          });
+        }
         case "message.send": {
           const input = readSendText(request.payload);
           return success(
@@ -685,6 +695,17 @@ function readChatAction(value: unknown): Readonly<{
   return {
     chatId: readChatId({ chatId: input["chatId"] }),
     action
+  };
+}
+
+function readComments(value: unknown): Readonly<{
+  chatId: string;
+  postId: string;
+}> {
+  const input = exact(value, ["chatId", "postId"]);
+  return {
+    chatId: readChatId({ chatId: input["chatId"] }),
+    postId: readOpaqueId(input["postId"])
   };
 }
 

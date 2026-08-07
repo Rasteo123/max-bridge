@@ -58,6 +58,7 @@ type MessengerShellProps = Readonly<{
   ): Promise<MessageSendResult>;
   onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
+  onOpenComments?(message: MessengerMessage): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -84,6 +85,7 @@ export function MessengerShell({
   onForwardMessage,
   onReactMessage,
   onOpenForwardedSource,
+  onOpenComments,
   onChatAction,
   onLoadStickers,
   onSendSticker,
@@ -264,6 +266,7 @@ export function MessengerShell({
               onForwardMessage: setForwardSource
             })}
             {...(onReactMessage === undefined ? {} : { onReactMessage })}
+            {...(onOpenComments === undefined ? {} : { onOpenComments })}
             {...(onOpenForwardedSource === undefined
               ? {}
               : { onOpenForwardedSource })}

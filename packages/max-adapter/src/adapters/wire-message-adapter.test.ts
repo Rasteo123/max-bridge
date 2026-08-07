@@ -362,3 +362,52 @@ describe("adaptWireHistory", () => {
     });
   });
 });
+
+describe("channel posts", () => {
+  /** Shaped after a real opcode 49 response for a channel. */
+  const post = {
+    id: 117_053_845_744_263_970n,
+    time: 1_786_100_000_000,
+    type: "CHANNEL",
+    text: "В аэропорту Кольцово введены ограничения",
+    attaches: [],
+    stats: { views: 6_005 },
+    options: 1,
+    reactionInfo: {
+      counters: [
+        { reaction: "👍", count: 22 },
+        { reaction: "😭", count: 6 }
+      ],
+      totalCount: 28
+    }
+  };
+
+  it("reads the view count and the reactions off the post", () => {
+    const [message] = adaptWireHistory({ messages: [post] }, context());
+
+    expect(message?.views).toBe(6_005);
+    expect(message?.reactions).toEqual([
+      { emoji: "👍", count: 22, selectedByMe: false },
+      { emoji: "😭", count: 6, selectedByMe: false }
+    ]);
+  });
+
+  it("takes the comment count from the separate opcode 91 lookup", () => {
+    const [message] = adaptWireHistory({ messages: [post] }, {
+      ...context(),
+      commentCounts: new Map([["117053845744263970", 10]])
+    });
+
+    expect(message?.commentCount).toBe(10);
+  });
+
+  it("leaves the comment count out for a post nobody commented on", () => {
+    const [message] = adaptWireHistory({ messages: [post] }, {
+      ...context(),
+      commentCounts: new Map([["999", 3]])
+    });
+
+    expect(message?.commentCount).toBeUndefined();
+    expect(message?.views).toBe(6_005);
+  });
+});

@@ -188,7 +188,7 @@ export function ChatList({
               {searching && globalResults.map((chat) => (
                 <ChatRow
                   key={`global:${chat.id}`}
-                  chat={{ ...chat, preview: globalPreview(chat) }}
+                  chat={{ ...chat, preview: searchPreview(chat) }}
                   selected={false}
                   onSelect={() => {
                     setPreviewChat(chat);
@@ -214,7 +214,15 @@ export function ChatList({
   );
 }
 
-/** What MAX shows under a search hit: how many people are in it, or its bio. */
+/**
+ * MAX puts the channel's latest post under a search hit, and falls back to the
+ * account's description for bots and channels that have never posted.
+ */
+function searchPreview(chat: MessengerChat): string {
+  return chat.preview.length > 0 ? chat.preview : (chat.description ?? "");
+}
+
+/** The profile card's subtitle: how many people are in it, and what it is. */
 function globalPreview(chat: MessengerChat): string {
   const members = chat.membersCount === undefined
     ? undefined

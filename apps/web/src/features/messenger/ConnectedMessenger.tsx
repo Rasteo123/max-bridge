@@ -9,6 +9,7 @@ import {
 
 import type { ApiClient } from "../../api/client.js";
 import { currentTelegramWebApp } from "../auth/telegram.js";
+import { CommentsPane } from "./CommentsPane.js";
 import { MessengerShell } from "./MessengerShell.js";
 import {
   MessengerStore
@@ -26,6 +27,13 @@ import type {
 import { useLiveEvents } from "./useLiveEvents.js";
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+type CommentThread = Readonly<{
+  post: MessengerMessage;
+  comments: readonly MessengerMessage[];
+  loading: boolean;
+  failed?: boolean;
+}>;
 
 type ConnectedMessengerProps = Readonly<{
   client: ApiClient;
@@ -56,6 +64,8 @@ export function ConnectedMessenger({
   const historyRequest = useRef(0);
   const attachmentRequest = useRef(0);
   const attachmentSending = useRef(false);
+  const [thread, setThread] = useState<CommentThread>();
+  const threadRequest = useRef(0);
   const searchChats = useCallback(
     async (query: string, signal: AbortSignal) => {
       const { chats } = await client.searchChats(query, signal);
@@ -173,6 +183,54 @@ export function ConnectedMessenger({
       if (requestId === historyRequest.current) {
         setHistoryLoading(false);
       }
+    }
+  }
+
+  async function openComments(post: MessengerMessage) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    const requestId = ++threadRequest.current;
+    setThread({ post, comments: [], loading: true });
+    try {
+      const { messages } = await client.getComments(chatId, post.id);
+      if (requestId === threadRequest.current) {
+        setThread({
+          post,
+          comments: toMessengerMessages(messages),
+          loading: false
+        });
+      }
+    } catch {
+      if (requestId === threadRequest.current) {
+        setThread({ post, comments: [], loading: false, failed: true });
+      }
+    }
+  }
+
+  /** Reacting inside the thread must not disturb the channel behind it. */
+  async function reactToComment(
+    messageId: string,
+    reaction: ReactionEmoji | null
+  ) {
+    const chatId = store.getSnapshot().selectedChatId;
+    if (chatId === undefined) {
+      return;
+    }
+    await client.setReaction(chatId, messageId, reaction);
+    const current = threadRequest.current;
+    const post = thread?.post;
+    if (post === undefined) {
+      return;
+    }
+    const { messages } = await client.getComments(chatId, post.id);
+    if (current === threadRequest.current) {
+      setThread({
+        post,
+        comments: toMessengerMessages(messages),
+        loading: false
+      });
     }
   }
 
@@ -502,7 +560,25 @@ export function ConnectedMessenger({
         onSendSticker={(stickerId) => {
           return runAction(() => sendSticker(stickerId));
         }}
+        onOpenComments={(post) => {
+          void openComments(post);
+        }}
       />
+      {thread !== undefined && (
+        <CommentsPane
+          post={thread.post}
+          comments={thread.comments}
+          loading={thread.loading}
+          {...(thread.failed === true ? { failed: true } : {})}
+          onClose={() => {
+            threadRequest.current += 1;
+            setThread(undefined);
+          }}
+          onReact={(messageId, reaction) => {
+            void runAction(() => reactToComment(messageId, reaction));
+          }}
+        />
+      )}
     </>
   );
 }
@@ -579,10 +655,20 @@ function toMessengerMessage(value: unknown): MessengerMessage {
     ...(reactions.length === 0
       ? {}
       : { reactions }),
+    ...(isCount(record["views"]) ? { views: record["views"] } : {}),
+    ...(isCount(record["commentCount"])
+      ? { commentCount: record["commentCount"] }
+      : {}),
     ...(isMediaKind(kind) && isMedia(record["media"])
       ? { media: record["media"] }
       : {})
   };
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value >= 0;
 }
 
 function isDeletedMessage(value: unknown): boolean {

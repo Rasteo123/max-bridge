@@ -252,6 +252,7 @@ function createServices(store: MemorySessionStore): AppServices {
         muted: false
       }]),
       search: () => Promise.resolve([]),
+      comments: () => Promise.resolve([]),
       history: () => Promise.resolve([])
     },
     maxLogin: {
