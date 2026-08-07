@@ -168,6 +168,10 @@ export function MessageBubble({
         }}
         onPointerLeave={replySwipe.handlers.onPointerLeave}
         onLostPointerCapture={replySwipe.handlers.onLostPointerCapture}
+        onTouchStart={replySwipe.handlers.onTouchStart}
+        onTouchMove={replySwipe.handlers.onTouchMove}
+        onTouchEnd={replySwipe.handlers.onTouchEnd}
+        onTouchCancel={replySwipe.handlers.onTouchCancel}
         onClickCapture={press.onClickCapture}
         onDragStart={press.onDragStart}
       >

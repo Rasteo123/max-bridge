@@ -745,7 +745,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 18px clamp(12px, 4vw, 42px);
-  overflow: auto;
+  /* The reply arrow sits outside its bubble, so the column would otherwise
+     gain a strip of horizontal scroll and the whole chat could be nudged. */
+  overflow: hidden auto;
   overscroll-behavior: contain;
 }
 
@@ -823,6 +825,9 @@
 .message {
   --reply-drag: 0px;
   position: relative;
+  /* A drag across a bubble is the reply gesture; only vertical scrolling
+     belongs to the browser here. */
+  touch-action: pan-y;
   width: fit-content;
   max-width: min(76%, 620px);
   padding: 9px 12px 6px;

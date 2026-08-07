@@ -437,3 +437,93 @@ class TestPointerEvent extends MouseEvent {
     this.isPrimary = init.isPrimary ?? false;
   }
 }
+
+describe("message swipe to reply through touch events", () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 5
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 0
+    });
+  });
+
+  it("replies after a right-to-left drag on a touch screen", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.touchStart(bubble, touch(180, 100));
+    fireEvent.touchMove(bubble, touch(116, 103));
+
+    expect(bubble).toHaveStyle({ "--reply-drag": "-64px" });
+
+    fireEvent.touchEnd(bubble, { changedTouches: [] });
+
+    expect(onReply).toHaveBeenCalledOnce();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+  });
+
+  it("snaps back below the threshold without replying", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.touchStart(bubble, touch(180, 100));
+    fireEvent.touchMove(bubble, touch(150, 102));
+    fireEvent.touchEnd(bubble, { changedTouches: [] });
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+  });
+
+  it("leaves a vertical scroll alone", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.touchStart(bubble, touch(180, 100));
+    fireEvent.touchMove(bubble, touch(174, 180));
+    fireEvent.touchEnd(bubble, { changedTouches: [] });
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+  });
+
+  it("drops the drag when the browser takes the touch away", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.touchStart(bubble, touch(180, 100));
+    fireEvent.touchMove(bubble, touch(110, 102));
+    fireEvent.touchCancel(bubble, { changedTouches: [] });
+
+    expect(onReply).not.toHaveBeenCalled();
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+  });
+
+  it("ignores the pointer stream a touch screen also emits", () => {
+    const onReply = vi.fn();
+    render(<MessageBubble message={message()} onReply={onReply} />);
+    const bubble = messageBubble();
+
+    fireEvent.pointerDown(bubble, pointer(180, 100, 1));
+    fireEvent.pointerMove(bubble, pointer(110, 102, 1));
+
+    expect(bubble).toHaveStyle({ "--reply-drag": "0px" });
+
+    fireEvent.pointerUp(bubble, pointer(110, 102, 1));
+
+    expect(onReply).not.toHaveBeenCalled();
+  });
+});
+
+function touch(clientX: number, clientY: number) {
+  return { touches: [{ clientX, clientY }] };
+}
