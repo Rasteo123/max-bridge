@@ -38,6 +38,8 @@ export class WorkerRequestError extends Error {
 export type WorkerClientOptions = Readonly<{
   socketPath: string;
   requestTimeoutMs?: number;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
 }>;
 
 export type WorkerClientRequest = Readonly<{
@@ -54,21 +56,40 @@ type PendingRequest = {
 
 export class WorkerClient {
   private socket: Socket | undefined;
+  private connecting: Promise<void> | undefined;
+  private reconnectTimer: NodeJS.Timeout | undefined;
+  private reconnectDelayMs: number;
+  private stopped = false;
   private readonly decoder = new FrameDecoder();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly requestTimeoutMs: number;
+  private readonly initialReconnectDelayMs: number;
+  private readonly maxReconnectDelayMs: number;
   private readonly listeners = new Set<(event: WorkerEvent) => void>();
 
   constructor(private readonly options: WorkerClientOptions) {
     // Worker operations may include a 15-second MAX UI state transition.
     // Keep the transport deadline safely above the operation deadline.
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.initialReconnectDelayMs = options.reconnectDelayMs ?? 250;
+    this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 5_000;
+    this.reconnectDelayMs = this.initialReconnectDelayMs;
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
     if (this.socket !== undefined) {
-      return;
+      return Promise.resolve();
     }
+    this.connecting ??= this.openSocket().finally(() => {
+      this.connecting = undefined;
+    });
+    return this.connecting;
+  }
+
+  private async openSocket(): Promise<void> {
+    // A dropped connection can leave a partial frame behind; the new socket
+    // must not inherit it.
+    this.decoder.reset();
     const socket = connect(this.options.socketPath);
     await new Promise<void>((resolve, reject) => {
       socket.once("connect", resolve);
@@ -89,12 +110,18 @@ export class WorkerClient {
       this.handleDisconnect();
     });
     this.socket = socket;
+    this.reconnectDelayMs = this.initialReconnectDelayMs;
   }
 
-  request(request: WorkerClientRequest): Promise<unknown> {
+  async request(request: WorkerClientRequest): Promise<unknown> {
+    if (this.socket === undefined || this.socket.destroyed) {
+      // The worker restarts on deploy; a request arriving in that window
+      // reconnects rather than failing the caller outright.
+      await this.connect().catch(() => undefined);
+    }
     const socket = this.socket;
     if (socket === undefined || socket.destroyed) {
-      return Promise.reject(new WorkerUnavailableError());
+      throw new WorkerUnavailableError();
     }
     const requestId = `r_${randomBytes(16).toString("base64url")}`;
     return new Promise((resolve, reject) => {
@@ -126,7 +153,13 @@ export class WorkerClient {
     };
   }
 
+  /** Stops reconnecting: the process is shutting down. */
   close(): void {
+    this.stopped = true;
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     this.socket?.destroy();
     this.handleDisconnect();
   }
@@ -170,5 +203,28 @@ export class WorkerClient {
       pending.reject(new WorkerUnavailableError());
     }
     this.pending.clear();
+    this.scheduleReconnect();
+  }
+
+  /**
+   * Without this the API stayed dead to the worker after any restart, and
+   * every request failed until the API itself was restarted by hand.
+   */
+  private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer !== undefined) {
+      return;
+    }
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(
+      this.maxReconnectDelayMs,
+      this.reconnectDelayMs * 2
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.connect().catch(() => {
+        this.scheduleReconnect();
+      });
+    }, delay);
+    this.reconnectTimer.unref();
   }
 }

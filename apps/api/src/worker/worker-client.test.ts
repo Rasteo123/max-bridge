@@ -1,7 +1,8 @@
 import { rm } from "node:fs/promises";
 import {
   createServer,
-  type Server
+  type Server,
+  type Socket
 } from "node:net";
 import { join } from "node:path";
 
@@ -22,6 +23,7 @@ import {
 } from "./worker-client.js";
 
 const socketPaths: string[] = [];
+const serverConnections = new WeakMap<Server, Set<Socket>>();
 
 afterEach(async () => {
   await Promise.all(socketPaths.splice(0).map(
@@ -97,6 +99,22 @@ function createSocketPath(): string {
   return path;
 }
 
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 3_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await condition()) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error("condition was not met");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 async function startTestServer(
   socketPath: string,
   handler: (
@@ -105,6 +123,10 @@ async function startTestServer(
   initialEvent?: WorkerEvent
 ): Promise<Server> {
   const server = createServer((socket) => {
+    serverConnections.get(server)?.add(socket);
+    socket.on("close", () => {
+      serverConnections.get(server)?.delete(socket);
+    });
     if (initialEvent !== undefined) {
       socket.write(encodeFrame(initialEvent));
     }
@@ -129,6 +151,7 @@ async function startTestServer(
       }
     });
   });
+  serverConnections.set(server, new Set());
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, resolve);
@@ -136,7 +159,79 @@ async function startTestServer(
   return server;
 }
 
+describe("WorkerClient reconnection", () => {
+  it("recovers after the worker restarts", async () => {
+    const socketPath = createSocketPath();
+    const respond = (request: WorkerRequest): Promise<WorkerResponse> =>
+      Promise.resolve({
+        kind: "response",
+        requestId: request.requestId,
+        ok: true,
+        payload: { healthy: true }
+      });
+    let server = await startTestServer(socketPath, respond);
+    const client = new WorkerClient({
+      socketPath,
+      reconnectDelayMs: 10,
+      maxReconnectDelayMs: 20
+    });
+    await client.connect();
+
+    await expect(client.request({
+      operation: "health.check",
+      sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv"
+    })).resolves.toEqual({ healthy: true });
+
+    // A deploy takes the worker away and brings it back on the same socket.
+    await closeServer(server);
+    await rm(socketPath, { force: true });
+    server = await startTestServer(socketPath, respond);
+
+    let recovered: unknown;
+    await waitFor(async () => {
+      try {
+        recovered = await client.request({
+          operation: "health.check",
+          sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv"
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(recovered).toEqual({ healthy: true });
+
+    client.close();
+    await closeServer(server);
+  });
+
+  it("stops reconnecting once closed", async () => {
+    const socketPath = createSocketPath();
+    const server = await startTestServer(socketPath, (request) =>
+      Promise.resolve({
+        kind: "response",
+        requestId: request.requestId,
+        ok: true,
+        payload: {}
+      }));
+    const client = new WorkerClient({ socketPath, reconnectDelayMs: 10 });
+    await client.connect();
+    client.close();
+    await closeServer(server);
+
+    await expect(client.request({
+      operation: "health.check",
+      sessionHandle: "s_AbCdEfGhIjKlMnOpQrStUv"
+    })).rejects.toThrow("Worker is unavailable");
+  });
+});
+
 async function closeServer(server: Server): Promise<void> {
+  // Closing the server alone leaves established connections open, so the
+  // client would never see the worker go away.
+  for (const socket of serverConnections.get(server) ?? []) {
+    socket.destroy();
+  }
   await new Promise<void>((resolve) => {
     server.close(() => {
       resolve();

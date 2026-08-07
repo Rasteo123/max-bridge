@@ -35,6 +35,12 @@ export class FrameDecoder {
     private readonly maxFrameBytes = DEFAULT_MAX_FRAME_BYTES
   ) {}
 
+  /** Drops any partial frame; used when a connection is replaced. */
+  reset(): void {
+    this.buffered.fill(0);
+    this.buffered = Buffer.alloc(0);
+  }
+
   push(chunk: Uint8Array): unknown[] {
     this.buffered = Buffer.concat([this.buffered, Buffer.from(chunk)]);
     const values: unknown[] = [];
