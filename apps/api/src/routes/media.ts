@@ -32,7 +32,10 @@ export type MediaRouteOptions = Readonly<{
 export const registerMediaRoutes: FastifyPluginCallback<
   MediaRouteOptions
 > = (app, options, done) => {
-  app.get<{ Params: { handle: string } }>("/api/media/:handle", {
+  app.get<{
+    Params: { handle: string };
+    Querystring: { download?: "1" };
+  }>("/api/media/:handle", {
     schema: {
       params: {
         type: "object",
@@ -46,6 +49,11 @@ export const registerMediaRoutes: FastifyPluginCallback<
             pattern: "^[A-Za-z0-9_-]+$"
           }
         }
+      },
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        properties: { download: { type: "string", enum: ["1"] } }
       }
     }
   }, async (request, reply) => {
@@ -64,16 +72,21 @@ export const registerMediaRoutes: FastifyPluginCallback<
       await reply.code(404).send({ code: "media_not_found" });
       return;
     }
-    await sendMedia(reply, media);
+    await sendMedia(reply, media, request.query.download === "1");
   });
   done();
 };
 
 async function sendMedia(
   reply: FastifyReply,
-  media: MediaDownload
+  media: MediaDownload,
+  forceDownload = false
 ): Promise<void> {
-  const disposition = isInlineMime(media.mimeType) ? "inline" : "attachment";
+  // A photo is shown in place, but the viewer can still ask to keep it, and
+  // then the browser needs to be told to save rather than render.
+  const disposition = !forceDownload && isInlineMime(media.mimeType)
+    ? "inline"
+    : "attachment";
   await reply
     .header("cache-control", "private, no-store, max-age=0")
     .header("content-security-policy", "sandbox")

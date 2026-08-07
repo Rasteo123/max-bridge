@@ -12,6 +12,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../test-setup.js";
 import {
+  downloadUrl,
+  formatBytes,
   MediaMessage,
   mediaPath,
   safeMaxMediaUrl,
@@ -460,3 +462,45 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+describe("file downloads", () => {
+  it("addresses the route so the response saves rather than renders", () => {
+    expect(downloadUrl({
+      handle: "media_abc",
+      mimeType: "application/zip",
+      size: 500_160
+    })).toBe("/api/media/media_abc?download=1");
+  });
+
+  it("keeps a direct MAX address when MAX gave one", () => {
+    expect(downloadUrl({
+      handle: "media_abc",
+      mimeType: "image/jpeg",
+      size: 1_024,
+      sourceUrl: "https://i.oneme.ru/i?id=synthetic"
+    })).toBe("https://i.oneme.ru/i?id=synthetic");
+  });
+
+  it("refuses a handle that is not a handle", () => {
+    expect(downloadUrl({
+      handle: "../../etc/passwd",
+      mimeType: "application/zip",
+      size: 1
+    })).toBeNull();
+  });
+
+  it("ignores a source address outside the MAX hosts", () => {
+    expect(downloadUrl({
+      handle: "media_abc",
+      mimeType: "image/jpeg",
+      size: 1_024,
+      sourceUrl: "https://attacker.invalid/payload"
+    })).toBe("/api/media/media_abc?download=1");
+  });
+
+  it("states the size the way MAX does", () => {
+    expect(formatBytes(35)).toBe("35 Б");
+    expect(formatBytes(500_160)).toBe("488,4 КБ");
+    expect(formatBytes(3_093_299)).toBe("2,9 МБ");
+  });
+});

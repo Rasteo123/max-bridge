@@ -72,3 +72,43 @@ describe("media route", () => {
     })).statusCode).toBe(400);
   });
 });
+
+describe("saving a file", () => {
+  it("tells the browser to save when the viewer asks to download", async () => {
+    const inline = await app.inject({
+      method: "GET",
+      url: "/api/media/owned-handle",
+      headers: { "x-test-user": "user-a" }
+    });
+    expect(inline.headers["content-disposition"]).toContain("inline");
+
+    const saved = await app.inject({
+      method: "GET",
+      url: "/api/media/owned-handle?download=1",
+      headers: { "x-test-user": "user-a" }
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.headers["content-disposition"]).toContain("attachment");
+    expect(saved.headers["content-disposition"]).toContain("picture.png");
+  });
+
+  it("refuses a download flag it does not understand", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/media/owned-handle?download=yes",
+      headers: { "x-test-user": "user-a" }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("still guards a saved file by its owner", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/media/owned-handle?download=1",
+      headers: { "x-test-user": "user-b" }
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});

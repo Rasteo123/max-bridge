@@ -31,6 +31,12 @@ export function MediaMessage({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // A file is offered for download rather than shown, so its bytes are only
+    // fetched when the viewer asks for them — a chat full of documents must
+    // not pull every one of them into memory on open.
+    if (kind === "file") {
+      return;
+    }
     const controller = new AbortController();
     let active = true;
     let createdUrl: string | null = null;
@@ -68,7 +74,11 @@ export function MediaMessage({
         URL.revokeObjectURL(createdUrl);
       }
     };
-  }, [media.handle, media.mimeType, media.size, media.sourceUrl]);
+  }, [kind, media.handle, media.mimeType, media.size, media.sourceUrl]);
+
+  if (kind === "file") {
+    return <FileMessage media={media} />;
+  }
 
   if (failed) {
     return <span className="media-unavailable">Медиа недоступно</span>;
@@ -141,13 +151,57 @@ export function MediaMessage({
       );
     case "voice":
       return <audio className="message-audio" src={objectUrl} controls />;
-    case "file":
-      return (
-        <a className="message-file" href={objectUrl} download={media.fileName}>
-          {media.fileName ?? "Скачать файл"}
-        </a>
-      );
   }
+}
+
+/**
+ * A document in the chat. The link points at the media route itself rather
+ * than at bytes held in the page: the response says `attachment`, which is
+ * what makes a WebView hand the file to the system downloader.
+ */
+function FileMessage({ media }: Readonly<{ media: MessengerMedia }>) {
+  const href = downloadUrl(media);
+  const name = media.fileName ?? "Файл";
+  if (href === null) {
+    return <span className="media-unavailable">Файл недоступен</span>;
+  }
+  return (
+    <a
+      className="message-file"
+      href={href}
+      download={name}
+      data-no-swipe
+      rel="noreferrer"
+    >
+      <span className="message-file__icon" aria-hidden="true">📄</span>
+      <span className="message-file__body">
+        <span className="message-file__name">{name}</span>
+        <span className="message-file__meta">
+          Скачать{media.size > 0 ? ` · ${formatBytes(media.size)}` : ""}
+        </span>
+      </span>
+    </a>
+  );
+}
+
+/** The route address that saves a file instead of rendering it. */
+export function downloadUrl(media: MessengerMedia): string | null {
+  const direct = safeMaxMediaUrl(media.sourceUrl);
+  if (direct !== null) {
+    return direct;
+  }
+  const path = mediaPath(media.handle);
+  return path === null ? null : `${path}?download=1`;
+}
+
+export function formatBytes(size: number): string {
+  if (size < 1_024) {
+    return `${String(size)} Б`;
+  }
+  if (size < 1_024 * 1_024) {
+    return `${(size / 1_024).toFixed(1).replace(".", ",")} КБ`;
+  }
+  return `${(size / (1_024 * 1_024)).toFixed(1).replace(".", ",")} МБ`;
 }
 
 export type ResolvedMediaUrl = Readonly<{

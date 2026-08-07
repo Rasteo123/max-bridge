@@ -13,6 +13,7 @@ import type {
 } from "../auth/telegram.js";
 import { pushBackHandler } from "./back-navigation.js";
 import {
+  downloadUrl,
   resolveMediaUrl,
   safeMaxMediaUrl
 } from "./MediaMessage.js";
@@ -187,6 +188,10 @@ function MediaViewerDialog({
     Math.abs(dismissOffset) / (DISMISS_DISTANCE_PX * 2)
   );
   const dismissing = dismissOffset !== 0;
+  const currentMedia = items[index]?.media;
+  const currentDownloadUrl = currentMedia === undefined
+    ? null
+    : downloadUrl(currentMedia);
   const style = {
     "--carousel-offset": `${String(carousel.offset)}px`,
     "--dismiss-offset": `${String(dismissOffset)}px`,
@@ -484,6 +489,19 @@ function MediaViewerDialog({
       >
         ×
       </button>
+      {currentDownloadUrl !== null && (
+        <a
+          className="media-viewer__download"
+          href={currentDownloadUrl}
+          download={items[index]?.media.fileName ?? items[index]?.alt}
+          data-no-carousel
+          data-no-swipe
+          rel="noreferrer"
+          aria-label="Скачать"
+        >
+          ↓
+        </a>
+      )}
       <div
         ref={stageRef}
         className="media-viewer__stage"
