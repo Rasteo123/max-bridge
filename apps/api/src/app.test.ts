@@ -69,6 +69,42 @@ describe("hardened Fastify app", () => {
     expect(accepted.headers["referrer-policy"]).toBe("no-referrer");
   });
 
+  it("accepts only a MAX channel address when joining", async () => {
+    const foreign = await app.inject({
+      method: "POST",
+      url: "/api/chats/subscribe",
+      headers: {
+        host: "max-users.online",
+        origin: "https://max-users.online",
+        cookie: sessionCookie("user-a")
+      },
+      payload: { link: "https://evil.test/channel" }
+    });
+    expect(foreign.statusCode).toBe(400);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/chats/subscribe",
+      headers: {
+        host: "max-users.online",
+        origin: "https://max-users.online",
+        cookie: sessionCookie("user-a")
+      },
+      payload: { link: "https://max.ru/sumrak6969" }
+    });
+    expect(accepted.statusCode).toBe(404);
+
+    const unauthenticated = await app.inject({
+      method: "POST",
+      url: "/api/chats/chat-a/unsubscribe",
+      headers: {
+        host: "max-users.online",
+        origin: "https://max-users.online"
+      }
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+  });
+
   it("answers a contact profile only for a signed-in viewer", async () => {
     const unauthenticated = await app.inject({
       method: "GET",
@@ -274,6 +310,8 @@ function createServices(store: MemorySessionStore): AppServices {
       search: () => Promise.resolve([]),
       comments: () => Promise.resolve([]),
       describeContact: () => Promise.resolve(null),
+      joinChat: () => Promise.resolve(null),
+      leaveChat: () => Promise.resolve(false),
       history: () => Promise.resolve([])
     },
     maxLogin: {

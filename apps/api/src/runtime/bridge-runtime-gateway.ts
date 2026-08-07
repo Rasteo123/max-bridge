@@ -216,6 +216,35 @@ export class BridgeRuntimeGateway implements
     return chats.map(parseChatSummary);
   }
 
+  async joinChat(
+    userLookup: string,
+    link: string
+  ): Promise<ChatSummary | null> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "chats.subscribe",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { link }
+    }));
+    const chat = response["chat"];
+    return chat === null || chat === undefined
+      ? null
+      : parseChatSummary(chat);
+  }
+
+  async leaveChat(
+    userLookup: string,
+    chatId: string
+  ): Promise<boolean> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "chats.unsubscribe",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { chatId }
+    }));
+    return response["unsubscribed"] === true;
+  }
+
   async describeContact(
     userLookup: string,
     contactId: string

@@ -15,6 +15,7 @@ import {
   resetBackHandlers,
   runTopBackHandler
 } from "./back-navigation.js";
+import { ContactProfile } from "./ContactProfile.js";
 import { Conversation } from "./Conversation.js";
 import type { MessengerChat } from "./types.js";
 
@@ -118,5 +119,82 @@ describe("ContactProfile", () => {
     fireEvent.pointerDown(screen.getByTestId("contact-profile"));
 
     expect(screen.queryByTestId("contact-profile")).toBeNull();
+  });
+});
+
+describe("channel membership", () => {
+  const channel: MessengerChat = {
+    id: "-72880493015131",
+    kind: "channel",
+    title: "Кот Костян Official",
+    preview: "",
+    timestamp: "2026-08-07T17:15:00.000Z",
+    unreadCount: 0,
+    muted: false,
+    membersCount: 16_044,
+    link: "https://max.ru/sumrak6969"
+  };
+
+  it("offers to join a channel the viewer has not joined", () => {
+    const onSubscribe = vi.fn();
+    render(
+      <ContactProfile
+        chat={channel}
+        subtitle="Канал"
+        onClose={() => undefined}
+        onSubscribe={onSubscribe}
+        onUnsubscribe={() => undefined}
+      />
+    );
+
+    expect(screen.getByTestId("contact-profile").textContent
+      .replace(/\s/gu, " ")).toContain("16 044");
+    fireEvent.click(screen.getByRole("button", { name: "Подписаться" }));
+    expect(onSubscribe).toHaveBeenCalledWith(channel);
+  });
+
+  it("offers to leave a channel the viewer is in", () => {
+    const onUnsubscribe = vi.fn();
+    render(
+      <ContactProfile
+        chat={{ ...channel, joined: true }}
+        subtitle="Канал"
+        onClose={() => undefined}
+        onSubscribe={() => undefined}
+        onUnsubscribe={onUnsubscribe}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Отписаться" }));
+    expect(onUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("never offers membership for a person", () => {
+    render(
+      <ContactProfile
+        chat={{ ...channel, kind: "direct", joined: false }}
+        subtitle="Контакт"
+        onClose={() => undefined}
+        onSubscribe={() => undefined}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Подписаться/u })).toBeNull();
+  });
+
+  it("blocks a second tap while the first is still in flight", () => {
+    const onSubscribe = vi.fn();
+    render(
+      <ContactProfile
+        chat={channel}
+        subtitle="Канал"
+        onClose={() => undefined}
+        onSubscribe={onSubscribe}
+        busy
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Подождите…" }));
+    expect(onSubscribe).not.toHaveBeenCalled();
   });
 });

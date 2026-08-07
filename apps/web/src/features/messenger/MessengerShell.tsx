@@ -59,6 +59,8 @@ type MessengerShellProps = Readonly<{
   onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onOpenComments?(message: MessengerMessage): void;
+  onUnsubscribe?(chat: MessengerChat): void;
+  onSubscribe?(chat: MessengerChat): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -86,6 +88,8 @@ export function MessengerShell({
   onReactMessage,
   onOpenForwardedSource,
   onOpenComments,
+  onUnsubscribe,
+  onSubscribe,
   onChatAction,
   onLoadStickers,
   onSendSticker,
@@ -243,6 +247,7 @@ export function MessengerShell({
             {...(onSearchChats === undefined
               ? {}
               : { onSearch: onSearchChats })}
+            {...(onSubscribe === undefined ? {} : { onSubscribe })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}
@@ -267,6 +272,7 @@ export function MessengerShell({
             })}
             {...(onReactMessage === undefined ? {} : { onReactMessage })}
             {...(onOpenComments === undefined ? {} : { onOpenComments })}
+            {...(onUnsubscribe === undefined ? {} : { onUnsubscribe })}
             {...(onOpenForwardedSource === undefined
               ? {}
               : { onOpenForwardedSource })}

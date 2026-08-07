@@ -128,6 +128,22 @@ export class ApiClient {
     );
   }
 
+  async subscribeToChat(
+    link: string
+  ): Promise<Readonly<{ chat: MessengerChat }>> {
+    return this.requestJson("/api/chats/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ link })
+    });
+  }
+
+  async unsubscribeFromChat(chatId: string): Promise<void> {
+    await this.request(
+      `/api/chats/${encodeURIComponent(chatId)}/unsubscribe`,
+      { method: "POST" }
+    );
+  }
+
   async getContact(
     contactId: string
   ): Promise<Readonly<{ contact: MessengerChat }>> {

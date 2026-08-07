@@ -959,6 +959,38 @@ export class MaxWebPageSession {
   }
 
   /**
+   * Subscribes to a channel by its public address. MAX joins by link rather
+   * than by id, which is what global search hands back for every result.
+   */
+  async subscribeToChat(link: string): Promise<ChatSummary | null> {
+    if (!/^https:\/\/max\.ru\/[\w.~-]{1,128}$/u.test(link)) {
+      return null;
+    }
+    const adapter = await this.ensureAdapter();
+    const payload = await this.wire
+      .request(57, { link }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    const chat = asRecord(payload)?.["chat"];
+    if (chat === undefined) {
+      return null;
+    }
+    const [summary] = adapter.searchChats({ result: [{ chat }] });
+    return summary === undefined ? null : { ...summary, joined: true };
+  }
+
+  /** Leaves a channel the viewer had joined. */
+  async unsubscribeFromChat(chatId: string): Promise<boolean> {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
+      return false;
+    }
+    const payload = await this.wire
+      .request(58, { chatId: wireChatId(chatId) }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    return payload !== undefined;
+  }
+
+  /**
    * Everything MAX knows about one account: its display name, avatar and bio.
    * Comment authors are rarely in the viewer's own chat list, so their profile
    * has to be asked for by id.

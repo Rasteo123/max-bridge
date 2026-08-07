@@ -9,6 +9,9 @@ type ContactProfileProps = Readonly<{
   chat: MessengerChat;
   subtitle: string;
   onClose(): void;
+  onSubscribe?(chat: MessengerChat): void;
+  onUnsubscribe?(chat: MessengerChat): void;
+  busy?: boolean;
 }>;
 
 const KIND_LABEL: Readonly<Record<MessengerChat["kind"], string>> = {
@@ -20,8 +23,13 @@ const KIND_LABEL: Readonly<Record<MessengerChat["kind"], string>> = {
 export function ContactProfile({
   chat,
   subtitle,
-  onClose
+  onClose,
+  onSubscribe,
+  onUnsubscribe,
+  busy = false
 }: ContactProfileProps) {
+  const joined = chat.joined === true;
+  const membership = joined ? onUnsubscribe : onSubscribe;
   const closeRef = useRef<() => void>(onClose);
   closeRef.current = onClose;
 
@@ -72,6 +80,24 @@ export function ContactProfile({
           {chat.verified === true && <VerifiedBadge />}
         </h2>
         <p className="profile-card__subtitle">{subtitle}</p>
+        {membership !== undefined && chat.kind !== "direct" && (
+          <button
+            className={joined
+              ? "modal__action modal__action--quiet"
+              : "modal__action modal__action--primary"}
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              membership(chat);
+            }}
+          >
+            {busy
+              ? "Подождите…"
+              : joined
+                ? "Отписаться"
+                : "Подписаться"}
+          </button>
+        )}
         <dl className="profile-card__facts">
           <div>
             <dt>Тип</dt>
@@ -84,6 +110,14 @@ export function ContactProfile({
                 <a href={chat.link} target="_blank" rel="noreferrer noopener">
                   {chat.link.replace(/^https:\/\//u, "")}
                 </a>
+              </dd>
+            </div>
+          )}
+          {chat.membersCount !== undefined && (
+            <div>
+              <dt>{chat.kind === "channel" ? "Подписчики" : "Участники"}</dt>
+              <dd>
+                {new Intl.NumberFormat("ru-RU").format(chat.membersCount)}
               </dd>
             </div>
           )}

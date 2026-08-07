@@ -48,6 +48,7 @@ type ConversationProps = Readonly<{
   onForwardMessage?(message: MessengerMessage): void;
   onReactMessage?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenComments?(message: MessengerMessage): void;
+  onUnsubscribe?(chat: MessengerChat): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -81,6 +82,7 @@ export function Conversation({
   onForwardMessage,
   onReactMessage,
   onOpenComments,
+  onUnsubscribe,
   onOpenForwardedSource,
   onLoadStickers,
   onSendSticker
@@ -381,11 +383,17 @@ export function Conversation({
       </section>
       {profileOpen && chat !== undefined && (
         <ContactProfile
-          chat={chat}
+          chat={{ ...chat, joined: true }}
           subtitle={subtitle}
           onClose={() => {
             setProfileOpen(false);
           }}
+          {...(onUnsubscribe === undefined ? {} : {
+            onUnsubscribe: () => {
+              setProfileOpen(false);
+              onUnsubscribe(chat);
+            }
+          })}
         />
       )}
       {openMedia !== null && openMediaIndex >= 0 && (

@@ -235,6 +235,20 @@
   content: "";
 }
 
+.modal__action--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal__action--quiet {
+  color: #d92c2c;
+}
+
+.modal__action:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .message__views {
   display: inline-flex;
   gap: 3px;

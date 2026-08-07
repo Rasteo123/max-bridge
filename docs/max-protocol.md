@@ -34,6 +34,8 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 60 | out | `{query, count, type: "ALL"}` | `{result: [{chat: {...}, highlights: [...]}], total, marker, ucpQId}` — **глобальный поиск** по каналам и чатам |
 | 91 | out | `{chatId, postIds}` | `{commentsInfoUpdates: [{postId, commentsInfo: {totalCount}}]}` — счётчики комментариев к постам канала |
 | 180 | out | `{chatId, messageIds}` | `{messagesReactions: {<messageId>: {counters, totalCount}}}` — массовое обновление реакций; в канале клиент дополняет им уже полученную историю |
+| 57 | out | `{link}` | `{chat: {...}}` — **подписка на канал** по его публичному адресу `https://max.ru/<name>`; в ответе чат уже с собой в `participants` |
+| 58 | out | `{chatId}` | `{}` — **отписка**; после неё чат приходит с пустым `participants` |
 | 64 | out | `{chatId, message: {text, cid, elements: [], attaches: []}, notify}` | `{message: {...}}` — отправка. `cid` — отрицательный клиентский идентификатор |
 | 68 | out | `{query, count}` | `{result, ucpQId}` — поиск по своим чатам и контактам |
 | 65 | out | `{chatId, type: "TEXT"}` | уведомление «печатает» |
@@ -83,7 +85,9 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 и `country`. Так добывается профиль автора комментария: в списке чатов
 зрителя его, как правило, нет.
 
-Не разобрано: подписка на канал и отписка.
+Подписка запрашивается **по ссылке**, а не по идентификатору: `link` есть у
+каждого чата из глобального поиска, так что найденный канал можно открыть и
+сразу на него подписаться.
 
 ## Вложения (`attaches[]`)
 

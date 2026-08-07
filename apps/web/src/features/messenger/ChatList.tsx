@@ -33,6 +33,7 @@ type ChatListProps = Readonly<{
     query: string,
     signal: AbortSignal
   ): Promise<readonly MessengerChat[]>;
+  onSubscribe?(chat: MessengerChat): void;
 }>;
 
 export function ChatList({
@@ -46,7 +47,8 @@ export function ChatList({
   folder = "all",
   onFolderChange,
   folderOffset = 0,
-  onSearch
+  onSearch,
+  onSubscribe
 }: ChatListProps) {
   const [query, setQuery] = useState("");
   const [previewChat, setPreviewChat] = useState<MessengerChat>();
@@ -208,6 +210,12 @@ export function ChatList({
           onClose={() => {
             setPreviewChat(undefined);
           }}
+          {...(onSubscribe === undefined ? {} : {
+            onSubscribe: (chat: MessengerChat) => {
+              setPreviewChat(undefined);
+              onSubscribe(chat);
+            }
+          })}
         />
       )}
     </aside>

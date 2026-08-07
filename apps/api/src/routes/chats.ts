@@ -30,6 +30,11 @@ export interface ChatGateway {
     userLookup: string,
     contactId: string
   ): Promise<ChatSummary | null>;
+  joinChat(
+    userLookup: string,
+    link: string
+  ): Promise<ChatSummary | null>;
+  leaveChat(userLookup: string, chatId: string): Promise<boolean>;
 }
 
 export type ChatRouteOptions = Readonly<{
@@ -156,6 +161,65 @@ export const registerChatRoutes: FastifyPluginCallback<
         .send({ messages });
     }
   );
+  app.post<{ Body: { link: string } }>("/api/chats/subscribe", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["link"],
+        properties: {
+          link: {
+            type: "string",
+            minLength: 16,
+            maxLength: 256,
+            pattern: "^https://max\\.ru/[\\w.~-]{1,128}$"
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const chat = await options.gateway.joinChat(
+      principal.userLookup,
+      request.body.link
+    );
+    if (chat === null) {
+      await reply.code(404).send({ code: "chat_not_found" });
+      return;
+    }
+    await reply.header("cache-control", "no-store").send({ chat });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/chats/:id/unsubscribe", {
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id"],
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const left = await options.gateway.leaveChat(
+      principal.userLookup,
+      request.params.id
+    );
+    if (!left) {
+      await reply.code(404).send({ code: "chat_not_found" });
+      return;
+    }
+    await reply.header("cache-control", "no-store").send({ unsubscribed: true });
+  });
+
   app.get<{ Params: { id: string } }>("/api/contacts/:id", {
     schema: {
       params: {

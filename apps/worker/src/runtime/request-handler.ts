@@ -27,6 +27,8 @@ export interface RuntimeMaxSession {
   listChats(): Promise<readonly ChatSummary[]>;
   searchChats(query: string): Promise<readonly ChatSummary[]>;
   describeContact(contactId: string): Promise<ChatSummary | null>;
+  subscribeToChat(link: string): Promise<ChatSummary | null>;
+  unsubscribeFromChat(chatId: string): Promise<boolean>;
   history(chatId: string): Promise<readonly Message[] | null>;
   comments(
     chatId: string,
@@ -185,6 +187,18 @@ export class WorkerRuntimeRequestHandler {
           return success(request, await session.status());
         case "chats.list":
           return success(request, { chats: await session.listChats() });
+        case "chats.subscribe":
+          return success(request, {
+            chat: await session.subscribeToChat(
+              readChatLink(request.payload)
+            )
+          });
+        case "chats.unsubscribe":
+          return success(request, {
+            unsubscribed: await session.unsubscribeFromChat(
+              readChatId(request.payload)
+            )
+          });
         case "contacts.describe":
           return success(request, {
             contact: await session.describeContact(
@@ -714,6 +728,17 @@ function readComments(value: unknown): Readonly<{
     chatId: readChatId({ chatId: input["chatId"] }),
     postId: readOpaqueId(input["postId"])
   };
+}
+
+function readChatLink(value: unknown): string {
+  const link = exact(value, ["link"])["link"];
+  if (
+    typeof link !== "string"
+    || !/^https:\/\/max\.ru\/[\w.~-]{1,128}$/u.test(link)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return link;
 }
 
 function readContactId(value: unknown): string {

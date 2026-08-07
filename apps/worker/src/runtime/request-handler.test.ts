@@ -383,6 +383,8 @@ function fakeSession(): RuntimeMaxSession {
     }),
     searchChats: () => Promise.resolve([]),
     describeContact: () => Promise.resolve(null),
+    subscribeToChat: () => Promise.resolve(null),
+    unsubscribeFromChat: () => Promise.resolve(true),
     comments: () => Promise.resolve([]),
     openMedia: () => Promise.resolve({
       path: "/run/maxbridge/media/abc.bin",

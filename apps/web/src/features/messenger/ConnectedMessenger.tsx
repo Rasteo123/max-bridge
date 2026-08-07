@@ -213,6 +213,33 @@ export function ConnectedMessenger({
   }
 
   /**
+   * Joining a channel found in search: MAX joins by public address, and the
+   * newly joined channel is opened straight away, as it is in MAX itself.
+   */
+  async function subscribe(chat: MessengerChat) {
+    const link = chat.link;
+    if (link === undefined) {
+      setActionError("У этого канала нет публичной ссылки.");
+      return;
+    }
+    const joined = await client.subscribeToChat(link);
+    const { chats } = await client.listChats();
+    store.replaceChats(chats);
+    await selectChat(joined.chat.id);
+  }
+
+  async function unsubscribe(chat: MessengerChat) {
+    await client.unsubscribeFromChat(chat.id);
+    const { chats } = await client.listChats();
+    store.replaceChats(chats);
+    historyCache.current.delete(chat.id);
+    const next = chats[0];
+    if (next !== undefined) {
+      await selectChat(next.id);
+    }
+  }
+
+  /**
    * A comment's author is usually a stranger with no chat of their own, so the
    * profile behind the name has to be asked for by id.
    */
@@ -585,6 +612,12 @@ export function ConnectedMessenger({
         }}
         onOpenComments={(post) => {
           void openComments(post);
+        }}
+        onSubscribe={(chat) => {
+          void runAction(() => subscribe(chat));
+        }}
+        onUnsubscribe={(chat) => {
+          void runAction(() => unsubscribe(chat));
         }}
       />
       {thread !== undefined && (
