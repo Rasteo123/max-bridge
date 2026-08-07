@@ -7,8 +7,8 @@ import {
 } from "@maxbridge/core";
 
 import { MaxCompatibilityError } from "./errors.js";
-import { normalizeDeliveryStatus } from "./history-adapter.js";
 import type { RuntimeMediaAdapter } from "./media-adapter.js";
+import { deliveryStatus } from "./wire-message-adapter.js";
 import {
   asWireRecord,
   boundedInteger,
@@ -107,15 +107,28 @@ function adaptChatSummary(
       ? {}
       : { lastSeenAt: presenceState.lastSeenAt }),
     ...(lastMessageDirection === undefined ? {} : { lastMessageDirection }),
-    ...(lastMessage === undefined
+    ...(lastMessage === undefined || lastMessageDirection === undefined
       ? {}
       : {
-        deliveryStatus: normalizeDeliveryStatus(
-          readWireString(lastMessage, "status", "deliveryStatus")
+        deliveryStatus: deliveryStatus(
+          lastMessageDirection,
+          Date.parse(timestamp),
+          readMarks(chat)
         )
       })
   };
   return parseChatSummary(summary);
+}
+
+/** Read markers of everyone but the viewer, in epoch milliseconds. */
+function readMarks(chat: WireRecord): readonly number[] {
+  const marks = readWireArray(chat, "readMarks");
+  if (marks === undefined) {
+    return [];
+  }
+  return marks.filter((mark): mark is number =>
+    typeof mark === "number" && Number.isSafeInteger(mark) && mark > 0
+  );
 }
 
 function chatPresence(

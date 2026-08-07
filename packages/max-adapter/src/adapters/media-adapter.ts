@@ -40,10 +40,9 @@ export type AdaptedMedia = Readonly<{
 export class RuntimeMediaAdapter {
   private readonly entries = new Map<string, RuntimeMediaDescriptor>();
   private readonly maxEntries: number;
-  private nextHandle = 0;
 
   constructor(options: Readonly<{ maxEntries?: number }> = {}) {
-    this.maxEntries = Math.max(1, options.maxEntries ?? 256);
+    this.maxEntries = Math.max(1, options.maxEntries ?? 2_048);
   }
 
   get size(): number {
@@ -60,11 +59,13 @@ export class RuntimeMediaAdapter {
   ): AdaptedMedia {
     const attachment = asWireRecord(attachmentValue);
     const kind = attachmentKind(attachment);
-    this.nextHandle += 1;
     const contextIndex = Number.isSafeInteger(context.index)
       ? Math.max(0, context.index).toString(36)
       : "0";
-    const handle = `media_${this.nextHandle.toString(36)}_${contextIndex}`;
+    // The handle names the attachment, not the order it was seen in. History
+    // is re-read constantly, and a counter handed the same attachment a new
+    // handle each time, leaving the Mini App asking for one already evicted.
+    const handle = mediaHandle(context.chatId, context.messageId, contextIndex);
     const descriptor = buildDescriptor(attachment);
     this.register(handle, {
       ...descriptor,
@@ -132,7 +133,6 @@ export class RuntimeMediaAdapter {
       descriptor.previewData?.fill(0);
     }
     this.entries.clear();
-    this.nextHandle = 0;
   }
 
   private register(handle: string, descriptor: RuntimeMediaDescriptor): void {
@@ -150,6 +150,21 @@ export class RuntimeMediaAdapter {
       this.entries.delete(oldest);
     }
   }
+}
+
+/** Stable for a given attachment, and safe for the media route's path. */
+function mediaHandle(
+  chatId: string,
+  messageId: string,
+  index: string
+): string {
+  return `media_${sanitizeHandlePart(chatId)}_${
+    sanitizeHandlePart(messageId)
+  }_${index}`;
+}
+
+function sanitizeHandlePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9-]/gu, "").slice(0, 64) || "0";
 }
 
 function attachmentKind(attachment: WireRecord): MediaMessageKind {

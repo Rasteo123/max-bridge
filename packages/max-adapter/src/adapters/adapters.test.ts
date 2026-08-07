@@ -70,12 +70,14 @@ describe("MAX chat list adapter", () => {
         recipient: {
           online: true
         },
+        // MAX carries no status on a message: the tick comes from how far
+        // the other participant has read.
+        readMarks: [Date.parse("2026-07-27T10:00:05.000Z")],
         lastMessage: {
           id: "presence-message",
           sender: fixture.viewerId,
           time: "2026-07-27T10:00:00.000Z",
-          text: "До встречи",
-          status: "READ"
+          text: "До встречи"
         }
       }]
     }, { media: new RuntimeMediaAdapter() });
@@ -84,6 +86,29 @@ describe("MAX chat list adapter", () => {
       presence: "online",
       lastMessageDirection: "outgoing",
       deliveryStatus: "read"
+    });
+  });
+
+  it("shows one tick until the other side has read the last message", () => {
+    const page = adaptChatList({
+      chats: [{
+        id: "unread-chat",
+        type: "DIALOG",
+        title: "Ольга",
+        viewerId: fixture.viewerId,
+        readMarks: [Date.parse("2026-07-27T09:00:00.000Z")],
+        lastMessage: {
+          id: "unread-message",
+          sender: fixture.viewerId,
+          time: "2026-07-27T10:00:00.000Z",
+          text: "До встречи"
+        }
+      }]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats[0]).toMatchObject({
+      lastMessageDirection: "outgoing",
+      deliveryStatus: "delivered"
     });
   });
 

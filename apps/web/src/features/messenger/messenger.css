@@ -388,17 +388,19 @@
 }
 
 .conversation__header {
+  /* The left column used to reserve room for a back button the Mini App does
+     not draw — Telegram supplies its own — which left the name adrift. */
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 84px;
+  grid-template-columns: minmax(0, 1fr) auto;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 .conversation__contact {
   display: flex;
   min-width: 0;
-  grid-column: 2;
+  grid-column: 1;
   align-items: center;
-  justify-content: center;
+  justify-content: start;
   gap: 9px;
 }
 
@@ -448,9 +450,8 @@
 
 .conversation__actions {
   display: flex;
-  min-width: 84px;
   flex: 0 0 auto;
-  grid-column: 3;
+  grid-column: 2;
   justify-self: end;
 }
 

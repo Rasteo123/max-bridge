@@ -310,14 +310,20 @@ describe("MaxWebPageSession chat snapshots", () => {
     ]);
   });
 
-  it("prefers every top-level last-message status alias over raw aliases", async () => {
+  // MAX puts no delivery status on a message; anything that looks like one
+  // is stale and must not decide the tick.
+  it("takes the tick from read markers, not from a status field", async () => {
     const session = listChatsSession([
       directChatPageModel({
         recipient: { online: true },
+        participants: {
+          "viewer-1": 1_721_843_300_000,
+          "other-1": 1_721_843_100_000
+        },
         lastMessage: {
           id: "message-1",
           senderId: "viewer-1",
-          ack: "SENT",
+          ack: "READ",
           time: 1_721_843_200_000,
           text: "Priority",
           $: { status: "READ" }
@@ -328,7 +334,7 @@ describe("MaxWebPageSession chat snapshots", () => {
     await expect(session.listChats()).resolves.toEqual([
       expect.objectContaining({
         id: "chat-1",
-        deliveryStatus: "sent"
+        deliveryStatus: "delivered"
       })
     ]);
   });
@@ -1006,10 +1012,15 @@ function directChatPageModel(
   return {
     id: "chat-1",
     longName: "Recipient",
+    // MAX records how far each participant has read; the viewer's own mark is
+    // ignored, so only the recipient's decides the tick.
+    participants: {
+      "viewer-1": 1_721_843_300_000,
+      "other-1": 1_721_843_250_000
+    },
     lastMessage: {
       id: "message-1",
       senderId: "viewer-1",
-      status: "READ",
       time: 1_721_843_200_000,
       text: "Hello",
       attaches: []

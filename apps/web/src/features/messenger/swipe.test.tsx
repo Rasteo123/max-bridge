@@ -277,13 +277,18 @@ describe("narrow messenger gestures", () => {
     expect(css).toContain("--tg-content-safe-area-inset-bottom");
   });
 
-  it("reserves the real action width symmetrically around the contact header", () => {
+  // Telegram draws its own back button, so reserving a column for one only
+  // pushed the contact away from the edge.
+  it("puts the contact against the leading edge of the header", () => {
     const css = messengerCss();
 
     expect(css).toMatch(
-      /\.conversation__header\s*\{[\s\S]*?grid-template-columns:\s*84px minmax\(0,\s*1fr\) 84px;/u
+      /\.conversation__header\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/u
     );
     expect(css).toMatch(
+      /\.conversation__contact\s*\{[\s\S]*?justify-content:\s*start;/u
+    );
+    expect(css).not.toMatch(
       /\.conversation__actions\s*\{[\s\S]*?min-width:\s*84px;/u
     );
   });

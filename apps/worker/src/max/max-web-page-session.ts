@@ -393,6 +393,17 @@ export class MaxWebPageSession {
               rawLast,
               ["status", "deliveryStatus", "ack"]
             );
+            // MAX puts no status on a message: the tick comes from how far
+            // each other participant has read.
+            const participants = record(
+              raw?.["participants"] ?? chat["participants"]
+            );
+            const readMarks = participants === undefined
+              ? []
+              : Object.entries(participants)
+                .filter(([participantId]) => participantId !== viewerId)
+                .map(([, mark]) => integer(mark))
+                .filter((mark) => mark > 0);
             const id = chatOpaque(
               chat["id"] ?? raw?.["id"] ?? tuple?.[0]
             );
@@ -462,6 +473,7 @@ export class MaxWebPageSession {
                       last["attaches"] ?? rawLast?.["attaches"]
                     )
                   },
+              readMarks,
               lastMessageTime: temporal(
                 last?.["time"]
                 ?? rawLast?.["time"]
