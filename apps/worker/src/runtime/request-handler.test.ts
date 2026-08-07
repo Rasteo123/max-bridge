@@ -382,9 +382,11 @@ function fakeSession(): RuntimeMaxSession {
       operationId: "chat-action-1"
     }),
     openMedia: () => Promise.resolve({
-      bodyBase64: "AAAA",
+      path: "/run/maxbridge/media/abc.bin",
       mimeType: "image/jpeg",
-      fileName: "photo.jpg"
+      fileName: "photo.jpg",
+      size: 3,
+      expiresAt: Date.now() + 60_000
     }),
     listStickers: () => Promise.resolve([{
       id: "sticker-1",

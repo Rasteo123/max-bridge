@@ -1,4 +1,4 @@
-import { Readable } from "node:stream";
+import { createReadStream } from "node:fs";
 
 import {
   parseBridgeEvent,
@@ -55,7 +55,7 @@ export interface RuntimeUsers {
   ): UserRecord;
 }
 
-const MEDIA_TTL_MS = 60_000;
+const RUNTIME_MEDIA_ROOT = "/run/maxbridge/media";
 
 export class BridgeRuntimeGateway implements
   ChatGateway,
@@ -424,23 +424,32 @@ export class BridgeRuntimeGateway implements
     } catch {
       return null;
     }
-    const bodyBase64 = response["bodyBase64"];
+    const path = response["path"];
     const mimeType = response["mimeType"];
     const fileName = response["fileName"];
+    const size = response["size"];
+    const expiresAt = response["expiresAt"];
     if (
-      typeof bodyBase64 !== "string"
+      typeof path !== "string"
+      // The worker writes into the shared media directory and nowhere else.
+      || !path.startsWith(`${RUNTIME_MEDIA_ROOT}/`)
+      || path.includes("..")
       || typeof mimeType !== "string"
       || typeof fileName !== "string"
+      || typeof size !== "number"
+      || !Number.isSafeInteger(size)
+      || size < 0
+      || typeof expiresAt !== "number"
+      || !Number.isSafeInteger(expiresAt)
     ) {
       return null;
     }
-    const body = Buffer.from(bodyBase64, "base64");
     return {
-      stream: Readable.from([body]),
+      stream: createReadStream(path),
       mimeType,
       fileName,
-      size: body.byteLength,
-      expiresAt: Date.now() + MEDIA_TTL_MS
+      size,
+      expiresAt
     };
   }
 

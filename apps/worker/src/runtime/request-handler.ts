@@ -56,9 +56,11 @@ export interface RuntimeMaxSession {
     action: ChatAction
   ): Promise<RuntimeMutationResult>;
   openMedia(handle: string): Promise<Readonly<{
-    bodyBase64: string;
+    path: string;
     mimeType: string;
     fileName: string;
+    size: number;
+    expiresAt: number;
   }> | null>;
   listStickers(chatId: string): Promise<readonly StickerSummary[]>;
   sendSticker(

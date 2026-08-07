@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -31,6 +32,7 @@ import {
   MaxMediaError,
   MaxMediaResolver
 } from "./max-media-resolver.js";
+import { RuntimeMediaStore } from "../media/runtime-media-store.js";
 import {
   MAX_SOCKET_ORIGIN,
   MAX_WIRE_INIT_SCRIPT,
@@ -52,6 +54,7 @@ const MAX_ACTION_WAIT_MS = 7_500;
 const MAX_STICKERS_PER_LIST = 12;
 const MAX_STICKER_PREVIEW_DATA_URL_BYTES = 40 * 1024;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
+const MEDIA_OWNER = "max-bridge-media";
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
   "textarea"
@@ -89,6 +92,7 @@ export class MaxWebPageSession {
   private pendingSend: PendingSend | undefined;
   private captchaPointerDown = false;
   private stopped = false;
+  private media: RuntimeMediaStore | undefined;
 
   constructor(private readonly options: Readonly<{
     page: Page;
@@ -287,9 +291,11 @@ export class MaxWebPageSession {
    * than the link being passed to the reader.
    */
   async openMedia(handle: string): Promise<Readonly<{
-    bodyBase64: string;
+    path: string;
     mimeType: string;
     fileName: string;
+    size: number;
+    expiresAt: number;
   }> | null> {
     const adapter = await this.ensureAdapter();
     const descriptor = adapter.resolveMedia(handle);
@@ -319,14 +325,34 @@ export class MaxWebPageSession {
       throw error;
     }
     try {
+      // A video does not fit the one-megabyte worker frame, so the bytes go
+      // to the shared media directory and the API streams them from there.
+      const stored = await this.mediaStore().putStream(
+        MEDIA_OWNER,
+        media.fileName,
+        media.mimeType,
+        Readable.from([media.body])
+      );
       return {
-        bodyBase64: media.body.toString("base64"),
-        mimeType: media.mimeType,
-        fileName: media.fileName
+        path: stored.path,
+        mimeType: stored.mimeType === "application/octet-stream"
+          ? media.mimeType
+          : stored.mimeType,
+        fileName: stored.fileName,
+        size: stored.size,
+        expiresAt: stored.expiresAt
       };
     } finally {
       media.body.fill(0);
     }
+  }
+
+  private mediaStore(): RuntimeMediaStore {
+    this.media ??= new RuntimeMediaStore({
+      maxConcurrentPerUser: 8,
+      maxConcurrentGlobal: 16
+    });
+    return this.media;
   }
 
   async listChats(): Promise<readonly ChatSummary[]> {
@@ -1679,6 +1705,7 @@ export class MaxWebPageSession {
   async close(): Promise<void> {
     this.stopped = true;
     this.wire.reset("MAX session closed");
+    await this.media?.close();
     this.clearPendingSend();
     this.adapter?.close();
     this.adapter = undefined;
