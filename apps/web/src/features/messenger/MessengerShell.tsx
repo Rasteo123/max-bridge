@@ -41,6 +41,10 @@ type MessengerShellProps = Readonly<{
   initialChatId?: string;
   initialPane?: MessengerPane;
   onSelectChat(chatId: string): void;
+  onSearchChats?(
+    query: string,
+    signal: AbortSignal
+  ): Promise<readonly MessengerChat[]>;
   onSend(text: string, replyToId?: string): void;
   onAttach?(file: File, kind: "media" | "file"): void;
   attachmentState?: AttachmentSendState;
@@ -69,6 +73,7 @@ export function MessengerShell({
   initialChatId,
   initialPane,
   onSelectChat,
+  onSearchChats,
   onSend,
   onAttach,
   attachmentState,
@@ -233,6 +238,9 @@ export function MessengerShell({
             onThemeChange={onThemeChange}
             {...(onLogout === undefined ? {} : { onLogout })}
             {...(onChatAction === undefined ? {} : { onChatAction })}
+            {...(onSearchChats === undefined
+              ? {}
+              : { onSearch: onSearchChats })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}

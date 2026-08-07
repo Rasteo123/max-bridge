@@ -381,6 +381,7 @@ function fakeSession(): RuntimeMaxSession {
       state: "confirmed",
       operationId: "chat-action-1"
     }),
+    searchChats: () => Promise.resolve([]),
     openMedia: () => Promise.resolve({
       path: "/run/maxbridge/media/abc.bin",
       mimeType: "image/jpeg",

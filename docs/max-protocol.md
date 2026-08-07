@@ -31,7 +31,9 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 35 | out | `{contactIds: [int]}` | `{presence: {userId: {seen: <epoch СЕКУНДЫ>}}, time: <epoch мс>}` |
 | 49 | out | `{chatId, from: <epoch мс>, forward: int, backward: int, getMessages: true}` | `{messages: [...]}` — история. Пагинация по `from`, курсора и `hasMore` НЕТ. |
 | 48 | out | `{chatIds: [int]}` | чаты по идентификаторам |
+| 60 | out | `{query, count, type: "ALL"}` | `{result: [{chat: {...}, highlights: [...]}], total, marker, ucpQId}` — **глобальный поиск** по каналам и чатам |
 | 64 | out | `{chatId, message: {text, cid, elements: [], attaches: []}, notify}` | `{message: {...}}` — отправка. `cid` — отрицательный клиентский идентификатор |
+| 68 | out | `{query, count}` | `{result, ucpQId}` — поиск по своим чатам и контактам |
 | 65 | out | `{chatId, type: "TEXT"}` | уведомление «печатает» |
 | 66 | out | `{chatId, messageIds: [int], forMe: bool}` | удаление. **`forMe: false` = удалить у всех** |
 | 67 | out | `{chatId, messageId, text, elements: [], attachments: []}` | редактирование |
@@ -47,7 +49,12 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 300 | out | — | рекомендации каналов |
 | 302 | in | — | приходит в стартовой синхронизации |
 
-Не разобрано: отправка сообщения, редактирование, удаление, отметка о прочтении, поиск, комментарии к постам каналов.
+Найденный в поиске чат канала несёт больше полей, чем чат из списка:
+`link`, `access: "PUBLIC"`, `participantsCount`, `description`, `messagesCount`
+и `options` — объект флагов, где **`OFFICIAL` означает верификацию канала**,
+а `COMMENTS` — включены ли комментарии к постам.
+
+Не разобрано: комментарии к постам каналов.
 
 ## Вложения (`attaches[]`)
 

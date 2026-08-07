@@ -69,6 +69,47 @@ describe("hardened Fastify app", () => {
     expect(accepted.headers["referrer-policy"]).toBe("no-referrer");
   });
 
+  it("guards global search behind a session and a bounded query", async () => {
+    const unauthenticated = await app.inject({
+      method: "GET",
+      url: "/api/chats/search?q=%D0%BD%D0%BE%D0%B2%D0%BE%D1%81%D1%82%D0%B8",
+      headers: { host: "max-users.online" }
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+
+    const missingQuery = await app.inject({
+      method: "GET",
+      url: "/api/chats/search",
+      headers: {
+        host: "max-users.online",
+        cookie: sessionCookie("user-a")
+      }
+    });
+    expect(missingQuery.statusCode).toBe(400);
+
+    const oversizedQuery = await app.inject({
+      method: "GET",
+      url: `/api/chats/search?q=${"x".repeat(200)}`,
+      headers: {
+        host: "max-users.online",
+        cookie: sessionCookie("user-a")
+      }
+    });
+    expect(oversizedQuery.statusCode).toBe(400);
+
+    const found = await app.inject({
+      method: "GET",
+      url: "/api/chats/search?q=news",
+      headers: {
+        host: "max-users.online",
+        cookie: sessionCookie("user-a")
+      }
+    });
+    expect(found.statusCode).toBe(200);
+    expect(found.headers["cache-control"]).toBe("no-store");
+    expect(found.json()).toEqual({ chats: [] });
+  });
+
   it("requires a valid short session for chats and bounds request bodies", async () => {
     const unauthenticated = await app.inject({
       method: "GET",
@@ -210,6 +251,7 @@ function createServices(store: MemorySessionStore): AppServices {
         unreadCount: 0,
         muted: false
       }]),
+      search: () => Promise.resolve([]),
       history: () => Promise.resolve([])
     },
     maxLogin: {

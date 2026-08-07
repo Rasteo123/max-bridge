@@ -30,6 +30,31 @@ export type ChatListPage = Readonly<{
   hasMore: boolean;
 }>;
 
+/**
+ * Adapts an opcode 60 global-search response. MAX wraps every hit in
+ * `{chat, highlights}` and describes chats the viewer has never opened, so the
+ * rows carry a description and a follower count instead of a last message.
+ */
+export function adaptSearchResults(
+  payload: unknown,
+  context: Readonly<{ media: RuntimeMediaAdapter }>
+): readonly ChatSummary[] {
+  const root = asWireRecord(payload);
+  const results = readWireArray(root, "result", "results", "chats");
+  if (results === undefined) {
+    throw new MaxCompatibilityError();
+  }
+  return results.flatMap((value) => {
+    const hit = optionalWireRecord(value);
+    const chat = hit?.["chat"] === undefined ? value : hit["chat"];
+    try {
+      return [adaptChatSummary(chat, context.media)];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function adaptChatList(
   payload: unknown,
   context: Readonly<{ media: RuntimeMediaAdapter }>
@@ -69,7 +94,15 @@ function adaptChatSummary(
   );
   const kind = chatKind(chat);
   const presenceState = chatPresence(chat, kind);
-  const verified = readWireBoolean(chat, "verified") ?? false;
+  const options = optionalWireRecord(chat["options"]);
+  const verified = (readWireBoolean(chat, "verified") ?? false)
+    || (options !== undefined && readWireBoolean(options, "OFFICIAL") === true);
+  const description = boundedText(readWireString(chat, "description"), 512);
+  const membersCount = boundedInteger(
+    readWireNumber(chat, "participantsCount", "membersCount"),
+    0,
+    1_000_000_000
+  );
   const maxLink = maxAddress(readWireString(chat, "link"));
   const lastMessageDirection = messageDirection(chat, lastMessage);
   const timestamp = toIsoTimestamp(
@@ -85,7 +118,7 @@ function adaptChatSummary(
   ).trim() || "Чат";
   const avatarHandle = media.registerAvatar(id, chat);
   const avatarUrl = safeAvatarUrl(
-    readWireString(chat, "avatarUrl", "avatarURL")
+    readWireString(chat, "avatarUrl", "avatarURL", "baseRawIconUrl")
   );
   const summary = {
     id,
@@ -103,6 +136,8 @@ function adaptChatSummary(
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
     ...(avatarUrl === undefined ? {} : { avatarUrl }),
     ...(verified ? { verified: true } : {}),
+    ...(description.length === 0 ? {} : { description }),
+    ...(membersCount === 0 ? {} : { membersCount }),
     ...(maxLink === undefined ? {} : { link: maxLink }),
     ...(presenceState.presence === undefined
       ? {}

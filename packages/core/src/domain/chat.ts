@@ -77,7 +77,15 @@ export const ChatSummarySchema = Type.Object({
     maximum: 4_102_444_800_000
   })),
   lastMessageDirection: Type.Optional(LastMessageDirectionSchema),
-  deliveryStatus: Type.Optional(DeliveryStatusSchema)
+  deliveryStatus: Type.Optional(DeliveryStatusSchema),
+  // Filled in by global search, where MAX describes chats the viewer has not
+  // joined: what the channel is about and how many people follow it.
+  description: Type.Optional(Type.String({ maxLength: 512 })),
+  membersCount: Type.Optional(Type.Integer({
+    minimum: 0,
+    maximum: 1_000_000_000
+  })),
+  joined: Type.Optional(Type.Boolean())
 }, strictObjectOptions);
 
 export type ChatKind = Static<typeof ChatKindSchema>;

@@ -55,6 +55,7 @@ const MAX_STICKERS_PER_LIST = 120;
 const MAX_STICKER_SETS = 8;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 const MEDIA_OWNER = "max-bridge-media";
+const MAX_SEARCH_RESULTS = 40;
 const MAX_RECIPIENT_LOOKUPS = 200;
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
@@ -749,6 +750,46 @@ export class MaxWebPageSession {
       chats: await this.describeRecipients(snapshot.chats)
     });
     return adapter.chats;
+  }
+
+  /**
+   * Global search. MAX asks opcode 60 with `type: "ALL"`, which returns public
+   * channels and groups the viewer has not joined alongside its own chats; the
+   * viewer's own rows are matched back to the chat list so they keep their
+   * unread counts and open normally.
+   */
+  async searchChats(query: string): Promise<readonly ChatSummary[]> {
+    const adapter = await this.ensureAdapter();
+    const own = await this.listChats();
+    const ownById = new Map(own.map((chat) => [chat.id, chat]));
+    const normalized = query.toLocaleLowerCase("ru");
+    const matchedOwn = own.filter((chat) =>
+      chat.title.toLocaleLowerCase("ru").includes(normalized)
+    );
+    const found = await this.wire
+      .request(60, {
+        query: query.slice(0, 128),
+        count: MAX_SEARCH_RESULTS,
+        type: "ALL"
+      }, MAX_ACTION_WAIT_MS)
+      .then((payload) => adapter.searchChats(payload))
+      .catch(() => [] as readonly ChatSummary[]);
+    const results: ChatSummary[] = matchedOwn.map((chat) => ({
+      ...chat,
+      joined: true
+    }));
+    const seen = new Set(results.map((chat) => chat.id));
+    for (const chat of found) {
+      if (seen.has(chat.id)) {
+        continue;
+      }
+      seen.add(chat.id);
+      const joined = ownById.get(chat.id);
+      results.push(joined === undefined
+        ? chat
+        : { ...joined, ...chat, joined: true });
+    }
+    return results.slice(0, MAX_SEARCH_RESULTS);
   }
 
   /**

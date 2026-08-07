@@ -12,6 +12,10 @@ import type { SessionPrincipal } from "../auth/session-store.js";
 
 export interface ChatGateway {
   list(userLookup: string): Promise<readonly ChatSummary[]>;
+  search(
+    userLookup: string,
+    query: string
+  ): Promise<readonly ChatSummary[]>;
   history(
     userLookup: string,
     chatId: string,
@@ -26,6 +30,7 @@ export type ChatRouteOptions = Readonly<{
   ) => SessionPrincipal | null;
 }>;
 
+type SearchQuery = { q: string };
 type HistoryParams = { id: string };
 type HistoryQuery = { cursor?: string };
 
@@ -40,6 +45,32 @@ export const registerChatRoutes: FastifyPluginCallback<
     await reply
       .header("cache-control", "no-store")
       .send({ chats: await options.gateway.list(principal.userLookup) });
+  });
+
+  app.get<{ Querystring: SearchQuery }>("/api/chats/search", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["q"],
+        properties: {
+          q: { type: "string", minLength: 1, maxLength: 128 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply
+      .header("cache-control", "no-store")
+      .send({
+        chats: await options.gateway.search(
+          principal.userLookup,
+          request.query.q
+        )
+      });
   });
 
   app.get<{

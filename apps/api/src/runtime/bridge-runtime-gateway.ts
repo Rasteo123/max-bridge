@@ -216,6 +216,23 @@ export class BridgeRuntimeGateway implements
     return chats.map(parseChatSummary);
   }
 
+  async search(
+    userLookup: string,
+    query: string
+  ): Promise<readonly ChatSummary[]> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "chats.search",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { query }
+    }));
+    const chats = response["chats"];
+    if (!Array.isArray(chats)) {
+      throw new TypeError("MAX search result is invalid");
+    }
+    return chats.map(parseChatSummary);
+  }
+
   async history(
     userLookup: string,
     chatId: string,

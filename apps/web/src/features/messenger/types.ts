@@ -22,6 +22,9 @@ export type MessengerChat = Readonly<{
   lastSeenAt?: number;
   lastMessageDirection?: "incoming" | "outgoing";
   deliveryStatus?: DeliveryStatus;
+  description?: string;
+  membersCount?: number;
+  joined?: boolean;
 }>;
 
 export type MessengerMessage = Readonly<{

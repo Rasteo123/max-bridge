@@ -10,6 +10,7 @@ export const WORKER_OPERATIONS = [
   "login.captcha.pointer",
   "login.status",
   "chats.list",
+  "chats.search",
   "messages.history",
   "message.send",
   "message.sendAttachment",

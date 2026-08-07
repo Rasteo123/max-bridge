@@ -235,6 +235,20 @@
   content: "";
 }
 
+.chat-list__section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 10px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface);
+}
+
 .chat-list__scroll {
   min-height: 0;
   overflow: auto;

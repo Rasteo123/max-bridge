@@ -6,6 +6,12 @@ import {
   type ChatFolderId
 } from "./chat-folders.js";
 import { ChatRow } from "./ChatRow.js";
+import { ContactProfile } from "./ContactProfile.js";
+import {
+  SEARCH_MIN_LENGTH,
+  useChatSearch,
+  type ChatSearchState
+} from "./useChatSearch.js";
 import type {
   MessengerChat,
   MessengerChatAction,
@@ -23,6 +29,10 @@ type ChatListProps = Readonly<{
   folder?: ChatFolderId;
   onFolderChange?(folder: ChatFolderId): void;
   folderOffset?: number;
+  onSearch?(
+    query: string,
+    signal: AbortSignal
+  ): Promise<readonly MessengerChat[]>;
 }>;
 
 export function ChatList({
@@ -35,9 +45,13 @@ export function ChatList({
   onChatAction,
   folder = "all",
   onFolderChange,
-  folderOffset = 0
+  folderOffset = 0,
+  onSearch
 }: ChatListProps) {
   const [query, setQuery] = useState("");
+  const [previewChat, setPreviewChat] = useState<MessengerChat>();
+  const search = useChatSearch(query, onSearch);
+  const searching = query.trim().length >= SEARCH_MIN_LENGTH;
   const folderChats = useMemo(
     () => chatsInFolder(chats, folder),
     [chats, folder]
@@ -47,12 +61,22 @@ export function ChatList({
     if (normalized.length === 0) {
       return folderChats;
     }
-    return folderChats.filter((chat) =>
+    return chats.filter((chat) =>
       `${chat.title}\n${chat.preview}`
         .toLocaleLowerCase("ru-RU")
         .includes(normalized)
     );
-  }, [folderChats, query]);
+  }, [chats, folderChats, query]);
+  const ownIds = useMemo(
+    () => new Set(chats.map((chat) => chat.id)),
+    [chats]
+  );
+  const globalResults = useMemo(
+    () => search.results.filter((chat) =>
+      chat.joined !== true && !ownIds.has(chat.id)
+    ),
+    [search.results, ownIds]
+  );
   const folderStyle = {
     "--folder-offset": `${String(folderOffset)}px`
   } as CSSProperties;
@@ -102,11 +126,11 @@ export function ChatList({
         </details>
       </header>
       <label className="chat-search">
-        <span className="sr-only">Поиск по чатам</span>
+        <span className="sr-only">Поиск по чатам и каналам</span>
         <span aria-hidden="true">⌕</span>
         <input
           type="search"
-          placeholder="Поиск по чатам"
+          placeholder="Поиск по чатам и каналам"
           data-no-swipe
           value={query}
           onChange={(event) => {
@@ -136,22 +160,97 @@ export function ChatList({
         data-folder={folder}
         style={folderStyle}
       >
-        {visibleChats.length === 0 ? (
-          <p className="empty-state">
-            {emptyFolderMessage(chats.length, folderChats.length, folder)}
-          </p>
-        ) : visibleChats.map((chat) => (
-          <ChatRow
-            key={chat.id}
-            chat={chat}
-            selected={chat.id === selectedChatId}
-            onSelect={onSelectChat}
-            {...(onChatAction === undefined ? {} : { onChatAction })}
-          />
-        ))}
+        {visibleChats.length === 0 && (!searching || globalResults.length === 0)
+          ? (
+            <p className="empty-state">
+              {searching
+                ? searchEmptyMessage(search.state)
+                : emptyFolderMessage(chats.length, folderChats.length, folder)}
+            </p>
+          )
+          : (
+            <>
+              {searching && visibleChats.length > 0 && (
+                <p className="chat-list__section">Ваши чаты</p>
+              )}
+              {visibleChats.map((chat) => (
+                <ChatRow
+                  key={chat.id}
+                  chat={chat}
+                  selected={chat.id === selectedChatId}
+                  onSelect={onSelectChat}
+                  {...(onChatAction === undefined ? {} : { onChatAction })}
+                />
+              ))}
+              {searching && globalResults.length > 0 && (
+                <p className="chat-list__section">Глобальный поиск</p>
+              )}
+              {searching && globalResults.map((chat) => (
+                <ChatRow
+                  key={`global:${chat.id}`}
+                  chat={{ ...chat, preview: globalPreview(chat) }}
+                  selected={false}
+                  onSelect={() => {
+                    setPreviewChat(chat);
+                  }}
+                />
+              ))}
+            </>
+          )}
+        {searching && search.state === "searching" && (
+          <p className="empty-state" role="status">Ищем в MAX…</p>
+        )}
       </div>
+      {previewChat !== undefined && (
+        <ContactProfile
+          chat={previewChat}
+          subtitle={globalPreview(previewChat)}
+          onClose={() => {
+            setPreviewChat(undefined);
+          }}
+        />
+      )}
     </aside>
   );
+}
+
+/** What MAX shows under a search hit: how many people are in it, or its bio. */
+function globalPreview(chat: MessengerChat): string {
+  const members = chat.membersCount === undefined
+    ? undefined
+    : `${new Intl.NumberFormat("ru-RU").format(chat.membersCount)} ${
+      pluralizeMembers(chat.membersCount, chat.kind)
+    }`;
+  return [members, chat.description]
+    .filter((part) => part !== undefined && part.length > 0)
+    .join(" · ");
+}
+
+function pluralizeMembers(
+  count: number,
+  kind: MessengerChat["kind"]
+): string {
+  const forms = kind === "channel"
+    ? ["подписчик", "подписчика", "подписчиков"]
+    : ["участник", "участника", "участников"];
+  const tens = count % 100;
+  const ones = count % 10;
+  if (tens >= 11 && tens <= 14) {
+    return forms[2] ?? "";
+  }
+  if (ones === 1) {
+    return forms[0] ?? "";
+  }
+  return (ones >= 2 && ones <= 4 ? forms[1] : forms[2]) ?? "";
+}
+
+function searchEmptyMessage(state: ChatSearchState["state"]): string {
+  if (state === "searching") {
+    return "Ищем в MAX…";
+  }
+  return state === "failed"
+    ? "Не удалось выполнить поиск"
+    : "Ничего не найдено";
 }
 
 function emptyFolderMessage(

@@ -25,6 +25,7 @@ export interface RuntimeMaxSession {
   status(): Promise<MaxLoginResult>;
   background(): Promise<void>;
   listChats(): Promise<readonly ChatSummary[]>;
+  searchChats(query: string): Promise<readonly ChatSummary[]>;
   history(chatId: string): Promise<readonly Message[] | null>;
   sendText(
     chatId: string,
@@ -179,6 +180,10 @@ export class WorkerRuntimeRequestHandler {
           return success(request, await session.status());
         case "chats.list":
           return success(request, { chats: await session.listChats() });
+        case "chats.search":
+          return success(request, {
+            chats: await session.searchChats(readSearchQuery(request.payload))
+          });
         case "messages.history":
           return success(request, {
             messages: await session.history(readChatId(request.payload))
@@ -681,6 +686,20 @@ function readChatAction(value: unknown): Readonly<{
     chatId: readChatId({ chatId: input["chatId"] }),
     action
   };
+}
+
+function readSearchQuery(value: unknown): string {
+  const input = exact(value, ["query"]);
+  const query = input["query"];
+  if (
+    typeof query !== "string"
+    || query.trim().length < 1
+    || query.length > 128
+    || hasControlCharacter(query)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return query.trim();
 }
 
 function readMediaHandle(value: unknown): string {

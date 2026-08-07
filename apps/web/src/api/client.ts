@@ -106,6 +106,16 @@ export class ApiClient {
     return this.requestJson("/api/chats");
   }
 
+  async searchChats(
+    query: string,
+    signal?: AbortSignal
+  ): Promise<Readonly<{ chats: readonly MessengerChat[] }>> {
+    return this.requestJson(
+      `/api/chats/search?q=${encodeURIComponent(query)}`,
+      signal === undefined ? undefined : { signal }
+    );
+  }
+
   async getHistory(
     chatId: string,
     cursor?: string

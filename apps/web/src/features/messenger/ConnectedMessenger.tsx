@@ -56,6 +56,13 @@ export function ConnectedMessenger({
   const historyRequest = useRef(0);
   const attachmentRequest = useRef(0);
   const attachmentSending = useRef(false);
+  const searchChats = useCallback(
+    async (query: string, signal: AbortSignal) => {
+      const { chats } = await client.searchChats(query, signal);
+      return chats;
+    },
+    [client]
+  );
   const refreshCurrentData = useCallback(async () => {
     const { chats } = await client.listChats();
     store.replaceChats(chats);
@@ -459,6 +466,7 @@ export function ConnectedMessenger({
         onSelectChat={(chatId) => {
           void selectChat(chatId);
         }}
+        onSearchChats={searchChats}
         onSend={(text, replyToId) => {
           void runAction(() => send(text, replyToId));
         }}

@@ -4,7 +4,9 @@ import type {
   Message
 } from "@maxbridge/core";
 
-import { adaptChatList } from "./adapters/chat-list-adapter.js";
+import {
+  adaptChatList,
+  adaptSearchResults } from "./adapters/chat-list-adapter.js";
 import { adaptHistoryPage } from "./adapters/history-adapter.js";
 import { LiveEventAdapter } from "./adapters/live-event-adapter.js";
 import {
@@ -58,6 +60,15 @@ export class MaxSession {
 
   resolveMedia(handle: string): RuntimeMediaDescriptor | undefined {
     return this.media.resolve(handle);
+  }
+
+  /**
+   * Adapts a global-search response without disturbing the chat list: search
+   * results describe chats the viewer may never have joined.
+   */
+  searchChats(payload: unknown): readonly ChatSummary[] {
+    return adaptSearchResults(payload, { media: this.media })
+      .slice(0, this.maxChats);
   }
 
   replaceChats(payload: unknown): void {
