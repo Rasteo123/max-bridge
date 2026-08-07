@@ -294,6 +294,11 @@ export class MaxWebPageSession {
     const adapter = await this.ensureAdapter();
     const descriptor = adapter.resolveMedia(handle);
     if (descriptor === undefined) {
+      process.stderr.write(`${JSON.stringify({
+        event: "max_media_missing",
+        handle,
+        registered: adapter.mediaEntries
+      })}\n`);
       return null;
     }
     const resolver = new MaxMediaResolver({
