@@ -164,6 +164,7 @@ export class MaxWebPageSession {
             event: "max_wire_probe",
             outcome,
             roundTrip,
+            historyPath: await this.diagnoseHistoryPath(),
             page: await this.describePageState()
           })}\n`);
         } catch {
@@ -773,6 +774,43 @@ export class MaxWebPageSession {
         throw new Error("MAX application did not start");
       }
       await this.options.page.waitForTimeout(MAX_HISTORY_POLL_MS);
+    }
+  }
+
+  /**
+   * Walks the same steps a history read takes, sampling the socket after each
+   * one, and stops at the protocol request. Read-only: no navigation and no
+   * fallback, so it can run on a timer without disturbing the session.
+   */
+  private async diagnoseHistoryPath(): Promise<string> {
+    try {
+      const trail: string[] = [];
+      await this.ensureAdapter();
+      trail.push(`adapter:${await this.wire.probe()}`);
+      const chats = await this.listChats();
+      trail.push(`chats(${String(chats.length)}):${await this.wire.probe()}`);
+      const first = chats[0];
+      if (first === undefined) {
+        return trail.join(" ");
+      }
+      await this.readChatWireContext(first.id);
+      trail.push(`readMarks:${await this.wire.probe()}`);
+      const startedAt = Date.now();
+      try {
+        await this.wire.request(49, {
+          chatId: wireChatId(first.id),
+          from: Date.now(),
+          forward: 0,
+          backward: 1,
+          getMessages: true
+        }, 8_000);
+        trail.push(`history:ok:${String(Date.now() - startedAt)}ms`);
+      } catch (error: unknown) {
+        trail.push(`history:${describeWireFailure(error)}`);
+      }
+      return trail.join(" ");
+    } catch (error: unknown) {
+      return `failed:${describeWireFailure(error)}`;
     }
   }
 
