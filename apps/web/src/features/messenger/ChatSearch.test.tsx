@@ -90,7 +90,12 @@ describe("global chat search", () => {
   });
 
   it("waits for typing to stop before asking MAX", async () => {
-    const onSearch = vi.fn(() => Promise.resolve([globalChat]));
+    const onSearch = vi.fn(
+      (query: string, signal: AbortSignal) => {
+        expect(signal.aborted).toBe(false);
+        return Promise.resolve(query === "новости" ? [globalChat] : []);
+      }
+    );
     renderList(onSearch);
 
     fireEvent.change(screen.getByRole("searchbox"), {
@@ -106,7 +111,12 @@ describe("global chat search", () => {
   });
 
   it("does not search for a single character", async () => {
-    const onSearch = vi.fn(() => Promise.resolve([]));
+    const onSearch = vi.fn(
+      (query: string, signal: AbortSignal) => {
+        expect([query, signal.aborted]).toEqual(["", false]);
+        return Promise.resolve([] as readonly MessengerChat[]);
+      }
+    );
     renderList(onSearch);
 
     await typeQuery("н");
