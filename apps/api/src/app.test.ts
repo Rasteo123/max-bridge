@@ -69,6 +69,26 @@ describe("hardened Fastify app", () => {
     expect(accepted.headers["referrer-policy"]).toBe("no-referrer");
   });
 
+  it("answers a contact profile only for a signed-in viewer", async () => {
+    const unauthenticated = await app.inject({
+      method: "GET",
+      url: "/api/contacts/37921833",
+      headers: { host: "max-users.online" }
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+
+    const unknown = await app.inject({
+      method: "GET",
+      url: "/api/contacts/37921833",
+      headers: {
+        host: "max-users.online",
+        cookie: sessionCookie("user-a")
+      }
+    });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toEqual({ code: "contact_not_found" });
+  });
+
   it("guards global search behind a session and a bounded query", async () => {
     const unauthenticated = await app.inject({
       method: "GET",
@@ -253,6 +273,7 @@ function createServices(store: MemorySessionStore): AppServices {
       }]),
       search: () => Promise.resolve([]),
       comments: () => Promise.resolve([]),
+      describeContact: () => Promise.resolve(null),
       history: () => Promise.resolve([])
     },
     maxLogin: {

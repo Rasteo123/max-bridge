@@ -26,6 +26,10 @@ export interface ChatGateway {
     chatId: string,
     postId: string
   ): Promise<readonly Message[] | null>;
+  describeContact(
+    userLookup: string,
+    contactId: string
+  ): Promise<ChatSummary | null>;
 }
 
 export type ChatRouteOptions = Readonly<{
@@ -152,6 +156,34 @@ export const registerChatRoutes: FastifyPluginCallback<
         .send({ messages });
     }
   );
+  app.get<{ Params: { id: string } }>("/api/contacts/:id", {
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id"],
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 64 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const contact = await options.gateway.describeContact(
+      principal.userLookup,
+      request.params.id
+    );
+    if (contact === null) {
+      await reply.code(404).send({ code: "contact_not_found" });
+      return;
+    }
+    await reply
+      .header("cache-control", "no-store")
+      .send({ contact });
+  });
   done();
 };
 

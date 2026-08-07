@@ -216,6 +216,22 @@ export class BridgeRuntimeGateway implements
     return chats.map(parseChatSummary);
   }
 
+  async describeContact(
+    userLookup: string,
+    contactId: string
+  ): Promise<ChatSummary | null> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "contacts.describe",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { contactId }
+    }));
+    const contact = response["contact"];
+    return contact === null || contact === undefined
+      ? null
+      : parseChatSummary(contact);
+  }
+
   async comments(
     userLookup: string,
     chatId: string,

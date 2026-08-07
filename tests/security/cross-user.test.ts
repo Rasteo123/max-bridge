@@ -125,6 +125,7 @@ function isolatedServices(store: MemorySessionStore): AppServices {
       list: () => Promise.resolve([]),
     search: () => Promise.resolve([]),
     comments: () => Promise.resolve([]),
+    describeContact: () => Promise.resolve(null),
       history: (userLookup, chatId) => {
         gatewayCalls.push({ userLookup, chatId });
         return Promise.resolve(

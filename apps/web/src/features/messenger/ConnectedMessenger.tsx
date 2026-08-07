@@ -10,12 +10,14 @@ import {
 import type { ApiClient } from "../../api/client.js";
 import { currentTelegramWebApp } from "../auth/telegram.js";
 import { CommentsPane } from "./CommentsPane.js";
+import { ContactProfile } from "./ContactProfile.js";
 import { MessengerShell } from "./MessengerShell.js";
 import {
   MessengerStore
 } from "./messenger-store.js";
 import type {
   AttachmentSendState,
+  MessengerChat,
   MessengerChatAction,
   MessengerForwardedSource,
   MessengerMedia,
@@ -65,6 +67,7 @@ export function ConnectedMessenger({
   const attachmentRequest = useRef(0);
   const attachmentSending = useRef(false);
   const [thread, setThread] = useState<CommentThread>();
+  const [profile, setProfile] = useState<MessengerChat>();
   const threadRequest = useRef(0);
   const searchChats = useCallback(
     async (query: string, signal: AbortSignal) => {
@@ -207,6 +210,26 @@ export function ConnectedMessenger({
         setThread({ post, comments: [], loading: false, failed: true });
       }
     }
+  }
+
+  /**
+   * A comment's author is usually a stranger with no chat of their own, so the
+   * profile behind the name has to be asked for by id.
+   */
+  async function openSenderProfile(message: MessengerMessage) {
+    const senderId = message.senderId;
+    if (senderId === undefined) {
+      return;
+    }
+    const known = store.getSnapshot().chats.find(
+      (chat) => chat.id === senderId
+    );
+    if (known !== undefined) {
+      setProfile(known);
+      return;
+    }
+    const { contact } = await client.getContact(senderId);
+    setProfile(contact);
   }
 
   /** Reacting inside the thread must not disturb the channel behind it. */
@@ -577,6 +600,18 @@ export function ConnectedMessenger({
           onReact={(messageId, reaction) => {
             void runAction(() => reactToComment(messageId, reaction));
           }}
+          onOpenSender={(message) => {
+            void runAction(() => openSenderProfile(message));
+          }}
+        />
+      )}
+      {profile !== undefined && (
+        <ContactProfile
+          chat={profile}
+          subtitle={profileSubtitle(profile)}
+          onClose={() => {
+            setProfile(undefined);
+          }}
         />
       )}
     </>
@@ -634,6 +669,9 @@ function toMessengerMessage(value: unknown): MessengerMessage {
     text: typeof record["text"] === "string" ? record["text"] : "",
     direction: record["direction"],
     sentAt: record["sentAt"],
+    ...(typeof record["senderId"] === "string"
+      ? { senderId: record["senderId"] }
+      : {}),
     ...(typeof record["senderName"] === "string"
       ? { senderName: record["senderName"] }
       : {}),
@@ -663,6 +701,14 @@ function toMessengerMessage(value: unknown): MessengerMessage {
       ? { media: record["media"] }
       : {})
   };
+}
+
+/** The line under a name in the profile card: the bio, or what the chat is. */
+function profileSubtitle(chat: MessengerChat): string {
+  if (chat.description !== undefined && chat.description.length > 0) {
+    return chat.description;
+  }
+  return chat.kind === "channel" ? "Канал" : "Контакт";
 }
 
 function isCount(value: unknown): value is number {

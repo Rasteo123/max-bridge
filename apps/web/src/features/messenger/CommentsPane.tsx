@@ -19,7 +19,6 @@ export type CommentsPaneProps = Readonly<{
   onReact?(messageId: string, reaction: ReactionEmoji | null): void;
   onOpenSender?(message: MessengerMessage): void;
   onOpenMedia?(message: MessengerMessage, input: MediaOpenInput): void;
-  onForward?(message: MessengerMessage): void;
 }>;
 
 /**
@@ -34,8 +33,7 @@ export function CommentsPane({
   onClose,
   onReact,
   onOpenSender,
-  onOpenMedia,
-  onForward
+  onOpenMedia
 }: CommentsPaneProps) {
   const closeRef = useRef<() => void>(onClose);
   closeRef.current = onClose;
@@ -108,7 +106,6 @@ export function CommentsPane({
               showSender={false}
               {...(onReact === undefined ? {} : { onReact })}
               {...(onOpenMedia === undefined ? {} : { onOpenMedia })}
-              {...(onForward === undefined ? {} : { onForward })}
             />
           </div>
         ))}

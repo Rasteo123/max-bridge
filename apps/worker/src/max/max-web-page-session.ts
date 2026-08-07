@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
+import { parseChatSummary } from "@maxbridge/core";
 import type {
   BridgeEvent,
   ChatSummary,
@@ -955,6 +956,53 @@ export class MaxWebPageSession {
       }, MAX_ACTION_WAIT_MS)
       .catch(() => undefined);
     return commentCountsFrom(response);
+  }
+
+  /**
+   * Everything MAX knows about one account: its display name, avatar and bio.
+   * Comment authors are rarely in the viewer's own chat list, so their profile
+   * has to be asked for by id.
+   */
+  async describeContact(contactId: string): Promise<ChatSummary | null> {
+    if (!/^\d{1,19}$/u.test(contactId)) {
+      return null;
+    }
+    const numeric = Number(contactId);
+    if (!Number.isSafeInteger(numeric)) {
+      return null;
+    }
+    const payload = await this.wire
+      .request(32, { contactIds: [numeric] }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    const contact = asRecord(
+      (asRecord(payload)?.["contacts"] as unknown[] | undefined)?.[0]
+    );
+    if (contact === undefined || opaqueId(contact["id"]) !== contactId) {
+      return null;
+    }
+    const names = contact["names"];
+    const primary = Array.isArray(names) ? asRecord(names[0]) : undefined;
+    const title = boundedString(primary?.["name"], 256)
+      ?? boundedString(contact["name"], 256)
+      ?? "Контакт";
+    const avatarUrl = boundedString(contact["baseRawUrl"], 2_048);
+    const description = boundedString(contact["description"], 512);
+    const link = boundedString(contact["link"], 2_048);
+    return parseChatSummary({
+      id: contactId,
+      kind: "direct",
+      title,
+      preview: "",
+      timestamp: new Date().toISOString(),
+      unreadCount: 0,
+      muted: false,
+      ...(avatarUrl?.startsWith("https://i.oneme.ru") === true
+        ? { avatarUrl }
+        : {}),
+      ...(description === undefined ? {} : { description }),
+      ...(link?.startsWith("https://max.ru/") === true ? { link } : {}),
+      ...(officialContacts(payload).has(contactId) ? { verified: true } : {})
+    });
   }
 
   /**
@@ -3205,6 +3253,18 @@ async function validateTransientFile(filePath: string): Promise<string> {
     throw new TypeError("Attachment file is invalid");
   }
   return canonical;
+}
+
+/** A trusted display string from the wire, or nothing. */
+function boundedString(
+  value: unknown,
+  maximum: number
+): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed.slice(0, maximum);
 }
 
 function opaqueId(value: unknown): string | undefined {

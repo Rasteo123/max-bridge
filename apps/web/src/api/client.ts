@@ -128,6 +128,14 @@ export class ApiClient {
     );
   }
 
+  async getContact(
+    contactId: string
+  ): Promise<Readonly<{ contact: MessengerChat }>> {
+    return this.requestJson(
+      `/api/contacts/${encodeURIComponent(contactId)}`
+    );
+  }
+
   async getComments(
     chatId: string,
     messageId: string

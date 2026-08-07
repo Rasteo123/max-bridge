@@ -42,6 +42,7 @@ export type MessengerMessage = Readonly<{
   direction: "incoming" | "outgoing";
   sentAt: string;
   formattedTime?: string;
+  senderId?: string;
   senderName?: string;
   status?: DeliveryStatus;
   media?: MessengerMedia;
