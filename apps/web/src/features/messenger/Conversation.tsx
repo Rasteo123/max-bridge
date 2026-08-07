@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import type {
   TelegramMediaFullscreenLease
 } from "../auth/telegram.js";
 import { Composer } from "./Composer.js";
+import { conversationRows } from "./day-dividers.js";
 import {
   MediaViewer,
   type MediaViewerItem
@@ -42,6 +49,8 @@ type ConversationProps = Readonly<{
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
 }>;
+
+const BOTTOM_PROXIMITY_PX = 80;
 
 type ComposerContext = Readonly<{
   kind: "reply" | "edit";
@@ -120,6 +129,40 @@ export function Conversation({
     );
   }, [messages, searchQuery]);
 
+  const rows = useMemo(
+    () => conversationRows(visibleMessages),
+    [visibleMessages]
+  );
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
+  const lastChatId = useRef(chat?.id);
+
+  function trackScrollPosition(): void {
+    const list = listRef.current;
+    if (list !== null) {
+      const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
+      pinnedToBottom.current = distance <= BOTTOM_PROXIMITY_PX;
+    }
+  }
+
+  // A conversation opens on its newest messages, and keeps following them
+  // while the reader stays at the bottom.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (list === null) {
+      return;
+    }
+    const switchedChat = lastChatId.current !== chat?.id;
+    lastChatId.current = chat?.id;
+    if (switchedChat) {
+      pinnedToBottom.current = true;
+    }
+    if (switchedChat || pinnedToBottom.current) {
+      list.scrollTop = list.scrollHeight;
+    }
+  }, [chat?.id, rows]);
+
   return (
     <>
       <section
@@ -178,7 +221,11 @@ export function Conversation({
           </button>
         </div>
       </header>
-      <div className="conversation__messages">
+      <div
+        className="conversation__messages"
+        ref={listRef}
+        onScroll={trackScrollPosition}
+      >
         {searchOpen && chat !== undefined && (
           <label className="message-search">
             <span className="sr-only">Поиск сообщений</span>
@@ -213,14 +260,17 @@ export function Conversation({
           </div>
         ) : (
           <>
-            <div className="day-divider"><span>Сегодня</span></div>
-            {visibleMessages.map((message) => (
+            {rows.map((row) => row.kind === "divider" ? (
+              <div className="day-divider" key={row.key}>
+                <span>{row.label}</span>
+              </div>
+            ) : (
               <MessageBubble
-                key={message.id}
-                message={message}
+                key={row.key}
+                message={row.message}
                 showSender={
                   chat.kind !== "direct" &&
-                  message.direction === "incoming"
+                  row.message.direction === "incoming"
                 }
                 onReply={(selectedMessage) => {
                   setComposerContext({
