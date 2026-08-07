@@ -25,6 +25,19 @@ const publicErrorsImplementation: FastifyPluginCallback = (
           && errorStatus < 500
           ? errorStatus
           : 500;
+    if (statusCode >= 500) {
+      // The reply stays opaque, but a fault the operator cannot see is a
+      // fault nobody can fix. Only the error itself is recorded — never the
+      // request body, which carries user content.
+      request.log.error({
+        correlationId: request.id,
+        method: request.method,
+        route: request.routeOptions.url ?? request.url,
+        name: text(record["name"]),
+        message: text(record["message"]),
+        stack: text(record["stack"])?.split("\n").slice(0, 8).join(" | ")
+      }, "request failed");
+    }
     await reply.code(statusCode).send({
       code: tooLarge
         ? "request_too_large"
@@ -45,6 +58,10 @@ const publicErrorsImplementation: FastifyPluginCallback = (
   });
   done();
 };
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 export const registerPublicErrors = fastifyPlugin(
   publicErrorsImplementation,
