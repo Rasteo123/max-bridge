@@ -42,6 +42,11 @@ export class MaxSession {
     });
   }
 
+  /** The signed-in account's own id, or "0" before it is known. */
+  get viewer(): string {
+    return this.viewerId;
+  }
+
   get chats(): readonly ChatSummary[] {
     return this.chatList;
   }

@@ -3,10 +3,15 @@ import { Readable } from "node:stream";
 import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
-import { parseChatSummary } from "@maxbridge/core";
+import {
+  parseAccountSettings,
+  parseChatSummary
+} from "@maxbridge/core";
 import type {
+  AccountSettings,
   BridgeEvent,
   ChatSummary,
+  DeviceSession,
   Message
 } from "@maxbridge/core";
 import {
@@ -956,6 +961,40 @@ export class MaxWebPageSession {
       }, MAX_ACTION_WAIT_MS)
       .catch(() => undefined);
     return commentCountsFrom(response);
+  }
+
+  /**
+   * The account's own settings screen: who the viewer is, every device signed
+   * in to the account, and who they have blocked. MAX keeps the three apart,
+   * so they are asked for together and fail independently.
+   */
+  async readSettings(): Promise<AccountSettings> {
+    const adapter = await this.ensureAdapter();
+    const viewerId = adapter.viewer;
+    const [self, devices, blocked] = await Promise.all([
+      viewerId === "0"
+        ? Promise.resolve(null)
+        : this.describeContact(viewerId).catch(() => null),
+      this.wire.request(96, {}, MAX_ACTION_WAIT_MS).catch(() => undefined),
+      this.wire
+        .request(36, { status: "BLOCKED", count: 100, from: 0 },
+          MAX_ACTION_WAIT_MS)
+        .catch(() => undefined)
+    ]);
+    return parseAccountSettings({
+      profile: {
+        title: self?.title ?? "Профиль",
+        ...(self?.avatarUrl === undefined
+          ? {}
+          : { avatarUrl: self.avatarUrl }),
+        ...(self?.description === undefined
+          ? {}
+          : { description: self.description }),
+        ...(self?.link === undefined ? {} : { link: self.link })
+      },
+      sessions: deviceSessions(devices),
+      blocked: blockedContacts(blocked)
+    });
   }
 
   /**
@@ -3285,6 +3324,68 @@ async function validateTransientFile(filePath: string): Promise<string> {
     throw new TypeError("Attachment file is invalid");
   }
   return canonical;
+}
+
+/** Adapts opcode 96's session list into what the settings screen shows. */
+function deviceSessions(payload: unknown): readonly DeviceSession[] {
+  const sessions = asRecord(payload)?.["sessions"];
+  if (!Array.isArray(sessions)) {
+    return [];
+  }
+  return sessions.slice(0, 64).flatMap((value) => {
+    const session = asRecord(value);
+    const client = boundedString(session?.["client"], 64);
+    if (session === undefined || client === undefined) {
+      return [];
+    }
+    const time = session["time"];
+    const seenAt = typeof time === "number"
+      && Number.isSafeInteger(time)
+      && time > 0
+      ? new Date(time).toISOString()
+      : new Date().toISOString();
+    return [{
+      client,
+      info: boundedString(session["info"], 128) ?? "",
+      location: boundedString(session["location"], 256) ?? "",
+      seenAt,
+      current: session["current"] === true
+    }];
+  });
+}
+
+/** Adapts opcode 36's blocked list into rows the chat list can render. */
+function blockedContacts(payload: unknown): readonly ChatSummary[] {
+  const contacts = asRecord(payload)?.["contacts"];
+  if (!Array.isArray(contacts)) {
+    return [];
+  }
+  return contacts.slice(0, 256).flatMap((value) => {
+    const contact = asRecord(value);
+    const id = opaqueId(contact?.["id"]);
+    if (contact === undefined || id === undefined) {
+      return [];
+    }
+    const names = contact["names"];
+    const primary = Array.isArray(names) ? asRecord(names[0]) : undefined;
+    const avatarUrl = boundedString(contact["baseRawUrl"], 2_048);
+    try {
+      return [parseChatSummary({
+        id,
+        kind: "direct",
+        title: boundedString(primary?.["name"], 256) ?? "Контакт",
+        preview: "",
+        timestamp: new Date().toISOString(),
+        unreadCount: 0,
+        muted: false,
+        ...(avatarUrl?.startsWith("https://i.oneme.ru") === true
+          ? { avatarUrl }
+          : {})
+      })];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /** A trusted display string from the wire, or nothing. */

@@ -1,11 +1,13 @@
 import { createReadStream } from "node:fs";
 
 import {
+  parseAccountSettings,
   parseBridgeEvent,
   parseChatSummary,
   parseMessage,
   parseStickerSummary,
   zeroBuffer,
+  type AccountSettings,
   type BridgeEvent,
   type ChatAction,
   type ChatSummary,
@@ -214,6 +216,15 @@ export class BridgeRuntimeGateway implements
       throw new TypeError("MAX chat list is invalid");
     }
     return chats.map(parseChatSummary);
+  }
+
+  async settings(userLookup: string): Promise<AccountSettings> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "settings.read",
+      sessionHandle: sessionHandle(userLookup)
+    }));
+    return parseAccountSettings(response["settings"]);
   }
 
   async joinChat(

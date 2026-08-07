@@ -1,4 +1,5 @@
 import type {
+  AccountSettings,
   ChatSummary,
   Message
 } from "@maxbridge/core";
@@ -35,6 +36,7 @@ export interface ChatGateway {
     link: string
   ): Promise<ChatSummary | null>;
   leaveChat(userLookup: string, chatId: string): Promise<boolean>;
+  settings(userLookup: string): Promise<AccountSettings>;
 }
 
 export type ChatRouteOptions = Readonly<{
@@ -218,6 +220,16 @@ export const registerChatRoutes: FastifyPluginCallback<
       return;
     }
     await reply.header("cache-control", "no-store").send({ unsubscribed: true });
+  });
+
+  app.get("/api/settings", async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    await reply
+      .header("cache-control", "no-store")
+      .send({ settings: await options.gateway.settings(principal.userLookup) });
   });
 
   app.get<{ Params: { id: string } }>("/api/contacts/:id", {

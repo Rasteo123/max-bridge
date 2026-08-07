@@ -14,6 +14,7 @@ export const WORKER_OPERATIONS = [
   "chats.subscribe",
   "chats.unsubscribe",
   "contacts.describe",
+  "settings.read",
   "messages.history",
   "messages.comments",
   "message.send",

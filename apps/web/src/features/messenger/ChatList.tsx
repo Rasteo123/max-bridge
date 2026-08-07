@@ -14,17 +14,13 @@ import {
 } from "./useChatSearch.js";
 import type {
   MessengerChat,
-  MessengerChatAction,
-  MessengerTheme
+  MessengerChatAction
 } from "./types.js";
 
 type ChatListProps = Readonly<{
   chats: readonly MessengerChat[];
   selectedChatId?: string;
   onSelectChat(chatId: string): void;
-  theme: MessengerTheme;
-  onThemeChange(theme: MessengerTheme): void;
-  onLogout?(): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   folder?: ChatFolderId;
   onFolderChange?(folder: ChatFolderId): void;
@@ -34,21 +30,20 @@ type ChatListProps = Readonly<{
     signal: AbortSignal
   ): Promise<readonly MessengerChat[]>;
   onSubscribe?(chat: MessengerChat): void;
+  onOpenSettings?(): void;
 }>;
 
 export function ChatList({
   chats,
   selectedChatId,
   onSelectChat,
-  theme,
-  onThemeChange,
-  onLogout,
   onChatAction,
   folder = "all",
   onFolderChange,
   folderOffset = 0,
   onSearch,
-  onSubscribe
+  onSubscribe,
+  onOpenSettings
 }: ChatListProps) {
   const [query, setQuery] = useState("");
   const [previewChat, setPreviewChat] = useState<MessengerChat>();
@@ -90,42 +85,15 @@ export function ChatList({
           <p className="chat-list__eyebrow">MAX</p>
           <h1>Чаты</h1>
         </div>
-        <details className="app-menu" data-no-swipe>
-          <summary className="icon-button" aria-label="Настройки">
-            <span aria-hidden="true">•••</span>
-          </summary>
-          <div className="app-menu__panel">
-            <fieldset>
-              <legend>Тема</legend>
-              {([
-                ["system", "Системная"],
-                ["light", "Светлая"],
-                ["dark", "Тёмная"]
-              ] as const).map(([value, label]) => (
-                <label key={value}>
-                  <input
-                    type="radio"
-                    name="theme"
-                    checked={theme === value}
-                    onChange={() => {
-                      onThemeChange(value);
-                    }}
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </fieldset>
-            {onLogout !== undefined && (
-              <button
-                className="app-menu__logout"
-                type="button"
-                onClick={onLogout}
-              >
-                Выйти из MAX
-              </button>
-            )}
-          </div>
-        </details>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Настройки"
+          data-no-swipe
+          onClick={onOpenSettings}
+        >
+          <span aria-hidden="true">⚙</span>
+        </button>
       </header>
       <label className="chat-search">
         <span className="sr-only">Поиск по чатам и каналам</span>

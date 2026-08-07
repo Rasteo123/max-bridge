@@ -28,7 +28,6 @@ import type {
   MessengerMessage,
   MessengerPane,
   MessengerSticker,
-  MessengerTheme,
   ReactionEmoji
 } from "./types.js";
 import { useResponsivePane } from "./useResponsivePane.js";
@@ -61,12 +60,10 @@ type MessengerShellProps = Readonly<{
   onOpenComments?(message: MessengerMessage): void;
   onUnsubscribe?(chat: MessengerChat): void;
   onSubscribe?(chat: MessengerChat): void;
+  onOpenSettings?(): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
-  theme?: MessengerTheme;
-  onThemeChange?(theme: MessengerTheme): void;
-  onLogout?(): void;
   historyLoading?: boolean;
 }>;
 
@@ -90,12 +87,10 @@ export function MessengerShell({
   onOpenComments,
   onUnsubscribe,
   onSubscribe,
+  onOpenSettings,
   onChatAction,
   onLoadStickers,
   onSendSticker,
-  theme = "system",
-  onThemeChange = () => undefined,
-  onLogout,
   historyLoading = false
 }: MessengerShellProps) {
   const wide = useResponsivePane();
@@ -240,14 +235,12 @@ export function MessengerShell({
             folder={folder}
             onFolderChange={setFolder}
             folderOffset={swipe.folderOffset}
-            theme={theme}
-            onThemeChange={onThemeChange}
-            {...(onLogout === undefined ? {} : { onLogout })}
             {...(onChatAction === undefined ? {} : { onChatAction })}
             {...(onSearchChats === undefined
               ? {}
               : { onSearch: onSearchChats })}
             {...(onSubscribe === undefined ? {} : { onSubscribe })}
+            {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}

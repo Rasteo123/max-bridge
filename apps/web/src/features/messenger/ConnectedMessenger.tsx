@@ -11,6 +11,12 @@ import type { ApiClient } from "../../api/client.js";
 import { currentTelegramWebApp } from "../auth/telegram.js";
 import { CommentsPane } from "./CommentsPane.js";
 import { ContactProfile } from "./ContactProfile.js";
+import {
+  DEFAULT_NOTIFICATIONS,
+  SettingsPane,
+  type MessengerAccountSettings,
+  type NotificationPreferences
+} from "./SettingsPane.js";
 import { MessengerShell } from "./MessengerShell.js";
 import {
   MessengerStore
@@ -68,6 +74,13 @@ export function ConnectedMessenger({
   const attachmentSending = useRef(false);
   const [thread, setThread] = useState<CommentThread>();
   const [profile, setProfile] = useState<MessengerChat>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<MessengerAccountSettings>();
+  const [settingsState, setSettingsState] =
+    useState<"idle" | "loading" | "failed">("idle");
+  const [notifications, setNotifications] = useState<NotificationPreferences>(
+    () => readNotificationPreferences()
+  );
   const threadRequest = useRef(0);
   const searchChats = useCallback(
     async (query: string, signal: AbortSignal) => {
@@ -566,11 +579,6 @@ export function ConnectedMessenger({
           : { initialChatId: snapshot.selectedChatId })}
         initialPane="list"
         historyLoading={historyLoading}
-        theme={theme}
-        onThemeChange={onThemeChange}
-        onLogout={() => {
-          void logout();
-        }}
         onSelectChat={(chatId) => {
           void selectChat(chatId);
         }}
@@ -613,6 +621,20 @@ export function ConnectedMessenger({
         onOpenComments={(post) => {
           void openComments(post);
         }}
+        onOpenSettings={() => {
+          setSettingsOpen(true);
+          if (settings === undefined) {
+            setSettingsState("loading");
+            void client.getSettings()
+              .then(({ settings: loaded }) => {
+                setSettings(loaded);
+                setSettingsState("idle");
+              })
+              .catch(() => {
+                setSettingsState("failed");
+              });
+          }
+        }}
         onSubscribe={(chat) => {
           void runAction(() => subscribe(chat));
         }}
@@ -635,6 +657,27 @@ export function ConnectedMessenger({
           }}
           onOpenSender={(message) => {
             void runAction(() => openSenderProfile(message));
+          }}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsPane
+          {...(settings === undefined ? {} : { settings })}
+          loading={settingsState === "loading"}
+          {...(settingsState === "failed" ? { failed: true } : {})}
+          theme={theme}
+          onThemeChange={onThemeChange}
+          notifications={notifications}
+          onNotificationsChange={(next) => {
+            setNotifications(next);
+            writeNotificationPreferences(next);
+          }}
+          onClose={() => {
+            setSettingsOpen(false);
+          }}
+          onLogout={() => {
+            setSettingsOpen(false);
+            void logout();
           }}
         />
       )}
@@ -742,6 +785,41 @@ function profileSubtitle(chat: MessengerChat): string {
     return chat.description;
   }
   return chat.kind === "channel" ? "Канал" : "Контакт";
+}
+
+const NOTIFICATIONS_STORAGE_KEY = "maxbridge.notifications.v1";
+
+/** Notification behaviour belongs to this client, so it is kept locally. */
+function readNotificationPreferences(): NotificationPreferences {
+  try {
+    const stored = globalThis.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    if (stored === null) {
+      return DEFAULT_NOTIFICATIONS;
+    }
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) {
+      return DEFAULT_NOTIFICATIONS;
+    }
+    const record = parsed as Record<string, unknown>;
+    return {
+      messagePreview: record["messagePreview"] !== false,
+      sound: record["sound"] !== false,
+      groupNotifications: record["groupNotifications"] !== false
+    };
+  } catch {
+    return DEFAULT_NOTIFICATIONS;
+  }
+}
+
+function writeNotificationPreferences(next: NotificationPreferences): void {
+  try {
+    globalThis.localStorage.setItem(
+      NOTIFICATIONS_STORAGE_KEY,
+      JSON.stringify(next)
+    );
+  } catch {
+    // A browser with storage disabled still works, just without memory.
+  }
 }
 
 function isCount(value: unknown): value is number {

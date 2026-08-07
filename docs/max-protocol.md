@@ -36,6 +36,8 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 180 | out | `{chatId, messageIds}` | `{messagesReactions: {<messageId>: {counters, totalCount}}}` — массовое обновление реакций; в канале клиент дополняет им уже полученную историю |
 | 57 | out | `{link}` | `{chat: {...}}` — **подписка на канал** по его публичному адресу `https://max.ru/<name>`; в ответе чат уже с собой в `participants` |
 | 58 | out | `{chatId}` | `{}` — **отписка**; после неё чат приходит с пустым `participants` |
+| 96 | out | `{}` | `{sessions: [{time, client, info, location, current}]}` — устройства, вошедшие в аккаунт |
+| 36 | out | `{status: "BLOCKED", count, from}` | `{contacts: [...]}` — чёрный список |
 | 64 | out | `{chatId, message: {text, cid, elements: [], attaches: []}, notify}` | `{message: {...}}` — отправка. `cid` — отрицательный клиентский идентификатор |
 | 68 | out | `{query, count}` | `{result, ucpQId}` — поиск по своим чатам и контактам |
 | 65 | out | `{chatId, type: "TEXT"}` | уведомление «печатает» |

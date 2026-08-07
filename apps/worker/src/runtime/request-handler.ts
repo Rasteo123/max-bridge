@@ -1,5 +1,6 @@
 import { zeroBuffer } from "@maxbridge/core";
 import type {
+  AccountSettings,
   BridgeEvent,
   ChatAction,
   ChatSummary,
@@ -27,6 +28,7 @@ export interface RuntimeMaxSession {
   listChats(): Promise<readonly ChatSummary[]>;
   searchChats(query: string): Promise<readonly ChatSummary[]>;
   describeContact(contactId: string): Promise<ChatSummary | null>;
+  readSettings(): Promise<AccountSettings>;
   subscribeToChat(link: string): Promise<ChatSummary | null>;
   unsubscribeFromChat(chatId: string): Promise<boolean>;
   history(chatId: string): Promise<readonly Message[] | null>;
@@ -199,6 +201,8 @@ export class WorkerRuntimeRequestHandler {
               readChatId(request.payload)
             )
           });
+        case "settings.read":
+          return success(request, { settings: await session.readSettings() });
         case "contacts.describe":
           return success(request, {
             contact: await session.describeContact(

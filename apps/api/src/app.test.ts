@@ -312,6 +312,11 @@ function createServices(store: MemorySessionStore): AppServices {
       describeContact: () => Promise.resolve(null),
       joinChat: () => Promise.resolve(null),
       leaveChat: () => Promise.resolve(false),
+      settings: () => Promise.resolve({
+      profile: { title: "Профиль" },
+      sessions: [],
+      blocked: []
+    }),
       history: () => Promise.resolve([])
     },
     maxLogin: {

@@ -60,8 +60,6 @@ function renderList(
     <ChatList
       chats={[ownChat]}
       onSelectChat={() => undefined}
-      theme="system"
-      onThemeChange={() => undefined}
       onSearch={onSearch}
     />
   );

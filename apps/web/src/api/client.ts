@@ -1,4 +1,7 @@
 import type {
+  MessengerAccountSettings
+} from "../features/messenger/SettingsPane.js";
+import type {
   MessengerChat,
   MessengerChatAction,
   MessengerSticker,
@@ -126,6 +129,12 @@ export class ApiClient {
     return this.requestJson(
       `/api/chats/${encodeURIComponent(chatId)}/messages${query}`
     );
+  }
+
+  async getSettings(): Promise<Readonly<{
+    settings: MessengerAccountSettings;
+  }>> {
+    return this.requestJson("/api/settings");
   }
 
   async subscribeToChat(
