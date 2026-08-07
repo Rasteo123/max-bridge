@@ -776,6 +776,7 @@ export class MaxWebPageSession {
         .catch(() => undefined)
     ]);
     const official = officialContacts(contacts);
+    const links = contactLinks(contacts);
     const lastSeen = contactLastSeen(presence);
     return chats.map((chat) => {
       const record = asRecord(chat);
@@ -784,9 +785,11 @@ export class MaxWebPageSession {
         return chat;
       }
       const seenAt = lastSeen.get(recipientId);
+      const link = links.get(recipientId);
       return {
         ...record,
         ...(official.has(recipientId) ? { verified: true } : {}),
+        ...(link === undefined ? {} : { link }),
         ...(seenAt === undefined ? {} : { recipientSeenAt: seenAt })
       };
     });
@@ -2896,6 +2899,30 @@ function officialContacts(payload: unknown): ReadonlySet<string> {
     }
   }
   return official;
+}
+
+/** Public max.ru addresses keyed by contact. */
+function contactLinks(payload: unknown): ReadonlyMap<string, string> {
+  const contacts = asRecord(payload)?.["contacts"];
+  const links = new Map<string, string>();
+  if (!Array.isArray(contacts)) {
+    return links;
+  }
+  for (const value of contacts) {
+    const contact = asRecord(value);
+    const id = opaqueId(contact?.["id"]);
+    const link = contact?.["link"];
+    if (id === undefined || typeof link !== "string") {
+      continue;
+    }
+    const address = link.startsWith("https://")
+      ? link
+      : `https://max.ru/${link.replace(/^\/+/u, "")}`;
+    if (/^https:\/\/max\.ru\/[\w./-]{1,256}$/u.test(address)) {
+      links.set(id, address);
+    }
+  }
+  return links;
 }
 
 /** Last-seen times keyed by contact, converted from MAX's seconds. */

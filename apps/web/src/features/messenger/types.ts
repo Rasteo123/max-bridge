@@ -16,6 +16,7 @@ export type MessengerChat = Readonly<{
   pinned?: boolean;
   kind: "direct" | "group" | "channel";
   verified?: boolean;
+  link?: string;
   avatarUrl?: string;
   presence?: "online" | "offline" | "recently" | "long_ago" | "unknown";
   lastSeenAt?: number;

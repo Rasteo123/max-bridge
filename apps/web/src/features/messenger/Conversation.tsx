@@ -10,6 +10,7 @@ import type {
   TelegramMediaFullscreenLease
 } from "../auth/telegram.js";
 import { Composer } from "./Composer.js";
+import { ContactProfile } from "./ContactProfile.js";
 import { conversationRows } from "./day-dividers.js";
 import {
   MediaViewer,
@@ -87,6 +88,7 @@ export function Conversation({
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
   const [openMedia, setOpenMedia] = useState<OpenMedia | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const now = useMinuteAlignedNow(
     active && chat?.kind === "direct" &&
       chat.presence === "offline" &&
@@ -99,6 +101,7 @@ export function Conversation({
   useEffect(() => {
     setComposerContext(null);
     setOpenMedia(null);
+    setProfileOpen(false);
   }, [chat?.id]);
 
   // Saved messages have no second side to withdraw a message from.
@@ -172,7 +175,22 @@ export function Conversation({
       aria-label={chat === undefined ? "Переписка" : `Переписка с ${chat.title}`}
     >
       <header className="conversation__header">
-        <div className="conversation__contact">
+        <button
+          className="conversation__contact"
+          type="button"
+          data-no-swipe
+          disabled={chat === undefined}
+          aria-label={
+            chat === undefined
+              ? "Профиль"
+              : `Профиль: ${chat.title}`
+          }
+          onClick={() => {
+            if (chat !== undefined) {
+              setProfileOpen(true);
+            }
+          }}
+        >
           {chat !== undefined && (
             <span className="conversation__avatar">
               {chat.avatarUrl === undefined ? (
@@ -198,7 +216,7 @@ export function Conversation({
             </strong>
             {chat !== undefined && <span>{subtitle}</span>}
           </div>
-        </div>
+        </button>
         <div className="conversation__actions">
           <button
             className="icon-button"
@@ -356,6 +374,15 @@ export function Conversation({
         }}
       />
       </section>
+      {profileOpen && chat !== undefined && (
+        <ContactProfile
+          chat={chat}
+          subtitle={subtitle}
+          onClose={() => {
+            setProfileOpen(false);
+          }}
+        />
+      )}
       {openMedia !== null && openMediaIndex >= 0 && (
         <MediaViewer
           items={mediaGallery}

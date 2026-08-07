@@ -65,6 +65,12 @@ export const ChatSummarySchema = Type.Object({
   })),
   // MAX marks official accounts and channels with a badge beside the name.
   verified: Type.Optional(Type.Boolean()),
+  // The public max.ru address of the contact or channel, when it has one.
+  link: Type.Optional(Type.String({
+    minLength: 1,
+    maxLength: 2048,
+    pattern: "^https://max\\.ru/"
+  })),
   presence: Type.Optional(PresenceSchema),
   lastSeenAt: Type.Optional(Type.Integer({
     minimum: 946_684_800_000,

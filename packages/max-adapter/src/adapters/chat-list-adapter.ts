@@ -70,6 +70,7 @@ function adaptChatSummary(
   const kind = chatKind(chat);
   const presenceState = chatPresence(chat, kind);
   const verified = readWireBoolean(chat, "verified") ?? false;
+  const maxLink = maxAddress(readWireString(chat, "link"));
   const lastMessageDirection = messageDirection(chat, lastMessage);
   const timestamp = toIsoTimestamp(
     lastMessage?.["time"]
@@ -102,6 +103,7 @@ function adaptChatSummary(
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
     ...(avatarUrl === undefined ? {} : { avatarUrl }),
     ...(verified ? { verified: true } : {}),
+    ...(maxLink === undefined ? {} : { link: maxLink }),
     ...(presenceState.presence === undefined
       ? {}
       : { presence: presenceState.presence }),
@@ -120,6 +122,20 @@ function adaptChatSummary(
       })
   };
   return parseChatSummary(summary);
+}
+
+function maxAddress(value: string | undefined): string | undefined {
+  if (value === undefined || value.length > 2_048) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "max.ru"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Read markers of everyone but the viewer, in epoch milliseconds. */
