@@ -61,7 +61,9 @@
 
 .chat-list {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /* Header, search, folder tabs, then the scrolling list. A missing track
+     here hands the leftover height to the tab row and squashes the list. */
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   border-right: 1px solid var(--border);
 }
 
@@ -90,90 +92,6 @@
   letter-spacing: 0.1em;
 }
 
-.app-menu {
-  position: relative;
-}
-
-.app-menu summary {
-  list-style: none;
-  cursor: pointer;
-}
-
-.app-menu summary::-webkit-details-marker {
-  display: none;
-}
-
-.app-menu__panel {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 230px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.app-menu__panel fieldset {
-  display: grid;
-  gap: 2px;
-  padding: 0;
-  border: 0;
-  margin: 0;
-}
-
-.app-menu__panel legend {
-  padding: 7px 10px 4px;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 750;
-  text-transform: uppercase;
-}
-
-.app-menu__panel label,
-.app-menu__logout {
-  display: flex;
-  width: 100%;
-  min-height: 40px;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-}
-
-.app-menu__panel label:hover,
-.app-menu__logout:hover {
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-}
-
-.app-menu__logout {
-  margin-top: 5px;
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 10px 10px;
-  color: var(--danger);
-}
-
-.icon-button {
-  display: inline-flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--accent);
-}
-
-.icon-button {
-  min-width: 42px;
-}
-
 .chat-search {
   display: flex;
   min-width: 0;
@@ -198,6 +116,7 @@
 
 .chat-folders {
   display: flex;
+  align-items: center;
   overflow-x: auto;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
