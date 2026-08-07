@@ -27,6 +27,7 @@ import {
   instrumentMaxNodeModule,
   MAX_SESSION_ACCESSOR_KEY
 } from "./max-node-instrumentation.js";
+import { MaxMediaResolver } from "./max-media-resolver.js";
 import {
   MAX_SOCKET_ORIGIN,
   MAX_WIRE_INIT_SCRIPT,
@@ -275,6 +276,37 @@ export class MaxWebPageSession {
       await this.ensureAdapter();
     }
     return result;
+  }
+
+  /**
+   * Fetches an attachment's bytes. MAX signs its download links for the
+   * address that asked, so the bytes are pulled here and handed on rather
+   * than the link being passed to the reader.
+   */
+  async openMedia(handle: string): Promise<Readonly<{
+    bodyBase64: string;
+    mimeType: string;
+    fileName: string;
+  }> | null> {
+    const adapter = await this.ensureAdapter();
+    const descriptor = adapter.resolveMedia(handle);
+    if (descriptor === undefined) {
+      return null;
+    }
+    const resolver = new MaxMediaResolver({
+      wire: this.wire,
+      request: this.options.context.request
+    });
+    const media = await resolver.resolve(descriptor);
+    try {
+      return {
+        bodyBase64: media.body.toString("base64"),
+        mimeType: media.mimeType,
+        fileName: media.fileName
+      };
+    } finally {
+      media.body.fill(0);
+    }
   }
 
   async listChats(): Promise<readonly ChatSummary[]> {

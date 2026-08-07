@@ -23,6 +23,13 @@ export type RuntimeMediaDescriptor = Readonly<{
   token?: string;
   remoteId?: string;
   previewData?: Uint8Array;
+  // MAX hands out no download link in the message itself: a video needs
+  // opcode 83 and a file opcode 88, both keyed by the owning message.
+  kind?: MediaMessageKind;
+  chatId?: string;
+  messageId?: string;
+  mimeType?: string;
+  fileName?: string;
 }>;
 
 export type AdaptedMedia = Readonly<{
@@ -59,7 +66,22 @@ export class RuntimeMediaAdapter {
       : "0";
     const handle = `media_${this.nextHandle.toString(36)}_${contextIndex}`;
     const descriptor = buildDescriptor(attachment);
-    this.register(handle, descriptor);
+    this.register(handle, {
+      ...descriptor,
+      kind,
+      chatId: context.chatId,
+      messageId: context.messageId,
+      mimeType: mediaMimeType(kind, attachment),
+      ...(sanitizeFileName(
+        readWireString(attachment, "name", "fileName", "filename")
+      ) === undefined
+        ? {}
+        : {
+          fileName: sanitizeFileName(
+            readWireString(attachment, "name", "fileName", "filename")
+          ) as string
+        })
+    });
     const sourceUrl = publicMediaUrl(
       descriptor.sourceUrl ?? descriptor.baseUrl
     );

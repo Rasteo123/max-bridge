@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 import {
   parseBridgeEvent,
   parseChatSummary,
@@ -25,6 +27,10 @@ import type {
   MaxLoginGateway
 } from "../routes/max-login.js";
 import type {
+  MediaDownload,
+  MediaGateway
+} from "../routes/media.js";
+import type {
   MessageGateway,
   MessageRouteResult
 } from "../routes/messages.js";
@@ -49,9 +55,12 @@ export interface RuntimeUsers {
   ): UserRecord;
 }
 
+const MEDIA_TTL_MS = 60_000;
+
 export class BridgeRuntimeGateway implements
   ChatGateway,
   MaxLoginGateway,
+  MediaGateway,
   MessageGateway,
   LiveGateway {
   private readonly opened = new Set<string>();
@@ -394,6 +403,45 @@ export class BridgeRuntimeGateway implements
       sessionHandle: sessionHandle(userLookup),
       payload: input
     }));
+  }
+
+  /**
+   * Streams an attachment the worker fetched. MAX signs its links for the
+   * address that requested them, so the bytes travel through here.
+   */
+  async open(
+    userLookup: string,
+    handle: string
+  ): Promise<MediaDownload | null> {
+    await this.ensureSession(userLookup);
+    let response: Record<string, unknown>;
+    try {
+      response = record(await this.options.worker.request({
+        operation: "media.open",
+        sessionHandle: sessionHandle(userLookup),
+        payload: { handle }
+      }));
+    } catch {
+      return null;
+    }
+    const bodyBase64 = response["bodyBase64"];
+    const mimeType = response["mimeType"];
+    const fileName = response["fileName"];
+    if (
+      typeof bodyBase64 !== "string"
+      || typeof mimeType !== "string"
+      || typeof fileName !== "string"
+    ) {
+      return null;
+    }
+    const body = Buffer.from(bodyBase64, "base64");
+    return {
+      stream: Readable.from([body]),
+      mimeType,
+      fileName,
+      size: body.byteLength,
+      expiresAt: Date.now() + MEDIA_TTL_MS
+    };
   }
 
   async listStickers(

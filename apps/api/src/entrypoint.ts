@@ -67,6 +67,7 @@ async function main(): Promise<void> {
       chats: runtime,
       maxLogin: runtime,
       messages: runtime,
+      media: runtime,
       live: runtime,
       ready: () => true
     },

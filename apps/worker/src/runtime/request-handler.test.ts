@@ -381,6 +381,11 @@ function fakeSession(): RuntimeMaxSession {
       state: "confirmed",
       operationId: "chat-action-1"
     }),
+    openMedia: () => Promise.resolve({
+      bodyBase64: "AAAA",
+      mimeType: "image/jpeg",
+      fileName: "photo.jpg"
+    }),
     listStickers: () => Promise.resolve([{
       id: "sticker-1",
       previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`

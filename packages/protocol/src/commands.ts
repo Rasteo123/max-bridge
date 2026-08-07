@@ -18,6 +18,7 @@ export const WORKER_OPERATIONS = [
   "message.forward",
   "message.reaction.set",
   "chat.action",
+  "media.open",
   "stickers.list",
   "sticker.send"
 ] as const;

@@ -7,7 +7,10 @@ import type {
 import { adaptChatList } from "./adapters/chat-list-adapter.js";
 import { adaptHistoryPage } from "./adapters/history-adapter.js";
 import { LiveEventAdapter } from "./adapters/live-event-adapter.js";
-import { RuntimeMediaAdapter } from "./adapters/media-adapter.js";
+import {
+  RuntimeMediaAdapter,
+  type RuntimeMediaDescriptor
+} from "./adapters/media-adapter.js";
 import { adaptWireHistory } from "./adapters/wire-message-adapter.js";
 
 export class MaxSession {
@@ -51,6 +54,10 @@ export class MaxSession {
 
   get mediaEntries(): number {
     return this.media.size;
+  }
+
+  resolveMedia(handle: string): RuntimeMediaDescriptor | undefined {
+    return this.media.resolve(handle);
   }
 
   replaceChats(payload: unknown): void {

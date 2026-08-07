@@ -55,6 +55,11 @@ export interface RuntimeMaxSession {
     chatId: string,
     action: ChatAction
   ): Promise<RuntimeMutationResult>;
+  openMedia(handle: string): Promise<Readonly<{
+    bodyBase64: string;
+    mimeType: string;
+    fileName: string;
+  }> | null>;
   listStickers(chatId: string): Promise<readonly StickerSummary[]>;
   sendSticker(
     chatId: string,
@@ -240,6 +245,14 @@ export class WorkerRuntimeRequestHandler {
               input.reaction
             )
           );
+        }
+        case "media.open": {
+          const media = await session.openMedia(
+            readMediaHandle(request.payload)
+          );
+          return media === null
+            ? failure(request, "invalid_request")
+            : success(request, media);
         }
         case "chat.action": {
           const input = readChatAction(request.payload);
@@ -666,6 +679,20 @@ function readChatAction(value: unknown): Readonly<{
     chatId: readChatId({ chatId: input["chatId"] }),
     action
   };
+}
+
+function readMediaHandle(value: unknown): string {
+  const input = exact(value, ["handle"]);
+  const handle = input["handle"];
+  if (
+    typeof handle !== "string"
+    || handle.length < 1
+    || handle.length > 512
+    || !/^[A-Za-z0-9_:-]+$/u.test(handle)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return handle;
 }
 
 function readClientRequestId(value: unknown): string {
