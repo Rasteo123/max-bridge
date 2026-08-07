@@ -1,4 +1,5 @@
 import type {
+  BotNotificationPreferences,
   MessengerAccountSettings
 } from "../features/messenger/SettingsPane.js";
 import type {
@@ -128,6 +129,32 @@ export class ApiClient {
       : `?cursor=${encodeURIComponent(cursor)}`;
     return this.requestJson(
       `/api/chats/${encodeURIComponent(chatId)}/messages${query}`
+    );
+  }
+
+  async getNotificationPreferences(): Promise<BotNotificationPreferences> {
+    return this.requestJson("/api/notifications");
+  }
+
+  async setNotificationsEnabled(
+    enabled: boolean
+  ): Promise<BotNotificationPreferences> {
+    return this.requestJson("/api/notifications", {
+      method: "PUT",
+      body: JSON.stringify({ enabled })
+    });
+  }
+
+  async setChatNotifications(
+    chatId: string,
+    muted: boolean
+  ): Promise<BotNotificationPreferences> {
+    return this.requestJson(
+      `/api/notifications/chats/${encodeURIComponent(chatId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ muted })
+      }
     );
   }
 

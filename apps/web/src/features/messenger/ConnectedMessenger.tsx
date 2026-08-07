@@ -14,6 +14,7 @@ import { ContactProfile } from "./ContactProfile.js";
 import {
   DEFAULT_NOTIFICATIONS,
   SettingsPane,
+  type BotNotificationPreferences,
   type MessengerAccountSettings,
   type NotificationPreferences
 } from "./SettingsPane.js";
@@ -80,6 +81,16 @@ export function ConnectedMessenger({
     useState<"idle" | "loading" | "failed">("idle");
   const [notifications, setNotifications] = useState<NotificationPreferences>(
     () => readNotificationPreferences()
+  );
+  const [botNotifications, setBotNotifications] =
+    useState<BotNotificationPreferences>();
+  const botMutedChatIds = useMemo(
+    () => new Set(botNotifications?.mutedChatIds ?? []),
+    [botNotifications]
+  );
+  const chatTitles = useMemo(
+    () => new Map(snapshot.chats.map((chat) => [chat.id, chat.title])),
+    [snapshot.chats]
   );
   const threadRequest = useRef(0);
   const searchChats = useCallback(
@@ -166,6 +177,22 @@ export function ConnectedMessenger({
       controller.abort();
     };
   }, [client, store]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void client.getNotificationPreferences()
+      .then((preferences) => {
+        if (!isAborted(controller.signal)) {
+          setBotNotifications(preferences);
+        }
+      })
+      .catch(() => {
+        // The bot may be disabled entirely; the rest of the app still works.
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [client]);
 
   useEffect(() => {
     attachmentRequest.current += 1;
@@ -621,6 +648,15 @@ export function ConnectedMessenger({
         onOpenComments={(post) => {
           void openComments(post);
         }}
+        botMutedChatIds={botMutedChatIds}
+        onToggleBotNotifications={(chatId, muted) => {
+          void runAction(async () => {
+            setBotNotifications(await client.setChatNotifications(
+              chatId,
+              muted
+            ));
+          });
+        }}
         onOpenSettings={() => {
           setSettingsOpen(true);
           if (settings === undefined) {
@@ -668,6 +704,22 @@ export function ConnectedMessenger({
           theme={theme}
           onThemeChange={onThemeChange}
           notifications={notifications}
+          {...(botNotifications === undefined ? {} : { botNotifications })}
+          chatTitles={chatTitles}
+          onBotNotificationsToggle={(enabled) => {
+            void runAction(async () => {
+              setBotNotifications(
+                await client.setNotificationsEnabled(enabled)
+              );
+            });
+          }}
+          onUnmuteChat={(chatId) => {
+            void runAction(async () => {
+              setBotNotifications(
+                await client.setChatNotifications(chatId, false)
+              );
+            });
+          }}
           onNotificationsChange={(next) => {
             setNotifications(next);
             writeNotificationPreferences(next);

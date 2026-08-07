@@ -25,6 +25,8 @@ export type NotificationEvent = Readonly<{
   kind: PrivateNotification["kind"];
   body?: string;
   mediaUrl?: string;
+  /** Whether the chat is muted in MAX itself. */
+  chatMuted?: boolean;
 }>;
 
 type NotificationRouterOptions = Readonly<{
@@ -47,7 +49,13 @@ export class NotificationRouter {
     ) {
       return;
     }
-    if (!settings.enabled || settings.mutedChatIds.includes(event.chatId)) {
+    // A chat silenced in MAX stays silent here too, on top of whatever the
+    // viewer muted for the bot alone.
+    if (
+      !settings.enabled
+      || event.chatMuted === true
+      || settings.mutedChatIds.includes(event.chatId)
+    ) {
       return;
     }
     const base = formatPrivateNotification({

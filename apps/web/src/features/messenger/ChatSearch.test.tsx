@@ -144,3 +144,88 @@ describe("global chat search", () => {
     expect(screen.getByText("Не удалось выполнить поиск")).toBeTruthy();
   });
 });
+
+describe("silencing a chat for the Telegram bot", () => {
+  function renderWithMute(
+    onToggleBotNotifications: (chatId: string, muted: boolean) => void,
+    muted: ReadonlySet<string>
+  ) {
+    return render(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        onChatAction={() => undefined}
+        botMutedChatIds={muted}
+        onToggleBotNotifications={onToggleBotNotifications}
+      />
+    );
+  }
+
+  function openRowMenu(): void {
+    const row = screen.getByRole("button", { name: /Новости отдела/u });
+    fireEvent(row, new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 90,
+      clientY: 120
+    }));
+  }
+
+  it("offers to silence a chat that still notifies", () => {
+    const onToggle = vi.fn();
+    renderWithMute(onToggle, new Set());
+
+    openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Не уведомлять в Telegram"
+    }));
+
+    expect(onToggle).toHaveBeenCalledWith("chat-1", true);
+  });
+
+  it("offers to restore a chat that is already silenced", () => {
+    const onToggle = vi.fn();
+    renderWithMute(onToggle, new Set(["chat-1"]));
+
+    openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Уведомлять в Telegram"
+    }));
+
+    expect(onToggle).toHaveBeenCalledWith("chat-1", false);
+  });
+});
+
+describe("folder transitions", () => {
+  it("slides the list in from the side the folder came from", () => {
+    const { rerender } = render(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="all"
+      />
+    );
+    expect(document.querySelector(".chat-list__scroll")
+      ?.getAttribute("data-enter")).toBe("right");
+
+    rerender(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="channels"
+      />
+    );
+    expect(document.querySelector(".chat-list__scroll")
+      ?.getAttribute("data-enter")).toBe("right");
+
+    rerender(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="all"
+      />
+    );
+    expect(document.querySelector(".chat-list__scroll")
+      ?.getAttribute("data-enter")).toBe("left");
+  });
+});

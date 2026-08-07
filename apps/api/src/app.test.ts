@@ -370,6 +370,14 @@ function createServices(store: MemorySessionStore): AppServices {
         Promise.resolve(chatId === `chat-${userLookup}`),
       subscribe: () => () => undefined
     },
+    notifications: {
+      load: () => Promise.resolve({
+        enabled: true,
+        mutedChatIds: [],
+        previewChatIds: []
+      }),
+      save: () => Promise.resolve()
+    },
     ready: () => true
   };
 }

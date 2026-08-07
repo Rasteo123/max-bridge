@@ -33,6 +33,7 @@ type RuntimeNotificationServiceOptions = Readonly<{
 
 export class RuntimeNotificationService {
   private readonly chatTitles = new Map<string, Map<string, string>>();
+  private readonly mutedChats = new Map<string, Set<string>>();
   private unsubscribe: (() => void) | undefined;
 
   constructor(private readonly options: RuntimeNotificationServiceOptions) {}
@@ -53,10 +54,7 @@ export class RuntimeNotificationService {
       async (user) => {
         try {
           const chats = await this.options.source.list(user.lookupId);
-          this.chatTitles.set(
-            user.lookupId,
-            new Map(chats.map((chat) => [chat.id, chat.title]))
-          );
+          this.rememberChats(user.lookupId, chats);
         } catch (error: unknown) {
           this.options.onError?.(error);
         }
@@ -68,6 +66,7 @@ export class RuntimeNotificationService {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.chatTitles.clear();
+    this.mutedChats.clear();
   }
 
   private async handle(
@@ -98,6 +97,9 @@ export class RuntimeNotificationService {
         this.chatTitles.get(userLookup)?.get(message.chatId) ??
         "контакта в MAX",
       kind: message.kind,
+      ...(this.mutedChats.get(userLookup)?.has(message.chatId) === true
+        ? { chatMuted: true }
+        : {}),
       ...("text" in message
         ? { body: message.text }
         : {})
@@ -110,10 +112,7 @@ export class RuntimeNotificationService {
     event: BridgeEvent
   ): void {
     if (event.type === "chats.snapshot") {
-      this.chatTitles.set(
-        userLookup,
-        new Map(event.chats.map((chat) => [chat.id, chat.title]))
-      );
+      this.rememberChats(userLookup, event.chats);
       return;
     }
     if (event.type === "chat.upsert") {
@@ -121,6 +120,27 @@ export class RuntimeNotificationService {
         new Map<string, string>();
       titles.set(event.chat.id, event.chat.title);
       this.chatTitles.set(userLookup, titles);
+      const muted = this.mutedChats.get(userLookup) ?? new Set<string>();
+      if (event.chat.muted) {
+        muted.add(event.chat.id);
+      } else {
+        muted.delete(event.chat.id);
+      }
+      this.mutedChats.set(userLookup, muted);
     }
+  }
+
+  private rememberChats(
+    userLookup: string,
+    chats: readonly ChatSummary[]
+  ): void {
+    this.chatTitles.set(
+      userLookup,
+      new Map(chats.map((chat) => [chat.id, chat.title]))
+    );
+    this.mutedChats.set(
+      userLookup,
+      new Set(chats.filter((chat) => chat.muted).map((chat) => chat.id))
+    );
   }
 }

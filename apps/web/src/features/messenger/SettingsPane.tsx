@@ -27,6 +27,13 @@ export type MessengerAccountSettings = Readonly<{
   blocked: readonly MessengerChat[];
 }>;
 
+/** What the bridge stores for the Telegram bot, per account. */
+export type BotNotificationPreferences = Readonly<{
+  enabled: boolean;
+  mutedChatIds: readonly string[];
+  previewChatIds: readonly string[];
+}>;
+
 export type NotificationPreferences = Readonly<{
   messagePreview: boolean;
   sound: boolean;
@@ -47,6 +54,10 @@ type SettingsPaneProps = Readonly<{
   onThemeChange(theme: MessengerTheme): void;
   notifications: NotificationPreferences;
   onNotificationsChange(next: NotificationPreferences): void;
+  botNotifications?: BotNotificationPreferences;
+  onBotNotificationsToggle?(enabled: boolean): void;
+  onUnmuteChat?(chatId: string): void;
+  chatTitles?: ReadonlyMap<string, string>;
   onClose(): void;
   onLogout?(): void;
 }>;
@@ -89,6 +100,10 @@ export function SettingsPane({
   onThemeChange,
   notifications,
   onNotificationsChange,
+  botNotifications,
+  onBotNotificationsToggle,
+  onUnmuteChat,
+  chatTitles,
   onClose,
   onLogout
 }: SettingsPaneProps) {
@@ -303,28 +318,69 @@ export function SettingsPane({
         )}
 
         {section === "notifications" && (
-          <fieldset className="settings-toggles">
-            <legend className="sr-only">Уведомления</legend>
-            {([
-              ["messagePreview", "Предпросмотр сообщения"],
-              ["sound", "Звук"],
-              ["groupNotifications", "Уведомления групп и каналов"]
-            ] as const).map(([key, label]) => (
-              <label key={key}>
-                <input
-                  type="checkbox"
-                  checked={notifications[key]}
-                  onChange={(event) => {
-                    onNotificationsChange({
-                      ...notifications,
-                      [key]: event.currentTarget.checked
-                    });
-                  }}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
+          <>
+            <fieldset className="settings-toggles">
+              <legend className="sr-only">Уведомления</legend>
+              {onBotNotificationsToggle !== undefined
+                && botNotifications !== undefined && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={botNotifications.enabled}
+                    onChange={(event) => {
+                      onBotNotificationsToggle(event.currentTarget.checked);
+                    }}
+                  />
+                  <span>Уведомления в Telegram</span>
+                </label>
+              )}
+              {([
+                ["messagePreview", "Предпросмотр сообщения"],
+                ["sound", "Звук"],
+                ["groupNotifications", "Уведомления групп и каналов"]
+              ] as const).map(([key, label]) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={notifications[key]}
+                    onChange={(event) => {
+                      onNotificationsChange({
+                        ...notifications,
+                        [key]: event.currentTarget.checked
+                      });
+                    }}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </fieldset>
+            <h3 className="settings-subtitle">Без уведомлений в Telegram</h3>
+            {botNotifications === undefined
+              || botNotifications.mutedChatIds.length === 0 ? (
+                <p className="settings-hint">
+                  Заглушить чат можно долгим нажатием на него в списке.
+                </p>
+              ) : (
+                <ul className="settings-rows">
+                  {botNotifications.mutedChatIds.map((chatId) => (
+                    <li key={chatId} className="settings-rows__row">
+                      <span>{chatTitles?.get(chatId) ?? "Чат"}</span>
+                      {onUnmuteChat !== undefined && (
+                        <button
+                          type="button"
+                          className="settings-rows__action"
+                          onClick={() => {
+                            onUnmuteChat(chatId);
+                          }}
+                        >
+                          Включить
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+          </>
         )}
 
         {section === "appearance" && (

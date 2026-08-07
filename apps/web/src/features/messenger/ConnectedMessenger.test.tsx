@@ -56,7 +56,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -88,7 +88,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -136,7 +136,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -167,7 +167,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -211,7 +211,7 @@ describe("ConnectedMessenger startup", () => {
       }));
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -275,7 +275,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -336,7 +336,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -367,7 +367,7 @@ describe("ConnectedMessenger startup", () => {
 
     render(
       <ConnectedMessenger
-        client={new ApiClient(fetcher)}
+        client={new ApiClient(withNotifications(fetcher))}
         theme="dark"
         onThemeChange={vi.fn()}
         onLoggedOut={vi.fn()}
@@ -389,6 +389,25 @@ describe("ConnectedMessenger startup", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * The bot's notification preferences are read once on mount. Answering them
+ * here keeps each test's ordered stubs — and its call count — about chats and
+ * messages, which is what they are checking.
+ */
+function withNotifications(fetcher: typeof fetch): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input instanceof Request ? input.url : input)
+      .includes("/api/notifications")) {
+      return Promise.resolve(jsonResponse({
+        enabled: true,
+        mutedChatIds: [],
+        previewChatIds: []
+      }));
+    }
+    return fetcher(input, init);
+  });
+}
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {

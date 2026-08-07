@@ -98,3 +98,107 @@ function event(
     ...overrides
   };
 }
+
+describe("muted chats", () => {
+  it("stays quiet about a chat muted in MAX itself", async () => {
+    const sent: unknown[] = [];
+    const router = new NotificationRouter({
+      transport: {
+        send: (message) => {
+          sent.push(message);
+          return Promise.resolve();
+        },
+        answerCallback: () => Promise.resolve()
+      },
+      settings: {
+        load: () => Promise.resolve({
+          enabled: true,
+          mutedChatIds: [],
+          previewChatIds: []
+        })
+      },
+      deduplicator: new NotificationDeduplicator()
+    });
+
+    await router.handle({
+      userLookup: "u_0123456789abcdef",
+      telegramId: "4242",
+      sequence: 1,
+      messageId: "message-1",
+      chatId: "chat-1",
+      senderName: "Канал",
+      kind: "text",
+      chatMuted: true
+    });
+
+    expect(sent).toEqual([]);
+  });
+
+  it("stays quiet about a chat muted for the bot alone", async () => {
+    const sent: unknown[] = [];
+    const router = new NotificationRouter({
+      transport: {
+        send: (message) => {
+          sent.push(message);
+          return Promise.resolve();
+        },
+        answerCallback: () => Promise.resolve()
+      },
+      settings: {
+        load: () => Promise.resolve({
+          enabled: true,
+          mutedChatIds: ["chat-1"],
+          previewChatIds: []
+        })
+      },
+      deduplicator: new NotificationDeduplicator()
+    });
+
+    await router.handle({
+      userLookup: "u_0123456789abcdef",
+      telegramId: "4242",
+      sequence: 1,
+      messageId: "message-1",
+      chatId: "chat-1",
+      senderName: "Канал",
+      kind: "text"
+    });
+
+    expect(sent).toEqual([]);
+  });
+
+  it("still notifies about a chat that is not muted anywhere", async () => {
+    const sent: { chatId: string; text: string }[] = [];
+    const router = new NotificationRouter({
+      transport: {
+        send: (message) => {
+          sent.push(message);
+          return Promise.resolve();
+        },
+        answerCallback: () => Promise.resolve()
+      },
+      settings: {
+        load: () => Promise.resolve({
+          enabled: true,
+          mutedChatIds: ["chat-2"],
+          previewChatIds: []
+        })
+      },
+      deduplicator: new NotificationDeduplicator()
+    });
+
+    await router.handle({
+      userLookup: "u_0123456789abcdef",
+      telegramId: "4242",
+      sequence: 1,
+      messageId: "message-1",
+      chatId: "chat-1",
+      senderName: "Вера",
+      kind: "text",
+      chatMuted: false
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("Вера");
+  });
+});

@@ -39,6 +39,10 @@ import {
   type MessageGateway
 } from "./routes/messages.js";
 import {
+  registerNotificationRoutes,
+  type NotificationPreferencesGateway
+} from "./routes/notifications.js";
+import {
   registerWebSocketRoute,
   type LiveGateway
 } from "./routes/websocket.js";
@@ -58,6 +62,7 @@ export type AppServices = Readonly<{
   messages: MessageGateway;
   live: LiveGateway;
   media?: MediaGateway;
+  notifications: NotificationPreferencesGateway;
   ready: () => boolean;
 }>;
 
@@ -134,6 +139,10 @@ export async function buildApp(
       resolvePrincipal
     });
   }
+  await app.register(registerNotificationRoutes, {
+    gateway: options.services.notifications,
+    resolvePrincipal
+  });
   await app.register(registerHealthRoutes, {
     ready: options.services.ready
   });

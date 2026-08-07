@@ -1,8 +1,13 @@
-import { type CSSProperties, useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+  type CSSProperties
+} from "react";
 
 import {
   CHAT_FOLDERS,
   chatsInFolder,
+  folderIndexOf,
   type ChatFolderId
 } from "./chat-folders.js";
 import { ChatRow } from "./ChatRow.js";
@@ -31,6 +36,8 @@ type ChatListProps = Readonly<{
   ): Promise<readonly MessengerChat[]>;
   onSubscribe?(chat: MessengerChat): void;
   onOpenSettings?(): void;
+  botMutedChatIds?: ReadonlySet<string>;
+  onToggleBotNotifications?(chatId: string, muted: boolean): void;
 }>;
 
 export function ChatList({
@@ -43,7 +50,9 @@ export function ChatList({
   folderOffset = 0,
   onSearch,
   onSubscribe,
-  onOpenSettings
+  onOpenSettings,
+  botMutedChatIds,
+  onToggleBotNotifications
 }: ChatListProps) {
   const [query, setQuery] = useState("");
   const [previewChat, setPreviewChat] = useState<MessengerChat>();
@@ -74,6 +83,7 @@ export function ChatList({
     ),
     [search.results, ownIds]
   );
+  const enterFrom = useFolderTransition(folder);
   const folderStyle = {
     "--folder-offset": `${String(folderOffset)}px`
   } as CSSProperties;
@@ -126,8 +136,10 @@ export function ChatList({
         ))}
       </div>
       <div
+        key={folder}
         className="chat-list__scroll"
         data-folder={folder}
+        data-enter={enterFrom}
         style={folderStyle}
       >
         {visibleChats.length === 0 && (!searching || globalResults.length === 0)
@@ -150,6 +162,10 @@ export function ChatList({
                   selected={chat.id === selectedChatId}
                   onSelect={onSelectChat}
                   {...(onChatAction === undefined ? {} : { onChatAction })}
+                  botMuted={botMutedChatIds?.has(chat.id) ?? false}
+                  {...(onToggleBotNotifications === undefined
+                    ? {}
+                    : { onToggleBotNotifications })}
                 />
               ))}
               {searching && globalResults.length > 0 && (
@@ -188,6 +204,29 @@ export function ChatList({
       )}
     </aside>
   );
+}
+
+/**
+ * Which way the incoming folder should travel in from: the same left-to-right
+ * motion the conversation uses when it gives the list back.
+ */
+function useFolderTransition(folder: ChatFolderId): "left" | "right" {
+  // Derived while rendering rather than in an effect: the list is keyed by
+  // folder, so it mounts once with whatever direction is on the element, and
+  // an effect would arrive a frame too late to steer the animation.
+  const [seen, setSeen] = useState<Readonly<{
+    folder: ChatFolderId;
+    enterFrom: "left" | "right";
+  }>>({ folder, enterFrom: "right" });
+  if (seen.folder !== folder) {
+    setSeen({
+      folder,
+      enterFrom: folderIndexOf(folder) > folderIndexOf(seen.folder)
+        ? "right"
+        : "left"
+    });
+  }
+  return seen.enterFrom;
 }
 
 /**

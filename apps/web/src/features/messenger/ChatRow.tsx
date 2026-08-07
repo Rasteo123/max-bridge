@@ -18,13 +18,18 @@ type ChatRowProps = Readonly<{
   selected: boolean;
   onSelect(chatId: string): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
+  /** Whether the Telegram bot stays quiet about this chat. */
+  botMuted?: boolean;
+  onToggleBotNotifications?(chatId: string, muted: boolean): void;
 }>;
 
 export function ChatRow({
   chat,
   selected,
   onSelect,
-  onChatAction
+  onChatAction,
+  botMuted = false,
+  onToggleBotNotifications
 }: ChatRowProps) {
   const [menuPoint, setMenuPoint] = useState<ContextMenuPoint | null>(null);
   const press = useLongPressContextMenu({
@@ -62,6 +67,16 @@ export function ChatRow({
           onChatAction(chat.id, chat.muted ? "unmute" : "mute");
         }
       },
+      ...(onToggleBotNotifications === undefined ? [] : [{
+        id: botMuted ? "bot-unmute" : "bot-mute",
+        label: botMuted
+          ? "Уведомлять в Telegram"
+          : "Не уведомлять в Telegram",
+        icon: botMuted ? "🔔" : "🔕",
+        onSelect: () => {
+          onToggleBotNotifications(chat.id, !botMuted);
+        }
+      }]),
       {
         id: "clear",
         label: "Стереть переписку",

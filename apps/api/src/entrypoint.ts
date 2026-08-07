@@ -69,6 +69,12 @@ async function main(): Promise<void> {
       messages: runtime,
       media: runtime,
       live: runtime,
+      notifications: {
+        load: (userLookup) =>
+          users.loadNotificationPreferencesByLookup(userLookup),
+        save: (userLookup, preferences) =>
+          users.saveNotificationPreferencesByLookup(userLookup, preferences)
+      },
       ready: () => true
     },
     allowedOrigins: new Set([config.publicOrigin]),

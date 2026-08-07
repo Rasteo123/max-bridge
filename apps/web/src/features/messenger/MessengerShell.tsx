@@ -61,6 +61,8 @@ type MessengerShellProps = Readonly<{
   onUnsubscribe?(chat: MessengerChat): void;
   onSubscribe?(chat: MessengerChat): void;
   onOpenSettings?(): void;
+  botMutedChatIds?: ReadonlySet<string>;
+  onToggleBotNotifications?(chatId: string, muted: boolean): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
@@ -88,6 +90,8 @@ export function MessengerShell({
   onUnsubscribe,
   onSubscribe,
   onOpenSettings,
+  botMutedChatIds,
+  onToggleBotNotifications,
   onChatAction,
   onLoadStickers,
   onSendSticker,
@@ -241,6 +245,10 @@ export function MessengerShell({
               : { onSearch: onSearchChats })}
             {...(onSubscribe === undefined ? {} : { onSubscribe })}
             {...(onOpenSettings === undefined ? {} : { onOpenSettings })}
+            {...(botMutedChatIds === undefined ? {} : { botMutedChatIds })}
+            {...(onToggleBotNotifications === undefined
+              ? {}
+              : { onToggleBotNotifications })}
           />
           <Conversation
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}
