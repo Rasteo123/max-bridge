@@ -72,11 +72,16 @@ export function adaptWireHistoryMessage(
   const sentAtMs = Date.parse(sentAt);
   const direction = senderId === context.viewerId ? "outgoing" : "incoming";
   const type = readWireString(message, "type")?.toUpperCase();
-  const attachments = readWireArray(message, "attaches") ?? [];
+  // A forwarded message is an empty shell: its text, attachments and
+  // formatting all live on the message carried inside `link`.
+  const forward = forwardedLink(message);
+  const content = forward?.content ?? message;
+  const attachments = readWireArray(content, "attaches") ?? [];
   const attachment = optionalWireRecord(attachments[0]);
   const attachmentType = readWireString(attachment ?? {}, "_type")
     ?.toUpperCase();
   const text = boundedText(readableText(message), 65_536);
+  const textLinks = adaptElements(content["elements"], text);
   const senderName = context.senderNames?.get(senderId);
 
   const base = {
@@ -95,6 +100,11 @@ export function adaptWireHistoryMessage(
     ...(readWireNumber(message, "updateTime") === undefined
       ? {}
       : { edited: true }),
+    ...(forward === undefined ? {} : { forwardedFrom: forward.title }),
+    ...(forward?.source === undefined
+      ? {}
+      : { forwardedSource: forward.source }),
+    ...(textLinks.length === 0 ? {} : { textLinks }),
     ...(adaptReactionInfo(message["reactionInfo"]).length === 0
       ? {}
       : { reactions: adaptReactionInfo(message["reactionInfo"]) })
@@ -145,6 +155,129 @@ export function adaptWireHistoryMessage(
   });
 }
 
+type ForwardedLink = Readonly<{
+  content: Readonly<Record<string, unknown>>;
+  title: string;
+  source?: Readonly<{
+    title: string;
+    chatId: string;
+    kind: "direct" | "group" | "channel";
+  }>;
+}>;
+
+function forwardedLink(
+  message: Readonly<Record<string, unknown>>
+): ForwardedLink | undefined {
+  const link = optionalWireRecord(message["link"]);
+  if (
+    link === undefined
+    || readWireString(link, "type")?.toUpperCase() !== "FORWARD"
+  ) {
+    return undefined;
+  }
+  const content = optionalWireRecord(link["message"]);
+  if (content === undefined) {
+    return undefined;
+  }
+  const title = boundedText(readWireString(link, "chatName"), 256);
+  const chatId = readOpaqueId(link, "chatId");
+  if (title.length === 0) {
+    return { content, title: "Переслано" };
+  }
+  return {
+    content,
+    title,
+    ...(chatId === undefined
+      ? {}
+      : {
+        source: {
+          title,
+          chatId,
+          kind: forwardedKind(link, chatId)
+        }
+      })
+  };
+}
+
+function forwardedKind(
+  link: Readonly<Record<string, unknown>>,
+  chatId: string
+): "direct" | "group" | "channel" {
+  if (readWireString(link, "chatAccessType") !== undefined) {
+    return "channel";
+  }
+  return chatId.startsWith("-") ? "group" : "direct";
+}
+
+/**
+ * MAX describes formatting as `elements` spans. Only links carry something the
+ * Mini App can act on, and only those that survive validation are kept.
+ */
+function adaptElements(
+  value: unknown,
+  text: string
+): readonly Readonly<{ offset: number; length: number; url: string }>[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 64) {
+    return [];
+  }
+  // MAX counts spans in code points, which is what Array.from yields.
+  const textLength = Array.from(text).length;
+  const links: Array<Readonly<{
+    offset: number;
+    length: number;
+    url: string;
+  }>> = [];
+  for (const item of value) {
+    const element = optionalWireRecord(item);
+    if (
+      element === undefined
+      || readWireString(element, "type")?.toUpperCase() !== "LINK"
+    ) {
+      continue;
+    }
+    const url = readWireString(
+      optionalWireRecord(element["attributes"]) ?? {},
+      "url"
+    );
+    const offset = readWireNumber(element, "from") ?? 0;
+    const length = readWireNumber(element, "length");
+    if (
+      url === undefined
+      || !isSafeHttpsUrl(url)
+      || length === undefined
+      || !Number.isSafeInteger(offset)
+      || !Number.isSafeInteger(length)
+      || offset < 0
+      || length < 1
+      || offset + length > textLength
+    ) {
+      continue;
+    }
+    links.push({ offset, length, url });
+  }
+  const ordered = [...links].sort((left, right) => left.offset - right.offset);
+  return ordered.filter((link, index) => {
+    const previous = ordered[index - 1];
+    return previous === undefined
+      || previous.offset + previous.length <= link.offset;
+  });
+}
+
+function isSafeHttpsUrl(value: string): boolean {
+  if (value.length < 9 || value.length > 4_096) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.username.length === 0
+      && parsed.password.length === 0
+      && parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function readableText(
   message: Readonly<Record<string, unknown>>
 ): string | undefined {
@@ -154,8 +287,9 @@ function readableText(
       ? "Сохраняйте здесь сообщения, фото и файлы"
       : text;
   }
-  const link = optionalWireRecord(message["link"]);
-  const nested = optionalWireRecord(link?.["message"]);
+  const nested = optionalWireRecord(
+    optionalWireRecord(message["link"])?.["message"]
+  );
   return nested === undefined ? undefined : readWireString(nested, "text");
 }
 

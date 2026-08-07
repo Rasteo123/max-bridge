@@ -218,6 +218,132 @@ describe("adaptWireHistory", () => {
     expect(messages[0]).toMatchObject({ id: "7", text: "Второе" });
   });
 
+  // A forward carries nothing itself: text, attachments and formatting all
+  // sit on the message inside `link`.
+  it("takes a forwarded message's media from the message it wraps", () => {
+    const [message] = adaptWireHistory({
+      messages: [{
+        id: 116_989_553_358_434_100n,
+        time: 1_785_118_917_212,
+        type: "USER",
+        sender: 117_225_878,
+        text: "",
+        attaches: [],
+        link: {
+          type: "FORWARD",
+          chatId: -69_708_440_354_940,
+          chatName: "ВСЕ ОТКРЫТКИ ТУТ",
+          chatAccessType: "PUBLIC",
+          message: {
+            id: 116_988_956_404_178_460n,
+            time: 1_785_109_808_413,
+            type: "CHANNEL",
+            text: "Доброе утро",
+            attaches: [{
+              _type: "PHOTO",
+              photoId: 33_080_124_831,
+              baseUrl: "https://i.oneme.ru/i?r=abc",
+              width: 720,
+              height: 1260
+            }]
+          }
+        }
+      }]
+    }, context());
+
+    expect(message).toMatchObject({
+      kind: "image",
+      text: "Доброе утро",
+      forwardedFrom: "ВСЕ ОТКРЫТКИ ТУТ",
+      forwardedSource: {
+        title: "ВСЕ ОТКРЫТКИ ТУТ",
+        chatId: "-69708440354940",
+        kind: "channel"
+      },
+      media: { sourceUrl: "https://i.oneme.ru/i?r=abc" }
+    });
+  });
+
+  it("keeps a forwarded video playable", () => {
+    const [message] = adaptWireHistory({
+      messages: [{
+        id: 1n,
+        time: 1_785_076_033_635,
+        sender: 117_225_878,
+        text: "",
+        attaches: [],
+        link: {
+          type: "FORWARD",
+          chatId: -69_392_746_121_913,
+          chatName: "Чудесные открытки",
+          chatAccessType: "PRIVATE",
+          message: {
+            id: 2n,
+            time: 1_784_981_460_950,
+            text: "",
+            attaches: [{
+              _type: "VIDEO",
+              videoId: 16_437_086_084_992,
+              token: "token",
+              duration: 20_000,
+              width: 480,
+              height: 852
+            }]
+          }
+        }
+      }]
+    }, context());
+
+    expect(message).toMatchObject({
+      kind: "video",
+      forwardedSource: { chatId: "-69392746121913", kind: "channel" }
+    });
+  });
+
+  it("turns MAX link elements into usable text links", () => {
+    const [message] = adaptWireHistory({
+      messages: [{
+        id: 1n,
+        time: 1_785_118_917_212,
+        sender: 117_225_878,
+        text: "",
+        attaches: [],
+        link: {
+          type: "FORWARD",
+          chatId: -1,
+          chatName: "Канал",
+          chatAccessType: "PUBLIC",
+          message: {
+            id: 2n,
+            time: 1_785_109_808_413,
+            text: "Открытки тут и там",
+            attaches: [],
+            elements: [
+              {
+                type: "LINK",
+                from: 0,
+                length: 8,
+                attributes: { url: "https://max.ru/vseotkritkityt" }
+              },
+              { type: "UNDERLINE", from: 0, length: 8 },
+              {
+                type: "LINK",
+                from: 9,
+                length: 3,
+                attributes: { url: "javascript:alert(1)" }
+              }
+            ]
+          }
+        }
+      }]
+    }, context());
+
+    // The underline carries nothing actionable and the script URL is refused.
+    expect(message?.textLinks).toEqual([
+      { offset: 0, length: 8, url: "https://max.ru/vseotkritkityt" }
+    ]);
+  });
+
   it("labels an attachment MAX has not taught the bridge about", () => {
     const [message] = adaptWireHistory({
       messages: [{
