@@ -266,7 +266,7 @@ describe("BridgeRuntimeGateway", () => {
         return Promise.resolve({
           stickers: [{
             id: "sticker-1",
-            previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+            previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
           }]
         });
       }

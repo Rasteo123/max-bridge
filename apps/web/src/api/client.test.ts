@@ -167,7 +167,7 @@ describe("ApiClient messenger actions", () => {
       .mockResolvedValueOnce(jsonResponse({
         stickers: [{
           id: "sticker/#wave",
-          previewDataUrl: "data:image/png;base64,AA=="
+          previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
         }]
       }))
       .mockResolvedValueOnce(jsonResponse(sendResult()));
@@ -176,7 +176,7 @@ describe("ApiClient messenger actions", () => {
     await expect(client.listStickers("chat/with space")).resolves.toEqual({
       stickers: [{
         id: "sticker/#wave",
-        previewDataUrl: "data:image/png;base64,AA=="
+        previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
       }]
     });
     await client.sendSticker(

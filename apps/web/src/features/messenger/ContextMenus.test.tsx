@@ -764,7 +764,7 @@ describe("sticker picker", () => {
     await act(async () => {
       resolveStickers([{
         id: "sticker-wave",
-        previewDataUrl: "data:image/png;base64,AA=="
+        previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
       }]);
       await Promise.resolve();
     });

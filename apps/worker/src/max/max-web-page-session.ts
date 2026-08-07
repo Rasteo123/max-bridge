@@ -51,8 +51,8 @@ const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
 const MAX_SEND_CONFIRMATION_MS = 10_000;
 const MAX_SESSION_READY_WAIT_MS = 15_000;
 const MAX_ACTION_WAIT_MS = 7_500;
-const MAX_STICKERS_PER_LIST = 12;
-const MAX_STICKER_PREVIEW_DATA_URL_BYTES = 40 * 1024;
+const MAX_STICKERS_PER_LIST = 120;
+const MAX_STICKER_SETS = 8;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 const MEDIA_OWNER = "max-bridge-media";
 const MAX_RECIPIENT_LOOKUPS = 200;
@@ -1318,59 +1318,76 @@ export class MaxWebPageSession {
     };
   }
 
+  /**
+   * Lists stickers over the protocol. The panel used to be screenshotted out
+   * of the MAX interface one canvas at a time; MAX serves a ready image for
+   * every sticker, so nothing needs rasterising.
+   */
   async listStickers(chatId: string): Promise<readonly Readonly<{
     id: string;
-    previewDataUrl: string;
+    previewUrl: string;
+    setName?: string;
   }>[]> {
-    if (!await this.openChatForActions(chatId)) {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
       throw new TypeError("Chat is unavailable");
     }
-    const dialog = await this.openStickerPanel();
-    try {
-      const stickers = dialog.locator(
-        'button.sticker[data-testid^="sticker-"]'
-      );
-      await stickers.first().waitFor({
-        state: "visible",
-        timeout: MAX_ACTION_WAIT_MS
-      });
-      const count = Math.min(await stickers.count(), MAX_STICKERS_PER_LIST);
-      const output: Array<{ id: string; previewDataUrl: string }> = [];
-      for (let index = 0; index < count; index += 1) {
-        const sticker = stickers.nth(index);
-        const testId = await sticker.getAttribute("data-testid");
-        const id = testId?.startsWith("sticker-")
-          ? testId.slice("sticker-".length)
-          : undefined;
-        if (id === undefined || !/^[A-Za-z0-9_-]{1,128}$/u.test(id)) {
-          continue;
-        }
-        const canvas = sticker.locator("canvas");
-        if (await canvas.count() !== 1) {
-          continue;
-        }
-        const previewDataUrl = await canvas.evaluate((element) => {
-          if (!(element instanceof HTMLCanvasElement)) {
-            return "";
-          }
-          return element.toDataURL("image/webp", 0.78);
-        });
-        if (
-          !previewDataUrl.startsWith("data:image/") ||
-          Buffer.byteLength(previewDataUrl, "utf8") >
-            MAX_STICKER_PREVIEW_DATA_URL_BYTES
-        ) {
-          continue;
-        }
-        output.push({
-          id,
-          previewDataUrl
-        });
-      }
-      return output;
-    } finally {
-      await dialog.press("Escape").catch(() => undefined);
+    const catalogue = asRecord(
+      await this.wire.request(27, { type: "STICKER", sync: 0 })
+    );
+    const setIds = stickerSetIds(catalogue).slice(0, MAX_STICKER_SETS);
+    if (setIds.length === 0) {
+      return [];
     }
+    const sets = asRecord(
+      await this.wire.request(28, { type: "STICKER_SET", ids: setIds })
+    );
+    const wanted: Array<Readonly<{ id: number; setName?: string }>> = [];
+    for (const value of readArray(sets?.["stickerSets"])) {
+      const set = asRecord(value);
+      const setName = typeof set?.["name"] === "string"
+        ? set["name"].slice(0, 128)
+        : undefined;
+      for (const stickerId of readArray(set?.["stickers"])) {
+        if (typeof stickerId === "number" && Number.isSafeInteger(stickerId)) {
+          wanted.push({ id: stickerId, ...(setName === undefined ? {} : { setName }) });
+        }
+        if (wanted.length >= MAX_STICKERS_PER_LIST) {
+          break;
+        }
+      }
+      if (wanted.length >= MAX_STICKERS_PER_LIST) {
+        break;
+      }
+    }
+    if (wanted.length === 0) {
+      return [];
+    }
+    const names = new Map(wanted.map((entry) => [entry.id, entry.setName]));
+    const resolved = asRecord(await this.wire.request(28, {
+      type: "STICKER",
+      ids: wanted.map((entry) => entry.id)
+    }));
+    const output: Array<{
+      id: string;
+      previewUrl: string;
+      setName?: string;
+    }> = [];
+    for (const value of readArray(resolved?.["stickers"])) {
+      const sticker = asRecord(value);
+      const id = opaqueId(sticker?.["id"]);
+      const previewUrl = stickerImageUrl(sticker?.["url"]);
+      if (id === undefined || previewUrl === undefined) {
+        continue;
+      }
+      const setName = names.get(Number(id));
+      output.push({
+        id,
+        previewUrl,
+        ...(setName === undefined ? {} : { setName })
+      });
+    }
+    return output;
   }
 
   async sendSticker(
@@ -1381,38 +1398,30 @@ export class MaxWebPageSession {
     operationId: string;
     messageId?: string;
   }>> {
-    if (!/^[A-Za-z0-9_-]{1,128}$/u.test(stickerId)) {
+    if (!/^\d{1,19}$/u.test(stickerId)) {
       throw new TypeError("Sticker is invalid");
     }
-    if (!await this.openChatForActions(chatId)) {
+    const chats = await this.listChats();
+    if (!chats.some((chat) => chat.id === chatId)) {
       throw new TypeError("Chat is unavailable");
     }
-    const dialog = await this.openStickerPanel();
-    const sticker = dialog.getByTestId(`sticker-${stickerId}`);
-    if (await sticker.count() !== 1) {
-      await dialog.press("Escape").catch(() => undefined);
-      throw new TypeError("Sticker is unavailable");
-    }
-    const operationId = createOperationId();
-    const confirmation = new Promise<string | undefined>((resolvePending) => {
-      const timeout = setTimeout(() => {
-        this.pendingSend = undefined;
-        resolvePending(undefined);
-      }, MAX_SEND_CONFIRMATION_MS);
-      this.pendingSend = { resolve: resolvePending, timeout };
-    });
-    try {
-      await sticker.click({ timeout: MAX_ACTION_WAIT_MS });
-    } catch (error: unknown) {
-      this.clearPendingSend();
-      throw new Error("MAX sticker send failed before confirmation", {
-        cause: error
-      });
-    }
-    const messageId = await confirmation;
-    return messageId === undefined
-      ? { state: "ambiguous", operationId }
-      : { state: "confirmed", operationId, messageId };
+    const response = asRecord(await this.wire.request(64, {
+      chatId: wireChatId(chatId),
+      message: {
+        cid: -Date.now(),
+        attaches: [{
+          _type: "STICKER",
+          stickerId: wireMessageId(stickerId)
+        }]
+      },
+      notify: true
+    }));
+    const messageId = opaqueId(asRecord(response?.["message"])?.["id"]);
+    return {
+      state: "confirmed",
+      operationId: createOperationId(),
+      ...(messageId === undefined ? {} : { messageId })
+    };
   }
 
   async sendAttachment(input: Readonly<{
@@ -1588,26 +1597,6 @@ export class MaxWebPageSession {
     await item.click({ button: "right", timeout: MAX_ACTION_WAIT_MS });
     const dialog = this.options.page.getByRole("dialog").last();
     await dialog.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
-    return dialog;
-  }
-
-  private async openStickerPanel(): Promise<Locator> {
-    await this.dismissOpenDialog();
-    const trigger = this.options.page.getByRole("button", {
-      name: "Открыть меню стикеров",
-      exact: true
-    });
-    await trigger.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
-    await trigger.click({ timeout: MAX_ACTION_WAIT_MS });
-    const dialog = this.options.page.getByRole("dialog").last();
-    await dialog.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
-    const stickersTab = dialog.getByRole("button", {
-      name: "Стикеры",
-      exact: true
-    });
-    if (await stickersTab.count() === 1) {
-      await stickersTab.click({ timeout: MAX_ACTION_WAIT_MS });
-    }
     return dialog;
   }
 
@@ -2944,6 +2933,37 @@ function contactLastSeen(payload: unknown): ReadonlyMap<string, number> {
     }
   }
   return seen;
+}
+
+function stickerSetIds(catalogue: Record<string, unknown> | undefined): number[] {
+  const output: number[] = [];
+  for (const value of readArray(catalogue?.["sections"])) {
+    const section = asRecord(value);
+    for (const setId of readArray(section?.["stickerSets"])) {
+      if (typeof setId === "number" && Number.isSafeInteger(setId)) {
+        output.push(setId);
+      }
+    }
+  }
+  return output;
+}
+
+function stickerImageUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2_048) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "i.oneme.ru"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readArray(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function wireChatId(chatId: string): number | bigint {

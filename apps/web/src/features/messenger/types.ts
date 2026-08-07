@@ -92,7 +92,8 @@ export type MessengerReplyPreview = Readonly<{
 
 export type MessengerSticker = Readonly<{
   id: string;
-  previewDataUrl: string;
+  previewUrl: string;
+  setName?: string;
 }>;
 
 export type AttachmentSendState =

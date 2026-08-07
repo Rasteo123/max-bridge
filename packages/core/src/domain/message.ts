@@ -29,11 +29,13 @@ export const MessageReactionSchema = Type.Object({
 
 export const StickerSummarySchema = Type.Object({
   id: Type.String(opaqueIdOptions),
-  previewDataUrl: Type.String({
-    minLength: 32,
-    maxLength: 40 * 1024,
-    pattern: "^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$"
-  })
+  // MAX serves a ready image for every sticker, so no preview is inlined.
+  previewUrl: Type.String({
+    minLength: 12,
+    maxLength: 2048,
+    pattern: "^https://i\\.oneme\\.ru/"
+  }),
+  setName: Type.Optional(Type.String({ minLength: 1, maxLength: 128 }))
 }, strictObjectOptions);
 
 export const MediaMetadataSchema = Type.Object({

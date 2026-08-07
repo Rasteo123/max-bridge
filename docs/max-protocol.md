@@ -72,6 +72,48 @@ CONTROL { _type, event: "system", message, shortMessage }
 
 `previewData` — крошечная бинарная превьюшка, годится как заглушка при загрузке.
 
+## Стикеры
+
+Наборы — опкод 27 (`type: "STICKER"`, `sync: 0`):
+
+```
+sections: [
+  { type: "STICKER_SETS", id: "NEW_STICKER_SETS",
+    stickerSets: [223822, 227918, …], title, totalCount, collapsed },
+  { type: "RECENTS", id: "RECENT", emojiList, recentEmojiList, recentsList }
+]
+```
+
+Набор разворачивается опкодом 28 (`type: "STICKER_SET"`):
+
+```
+{ id, name, iconUrl, updateTime, link, stickers: [24393260366, …] }
+```
+
+Сам стикер — опкодом 28 (`type: "STICKER"`):
+
+```
+{ id, width, height, tags: ["😏","🤫"], type: "LOTTIE",
+  url: "https://i.oneme.ru/getSmile?smileId=…&smileType=4",
+  lottieUrl, setId, authorType, fileId }
+```
+
+`url` — готовая картинка на `i.oneme.ru`, скачивать отдельно не нужно.
+`lottieUrl` — анимация для анимированных стикеров.
+
+Вложение в сообщении:
+
+```
+{ _type: "STICKER", stickerId, setId, url, lottieUrl,
+  stickerType: "LOTTIE", width, height, tags, audio, authorType, time }
+```
+
+Отправка — опкод 64, как обычное сообщение:
+
+```
+{ chatId, message: { cid, attaches: [ { _type: "STICKER", stickerId } ] }, notify: true }
+```
+
 ## Реакции
 
 В сообщении:

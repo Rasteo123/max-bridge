@@ -269,7 +269,7 @@ describe("message routes", () => {
     expect(list.json()).toEqual({
       stickers: [{
         id: "sticker-1",
-        previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+        previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
       }]
     });
 
@@ -571,7 +571,7 @@ class FakeMessageGateway implements MessageGateway {
   listStickers() {
     return Promise.resolve([{
       id: "sticker-1",
-      previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+      previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
     }]);
   }
 

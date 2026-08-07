@@ -390,7 +390,7 @@ function fakeSession(): RuntimeMaxSession {
     }),
     listStickers: () => Promise.resolve([{
       id: "sticker-1",
-      previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+      previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
     }]),
     sendSticker: () => Promise.resolve({
       state: "confirmed",

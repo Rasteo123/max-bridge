@@ -375,16 +375,16 @@ describe("message domain", () => {
   it("accepts only bounded image data URLs for sticker previews", () => {
     const sticker = {
       id: "sticker-1",
-      previewDataUrl: `data:image/png;base64,${"A".repeat(32)}`
+      previewUrl: "https://i.oneme.ru/getSmile?smileId=abc"
     };
     expect(parseStickerSummary(sticker)).toEqual(sticker);
     expect(() => parseStickerSummary({
       id: "sticker-1",
-      previewDataUrl: "https://attacker.invalid/sticker.png"
+      previewUrl: "https://attacker.invalid/sticker.png"
     })).toThrow(DomainValidationError);
     expect(() => parseStickerSummary({
       id: "sticker-1",
-      previewDataUrl: `data:image/webp;base64,${"A".repeat(41 * 1024)}`
+      previewUrl: `https://i.oneme.ru/${"a".repeat(2_100)}`
     })).toThrow(DomainValidationError);
   });
 });

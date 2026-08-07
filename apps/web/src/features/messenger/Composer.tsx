@@ -447,7 +447,7 @@ export function Composer({
                       }}
                     >
                       <img
-                        src={sticker.previewDataUrl}
+                        src={sticker.previewUrl}
                         alt=""
                         draggable={false}
                       />
