@@ -39,7 +39,6 @@ const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
 const MAX_HISTORY_PAGE_SIZE = 100;
-const MAX_WIRE_PROBE_INTERVAL_MS = 60_000;
 const MAX_HISTORY_POLL_MS = 150;
 const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
 const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
@@ -86,7 +85,6 @@ export class MaxWebPageSession {
   private pendingSend: PendingSend | undefined;
   private captchaPointerDown = false;
   private stopped = false;
-  private probeTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly options: Readonly<{
     page: Page;
@@ -128,51 +126,7 @@ export class MaxWebPageSession {
     if (state.state === "authenticated") {
       await this.ensureAdapter();
     }
-    this.startWireProbe();
     return state;
-  }
-
-  /**
-   * Records the state of the MAX connection on a timer. Reading history is
-   * driven by the Mini App, so without this the transport can only be observed
-   * by asking someone to open a chat.
-   */
-  private startWireProbe(): void {
-    if (this.probeTimer !== undefined) {
-      return;
-    }
-    this.probeTimer = setInterval(() => {
-      void (async () => {
-        if (this.stopped) {
-          return;
-        }
-        try {
-          const outcome = await this.wire.probe();
-          // A round trip over opcode 1 is the client's own keepalive, so it
-          // proves the request path end to end without disturbing anything.
-          let roundTrip = "skipped";
-          if (outcome === "open") {
-            const startedAt = Date.now();
-            try {
-              await this.wire.request(1, { interactive: false }, 8_000);
-              roundTrip = `ok:${String(Date.now() - startedAt)}ms`;
-            } catch (error: unknown) {
-              roundTrip = describeWireFailure(error);
-            }
-          }
-          process.stderr.write(`${JSON.stringify({
-            event: "max_wire_probe",
-            outcome,
-            roundTrip,
-            historyPath: await this.diagnoseHistoryPath(),
-            page: await this.describePageState()
-          })}\n`);
-        } catch {
-          // A probe is diagnostic only and never disturbs the session.
-        }
-      })();
-    }, MAX_WIRE_PROBE_INTERVAL_MS);
-    this.probeTimer.unref();
   }
 
   async background(): Promise<void> {
@@ -703,19 +657,13 @@ export class MaxWebPageSession {
    * the only source that carries text, attachments and reactions intact.
    */
   async history(chatId: string): Promise<readonly Message[] | null> {
-    // Bisecting a fault where the probe finds the socket open moments before
-    // the same request path calls it closed: sample the transport after every
-    // step that precedes the read.
-    const trail: string[] = [];
     const adapter = await this.ensureAdapter();
-    trail.push(`adapter:${await this.wire.probe()}`);
     const chats = await this.listChats();
-    trail.push(`chats:${await this.wire.probe()}`);
     if (!chats.some((chat) => chat.id === chatId)) {
       return null;
     }
     try {
-      return await this.wireHistory(adapter, chatId, trail);
+      return await this.wireHistory(adapter, chatId);
     } catch (error: unknown) {
       const stage = describeWireFailure(error);
       // Snapshot before touching the page, otherwise the recovery below is all
@@ -729,7 +677,6 @@ export class MaxWebPageSession {
           process.stderr.write(`${JSON.stringify({
             event: "max_wire_history_failed",
             stage,
-            trail,
             before,
             lastClose: await this.wire.lastClose(),
             afterReload: describeWireFailure(retryError),
@@ -744,7 +691,6 @@ export class MaxWebPageSession {
       process.stderr.write(`${JSON.stringify({
         event: "max_wire_history_failed",
         stage,
-        trail,
         before
       })}\n`);
       return this.renderedHistory(chatId);
@@ -778,51 +724,11 @@ export class MaxWebPageSession {
     }
   }
 
-  /**
-   * Walks the same steps a history read takes, sampling the socket after each
-   * one, and stops at the protocol request. Read-only: no navigation and no
-   * fallback, so it can run on a timer without disturbing the session.
-   */
-  private async diagnoseHistoryPath(): Promise<string> {
-    try {
-      const trail: string[] = [];
-      await this.ensureAdapter();
-      trail.push(`adapter:${await this.wire.probe()}`);
-      const chats = await this.listChats();
-      trail.push(`chats(${String(chats.length)}):${await this.wire.probe()}`);
-      const first = chats[0];
-      if (first === undefined) {
-        return trail.join(" ");
-      }
-      await this.readChatWireContext(first.id);
-      trail.push(`readMarks:${await this.wire.probe()}`);
-      const startedAt = Date.now();
-      try {
-        await this.wire.request(49, {
-          chatId: wireChatId(first.id),
-          from: Date.now(),
-          forward: 0,
-          backward: 1,
-          getMessages: true
-        }, 8_000);
-        trail.push(`history:ok:${String(Date.now() - startedAt)}ms`);
-      } catch (error: unknown) {
-        trail.push(`history:${describeWireFailure(error)}`);
-        trail.push(`close:${JSON.stringify(await this.wire.lastClose())}`);
-      }
-      return trail.join(" ");
-    } catch (error: unknown) {
-      return `failed:${describeWireFailure(error)}`;
-    }
-  }
-
   private async wireHistory(
     adapter: MaxSession,
-    chatId: string,
-    trail: string[] = []
+    chatId: string
   ): Promise<readonly Message[]> {
     const context = await this.readChatWireContext(chatId);
-    trail.push(`readMarks:${await this.wire.probe()}`);
     const payload = await this.wire.request(49, {
       chatId: wireChatId(chatId),
       from: Date.now(),
@@ -1708,10 +1614,6 @@ export class MaxWebPageSession {
 
   async close(): Promise<void> {
     this.stopped = true;
-    if (this.probeTimer !== undefined) {
-      clearInterval(this.probeTimer);
-      this.probeTimer = undefined;
-    }
     this.wire.reset("MAX session closed");
     this.clearPendingSend();
     this.adapter?.close();
