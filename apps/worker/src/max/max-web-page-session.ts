@@ -1714,7 +1714,8 @@ export class MaxWebPageSession {
       process.stderr.write(`${JSON.stringify({
         event: "max_attachment_ui_failed",
         stage: failedStage,
-        errorName: error instanceof Error ? error.name : "unknown"
+        errorName: error instanceof Error ? error.name : "unknown",
+        page: await this.describePageState()
       })}\n`);
       throw new Error("MAX attachment send failed before confirmation", {
         cause: error
@@ -1732,13 +1733,15 @@ export class MaxWebPageSession {
   ): Promise<Locator> {
     const allInputs = this.options.page.locator('input[type="file"]');
     const before = await allInputs.count();
+    // The composer is still being rendered when the chat has just opened, so
+    // the button has to be waited for rather than counted once. A channel with
+    // comments shows a second composer, which is why the first is taken rather
+    // than insisting on exactly one.
     const trigger = this.options.page.getByRole("button", {
       name: /загрузить файл|прикрепить/iu
-    });
-    if (await trigger.count() !== 1) {
-      throw new AttachmentUiStageError("open_menu");
-    }
+    }).first();
     try {
+      await trigger.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
       await trigger.click({ timeout: MAX_ACTION_WAIT_MS });
     } catch (error: unknown) {
       throw new AttachmentUiStageError("open_menu", error);

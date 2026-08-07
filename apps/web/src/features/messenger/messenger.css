@@ -739,6 +739,7 @@
 }
 
 .conversation__messages {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -749,6 +750,13 @@
      gain a strip of horizontal scroll and the whole chat could be nudged. */
   overflow: hidden auto;
   overscroll-behavior: contain;
+}
+
+.message-search__backdrop {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  background: transparent;
 }
 
 .message-search {

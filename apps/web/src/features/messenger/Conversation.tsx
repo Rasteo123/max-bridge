@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -88,6 +89,10 @@ export function Conversation({
   onSendSticker
 }: ConversationProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [composerContext, setComposerContext] =
     useState<ComposerContext | null>(null);
@@ -229,10 +234,11 @@ export function Conversation({
             data-no-swipe
             aria-pressed={searchOpen}
             onClick={() => {
-              setSearchOpen((value) => !value);
               if (searchOpen) {
-                setSearchQuery("");
+                closeSearch();
+                return;
               }
+              setSearchOpen(true);
             }}
           >
             <span aria-hidden="true">⌕</span>
@@ -252,6 +258,19 @@ export function Conversation({
         ref={listRef}
         onScroll={trackScrollPosition}
       >
+        {searchOpen && chat !== undefined && (
+          /*
+           * A tap outside the field closes the search the way it closes a
+           * context menu: the tap lands here rather than on the message
+           * underneath, so dismissing never doubles as another action.
+           */
+          <div
+            className="message-search__backdrop"
+            data-no-swipe
+            data-testid="message-search-backdrop"
+            onClick={closeSearch}
+          />
+        )}
         {searchOpen && chat !== undefined && (
           <label className="message-search">
             <span className="sr-only">Поиск сообщений</span>

@@ -568,6 +568,20 @@ describe("MaxWebPageSession native forwarding", () => {
 });
 
 describe("MaxWebPageSession native attachment modes", () => {
+  it("waits for the composer instead of demanding it be there already", async () => {
+    const harness = attachmentSession();
+
+    await harness.internals.sendAttachmentThroughUi(
+      "/run/maxbridge/media/synthetic/file.bin",
+      "file"
+    );
+
+    expect(harness.trigger.waitFor).toHaveBeenCalledOnce();
+    expect(JSON.stringify(harness.trigger.waitFor.mock.calls))
+      .toContain('"state":"visible"');
+    expect(harness.trigger.click).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["media", "Фото или видео"],
     ["file", "Файл"]
@@ -922,11 +936,16 @@ function attachmentSession(options: Readonly<{
     count: vi.fn(() => Promise.resolve(1)),
     last: vi.fn(() => dialog)
   };
-  const trigger = {
-    count: vi.fn(() => Promise.resolve(1)),
-    click: vi.fn(() => options.failStage === "open_menu"
-      ? Promise.reject(new Error("open menu"))
-      : Promise.resolve())
+  const trigger: {
+    first: ReturnType<typeof vi.fn>;
+    waitFor: ReturnType<typeof vi.fn>;
+    click: ReturnType<typeof vi.fn>;
+  } = {
+    first: vi.fn(() => trigger),
+    waitFor: vi.fn(() => options.failStage === "open_menu"
+      ? Promise.reject(new Error("no composer yet"))
+      : Promise.resolve()),
+    click: vi.fn(() => Promise.resolve())
   };
   const modeNames: string[] = [];
   const modeItem = {
