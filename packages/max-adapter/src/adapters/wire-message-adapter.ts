@@ -135,9 +135,11 @@ export function adaptWireHistoryMessage(
         attachmentType: attachmentType.slice(0, 64)
       });
     }
+    // A forwarded attachment belongs to the message inside `link`, and MAX
+    // resolves its download link against that message in its own chat.
     const adapted = context.media.adaptAttachment(attachment, {
-      chatId: context.chatId,
-      messageId: id,
+      chatId: forward?.source?.chatId ?? context.chatId,
+      messageId: readOpaqueId(content, "id") ?? id,
       index: 0
     });
     return parseMessage({

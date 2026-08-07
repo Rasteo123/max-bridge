@@ -27,7 +27,10 @@ import {
   instrumentMaxNodeModule,
   MAX_SESSION_ACCESSOR_KEY
 } from "./max-node-instrumentation.js";
-import { MaxMediaResolver } from "./max-media-resolver.js";
+import {
+  MaxMediaError,
+  MaxMediaResolver
+} from "./max-media-resolver.js";
 import {
   MAX_SOCKET_ORIGIN,
   MAX_WIRE_INIT_SCRIPT,
@@ -297,7 +300,19 @@ export class MaxWebPageSession {
       wire: this.wire,
       request: this.options.context.request
     });
-    const media = await resolver.resolve(descriptor);
+    let media;
+    try {
+      media = await resolver.resolve(descriptor);
+    } catch (error: unknown) {
+      process.stderr.write(`${JSON.stringify({
+        event: "max_media_failed",
+        kind: descriptor.kind ?? "unknown",
+        hasToken: descriptor.token !== undefined,
+        hasRemoteId: descriptor.remoteId !== undefined,
+        stage: describeWireFailure(error)
+      })}\n`);
+      throw error;
+    }
     try {
       return {
         bodyBase64: media.body.toString("base64"),
@@ -2791,6 +2806,9 @@ function wireChatId(chatId: string): number | bigint {
  * the wire client only ever put diagnostics in their messages.
  */
 function describeWireFailure(error: unknown): string {
+  if (error instanceof MaxMediaError) {
+    return `media_${error.reason}`;
+  }
   if (error instanceof MaxWireError) {
     return `wire_${error.reason}: ${error.message}`;
   }
