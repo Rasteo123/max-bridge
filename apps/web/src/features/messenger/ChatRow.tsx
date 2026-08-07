@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { DeliveryIndicator } from "./DeliveryIndicator.js";
+import { VerifiedBadge } from "./VerifiedBadge.js";
 import {
   PressContextMenu,
   type ContextMenuAction,
@@ -115,6 +116,7 @@ export function ChatRow({
         <span className="chat-row__content">
           <span className="chat-row__name">
             {chat.title}
+            {chat.verified === true && <VerifiedBadge />}
             {chat.muted && (
               <span className="chat-row__muted" aria-label="Уведомления выключены">
                 ♩̸

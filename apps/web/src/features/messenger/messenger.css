@@ -321,6 +321,15 @@
   font-weight: 760;
 }
 
+.verified-badge {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  margin-left: 4px;
+  color: var(--accent, #2f7ff5);
+  vertical-align: -2px;
+}
+
 .chat-row__muted {
   margin-left: 6px;
   color: var(--muted);

@@ -69,6 +69,7 @@ function adaptChatSummary(
   );
   const kind = chatKind(chat);
   const presenceState = chatPresence(chat, kind);
+  const verified = readWireBoolean(chat, "verified") ?? false;
   const lastMessageDirection = messageDirection(chat, lastMessage);
   const timestamp = toIsoTimestamp(
     lastMessage?.["time"]
@@ -100,6 +101,7 @@ function adaptChatSummary(
     pinned: readWireBoolean(chat, "pinned", "isPinned") ?? false,
     ...(avatarHandle === undefined ? {} : { avatarHandle }),
     ...(avatarUrl === undefined ? {} : { avatarUrl }),
+    ...(verified ? { verified: true } : {}),
     ...(presenceState.presence === undefined
       ? {}
       : { presence: presenceState.presence }),
@@ -131,6 +133,10 @@ function readMarks(chat: WireRecord): readonly number[] {
   );
 }
 
+const ONLINE_WINDOW_MS = 2 * 60_000;
+const RECENTLY_WINDOW_MS = 60 * 60_000;
+const LONG_AGO_WINDOW_MS = 7 * 24 * 60 * 60_000;
+
 function chatPresence(
   chat: WireRecord,
   kind: ChatKind
@@ -140,6 +146,23 @@ function chatPresence(
 }> {
   if (kind !== "direct") {
     return {};
+  }
+  // MAX reports only when a contact was last seen; the states it shows are
+  // derived from how long ago that was.
+  const seenAt = readWireNumber(chat, "recipientSeenAt");
+  if (seenAt !== undefined && Number.isSafeInteger(seenAt)) {
+    const age = Date.now() - seenAt;
+    if (age <= ONLINE_WINDOW_MS) {
+      return { presence: "online" };
+    }
+    return {
+      presence: age <= RECENTLY_WINDOW_MS
+        ? "recently"
+        : age <= LONG_AGO_WINDOW_MS
+          ? "offline"
+          : "long_ago",
+      lastSeenAt: seenAt
+    };
   }
   const recipient = optionalWireRecord(chat["recipient"]);
   const nestedPresence = optionalWireRecord(recipient?.["presence"]);

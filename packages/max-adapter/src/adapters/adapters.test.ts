@@ -112,6 +112,50 @@ describe("MAX chat list adapter", () => {
     });
   });
 
+  // MAX reports only when a contact was last seen, in seconds; the state the
+  // Mini App shows is derived from how long ago that was.
+  it.each([
+    ["a minute ago", 60_000, "online", false],
+    ["half an hour ago", 30 * 60_000, "recently", true],
+    ["yesterday", 24 * 60 * 60_000, "offline", true],
+    ["a month ago", 30 * 24 * 60 * 60_000, "long_ago", true]
+  ] as const)(
+    "reads presence seen %s as %s",
+    (_label, age, expected, keepsLastSeen) => {
+      vi.setSystemTime(now);
+      const seenAt = now - age;
+      const page = adaptChatList({
+        chats: [{
+          id: "presence-seen",
+          type: "DIALOG",
+          title: "Ольга",
+          recipientSeenAt: seenAt
+        }]
+      }, { media: new RuntimeMediaAdapter() });
+
+      expect(page.chats[0]?.presence).toBe(expected);
+      if (keepsLastSeen) {
+        expect(page.chats[0]?.lastSeenAt).toBe(seenAt);
+      } else {
+        expect(page.chats[0]).not.toHaveProperty("lastSeenAt");
+      }
+    }
+  );
+
+  it("marks an official account as verified", () => {
+    const page = adaptChatList({
+      chats: [
+        { id: "official", type: "DIALOG", title: "Госуслуги", verified: true },
+        { id: "ordinary", type: "DIALOG", title: "Ольга" }
+      ]
+    }, { media: new RuntimeMediaAdapter() });
+
+    expect(page.chats.find((chat) => chat.id === "official")?.verified)
+      .toBe(true);
+    expect(page.chats.find((chat) => chat.id === "ordinary"))
+      .not.toHaveProperty("verified");
+  });
+
   it.each([
     [0, "offline"],
     [1, "online"],

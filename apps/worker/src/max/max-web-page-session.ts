@@ -55,6 +55,7 @@ const MAX_STICKERS_PER_LIST = 12;
 const MAX_STICKER_PREVIEW_DATA_URL_BYTES = 40 * 1024;
 const MAX_MEDIA_ROOT = "/run/maxbridge/media";
 const MEDIA_OWNER = "max-bridge-media";
+const MAX_RECIPIENT_LOOKUPS = 200;
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
   "textarea"
@@ -444,12 +445,18 @@ export class MaxWebPageSession {
             const participants = record(
               raw?.["participants"] ?? chat["participants"]
             );
-            const readMarks = participants === undefined
+            const otherParticipants = participants === undefined
               ? []
               : Object.entries(participants)
-                .filter(([participantId]) => participantId !== viewerId)
-                .map(([, mark]) => integer(mark))
-                .filter((mark) => mark > 0);
+                .filter(([participantId]) => participantId !== viewerId);
+            const readMarks = otherParticipants
+              .map(([, mark]) => integer(mark))
+              .filter((mark) => mark > 0);
+            // Presence and the verified badge are asked for by contact id,
+            // which only the participant list carries.
+            const recipientId = otherParticipants.length === 1
+              ? otherParticipants[0]?.[0]
+              : undefined;
             const id = chatOpaque(
               chat["id"] ?? raw?.["id"] ?? tuple?.[0]
             );
@@ -520,6 +527,7 @@ export class MaxWebPageSession {
                     )
                   },
               readMarks,
+              ...(recipientId === undefined ? {} : { recipientId }),
               lastMessageTime: temporal(
                 last?.["time"]
                 ?? rawLast?.["time"]
@@ -737,8 +745,51 @@ export class MaxWebPageSession {
     if (snapshot.viewerId !== "0") {
       this.ensureViewer(snapshot.viewerId);
     }
-    adapter.replaceChats({ chats: snapshot.chats });
+    adapter.replaceChats({
+      chats: await this.describeRecipients(snapshot.chats)
+    });
     return adapter.chats;
+  }
+
+  /**
+   * Fills in what the MAX client keeps outside the chat itself: whether the
+   * other side is an official account, and when it was last seen. Both are
+   * asked for over the protocol, since the store holds neither reliably.
+   */
+  private async describeRecipients(
+    chats: readonly unknown[]
+  ): Promise<readonly unknown[]> {
+    const ids = [...new Set(chats.flatMap((chat) => {
+      const recipientId = asRecord(chat)?.["recipientId"];
+      return typeof recipientId === "string" && /^\d{1,19}$/u.test(recipientId)
+        ? [recipientId]
+        : [];
+    }))].slice(0, MAX_RECIPIENT_LOOKUPS);
+    if (ids.length === 0) {
+      return chats;
+    }
+    const numeric = ids.map((id) => Number(id)).filter(Number.isSafeInteger);
+    const [contacts, presence] = await Promise.all([
+      this.wire.request(32, { contactIds: numeric }, MAX_ACTION_WAIT_MS)
+        .catch(() => undefined),
+      this.wire.request(35, { contactIds: numeric }, MAX_ACTION_WAIT_MS)
+        .catch(() => undefined)
+    ]);
+    const official = officialContacts(contacts);
+    const lastSeen = contactLastSeen(presence);
+    return chats.map((chat) => {
+      const record = asRecord(chat);
+      const recipientId = record?.["recipientId"];
+      if (record === undefined || typeof recipientId !== "string") {
+        return chat;
+      }
+      const seenAt = lastSeen.get(recipientId);
+      return {
+        ...record,
+        ...(official.has(recipientId) ? { verified: true } : {}),
+        ...(seenAt === undefined ? {} : { recipientSeenAt: seenAt })
+      };
+    });
   }
 
   /**
@@ -2823,6 +2874,49 @@ function createOperationId(): string {
     BigInt(Date.now()) * 10_000_000_000_000_000n
     + suffix % 10_000_000_000_000_000n
   ).toString();
+}
+
+/** Contacts MAX marks as official; the Mini App draws a badge for these. */
+function officialContacts(payload: unknown): ReadonlySet<string> {
+  const contacts = asRecord(payload)?.["contacts"];
+  const official = new Set<string>();
+  if (!Array.isArray(contacts)) {
+    return official;
+  }
+  for (const value of contacts) {
+    const contact = asRecord(value);
+    const options = contact?.["options"];
+    const id = opaqueId(contact?.["id"]);
+    if (
+      id !== undefined
+      && Array.isArray(options)
+      && options.some((option) => option === "OFFICIAL")
+    ) {
+      official.add(id);
+    }
+  }
+  return official;
+}
+
+/** Last-seen times keyed by contact, converted from MAX's seconds. */
+function contactLastSeen(payload: unknown): ReadonlyMap<string, number> {
+  const presence = asRecord(asRecord(payload)?.["presence"]);
+  const seen = new Map<string, number>();
+  if (presence === undefined) {
+    return seen;
+  }
+  for (const [contactId, value] of Object.entries(presence)) {
+    const seconds = asRecord(value)?.["seen"];
+    if (
+      typeof seconds === "number"
+      && Number.isSafeInteger(seconds)
+      && seconds > 946_684_800
+      && seconds < 4_102_444_800
+    ) {
+      seen.set(contactId, seconds * 1_000);
+    }
+  }
+  return seen;
 }
 
 function wireChatId(chatId: string): number | bigint {

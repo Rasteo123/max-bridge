@@ -20,6 +20,7 @@ import {
   safeMaxMediaUrl
 } from "./MediaMessage.js";
 import { MessageBubble } from "./MessageBubble.js";
+import { VerifiedBadge } from "./VerifiedBadge.js";
 import type {
   AttachmentSendState,
   MessengerChat,
@@ -191,7 +192,10 @@ export function Conversation({
             </span>
           )}
           <div className="conversation__identity">
-            <strong>{chat?.title ?? "Выберите чат"}</strong>
+            <strong>
+              {chat?.title ?? "Выберите чат"}
+              {chat?.verified === true && <VerifiedBadge />}
+            </strong>
             {chat !== undefined && <span>{subtitle}</span>}
           </div>
         </div>

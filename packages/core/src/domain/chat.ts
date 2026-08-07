@@ -63,6 +63,8 @@ export const ChatSummarySchema = Type.Object({
     maxLength: 2048,
     pattern: "^https://i\\.oneme\\.ru(?:/|$)"
   })),
+  // MAX marks official accounts and channels with a badge beside the name.
+  verified: Type.Optional(Type.Boolean()),
   presence: Type.Optional(PresenceSchema),
   lastSeenAt: Type.Optional(Type.Integer({
     minimum: 946_684_800_000,
