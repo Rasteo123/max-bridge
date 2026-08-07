@@ -64,6 +64,24 @@ const MEDIA_OWNER = "max-bridge-media";
 const MAX_SEARCH_RESULTS = 40;
 const MAX_COMMENT_PAGE_SIZE = 60;
 const MAX_RECIPIENT_LOOKUPS = 200;
+/**
+ * MAX draws its composer controls from a sprite, and the sprite ids stay put
+ * whatever language the interface is rendered in. Matching a control by its
+ * visible name breaks the moment the page is not Russian, which is how the
+ * attachment button went missing.
+ */
+const MAX_ICONS = {
+  attachment: "#icon_attachment",
+  image: "#icon_image",
+  file: "#icon_file",
+  send: "#icon_send"
+} as const;
+
+function iconButton(icon: string, role = "button"): string {
+  return `[role="${role}"]:has(use[href="${icon}"]),`
+    + ` button:has(use[href="${icon}"])`;
+}
+
 const MAX_COMPOSER_SELECTOR = [
   '[contenteditable]:not([contenteditable="false"])[role="textbox"]',
   "textarea"
@@ -1694,16 +1712,17 @@ export class MaxWebPageSession {
       await fileInput.waitFor({ state: "attached", timeout: 5_000 });
       await fileInput.setInputFiles(filePath);
       stage = "wait_for_preview";
-      await this.options.page.waitForFunction(() =>
+      await this.options.page.waitForFunction((icon) =>
         Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
           .some((button) =>
-            button.getAttribute("aria-label") === "Отправить сообщение"
+            button.querySelector(`use[href="${icon}"]`) !== null
             && !button.disabled
           ),
-      undefined, { timeout: 10_000 });
+      MAX_ICONS.send, { timeout: 10_000 });
       stage = "send";
       const send = this.options.page
-        .getByRole("button", { name: "Отправить сообщение", exact: true });
+        .locator(iconButton(MAX_ICONS.send))
+        .first();
       await send.waitFor({ state: "visible", timeout: 10_000 });
       await send.click({ timeout: 10_000 });
     } catch (error: unknown) {
@@ -1715,7 +1734,8 @@ export class MaxWebPageSession {
         event: "max_attachment_ui_failed",
         stage: failedStage,
         errorName: error instanceof Error ? error.name : "unknown",
-        page: await this.describePageState()
+        page: await this.describePageState(),
+        composerIcons: await this.describeComposerIcons()
       })}\n`);
       throw new Error("MAX attachment send failed before confirmation", {
         cause: error
@@ -1728,6 +1748,24 @@ export class MaxWebPageSession {
       : { state: "confirmed", operationId, messageId };
   }
 
+  /**
+   * The sprite ids of the composer's own controls. Names would carry what the
+   * viewer wrote; an icon id is interface chrome, so it is safe to log and it
+   * says at a glance which control the page is actually offering.
+   */
+  private async describeComposerIcons(): Promise<readonly string[]> {
+    try {
+      return await this.options.page.evaluate(() =>
+        Array.from(document.querySelectorAll("use"))
+          .map((use) => use.getAttribute("href") ?? "")
+          .filter((href) => /^#icon_[\w-]{1,40}$/u.test(href))
+          .slice(0, 40)
+      );
+    } catch {
+      return [];
+    }
+  }
+
   private async openAttachmentInput(
     kind: "media" | "file"
   ): Promise<Locator> {
@@ -1737,19 +1775,19 @@ export class MaxWebPageSession {
     // the button has to be waited for rather than counted once. A channel with
     // comments shows a second composer, which is why the first is taken rather
     // than insisting on exactly one.
-    const trigger = this.options.page.getByRole("button", {
-      name: /загрузить файл|прикрепить/iu
-    }).first();
+    const trigger = this.options.page
+      .locator(iconButton(MAX_ICONS.attachment))
+      .first();
     try {
       await trigger.waitFor({ state: "visible", timeout: MAX_ACTION_WAIT_MS });
       await trigger.click({ timeout: MAX_ACTION_WAIT_MS });
     } catch (error: unknown) {
       throw new AttachmentUiStageError("open_menu", error);
     }
-    const menuItem = this.options.page.getByRole("menuitem", {
-      name: kind === "media" ? "Фото или видео" : "Файл",
-      exact: true
-    });
+    const menuItem = this.options.page.locator(iconButton(
+      kind === "media" ? MAX_ICONS.image : MAX_ICONS.file,
+      "menuitem"
+    )).first();
     try {
       await menuItem.waitFor({
         state: "visible",

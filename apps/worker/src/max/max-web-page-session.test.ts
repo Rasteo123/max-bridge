@@ -568,6 +568,21 @@ describe("MaxWebPageSession native forwarding", () => {
 });
 
 describe("MaxWebPageSession native attachment modes", () => {
+  it("finds the composer controls by icon, not by their Russian names", async () => {
+    const harness = attachmentSession();
+
+    await harness.internals.sendAttachmentThroughUi(
+      "/run/maxbridge/media/synthetic/file.bin",
+      "media"
+    );
+
+    const selectors = harness.locatorSelectors.join(" ");
+    expect(selectors).toContain("#icon_attachment");
+    expect(selectors).toContain("#icon_image");
+    expect(selectors).toContain("#icon_send");
+    expect(selectors).not.toContain("Загрузить");
+  });
+
   it("waits for the composer instead of demanding it be there already", async () => {
     const harness = attachmentSession();
 
@@ -936,28 +951,29 @@ function attachmentSession(options: Readonly<{
     count: vi.fn(() => Promise.resolve(1)),
     last: vi.fn(() => dialog)
   };
-  const trigger: {
-    first: ReturnType<typeof vi.fn>;
-    waitFor: ReturnType<typeof vi.fn>;
-    click: ReturnType<typeof vi.fn>;
-  } = {
-    first: vi.fn(() => trigger),
+  const trigger = {
+    first: vi.fn(),
     waitFor: vi.fn(() => options.failStage === "open_menu"
       ? Promise.reject(new Error("no composer yet"))
       : Promise.resolve()),
     click: vi.fn(() => Promise.resolve())
   };
+  trigger.first.mockImplementation(() => trigger);
   const modeNames: string[] = [];
   const modeItem = {
+    first: vi.fn(),
     waitFor: vi.fn(() => Promise.resolve()),
     click: vi.fn(() => options.failStage === "select_mode"
       ? Promise.reject(new Error("select mode"))
       : Promise.resolve())
   };
+  modeItem.first.mockImplementation(() => modeItem);
   const send = {
+    first: vi.fn(),
     waitFor: vi.fn(() => Promise.resolve()),
     click: vi.fn(() => Promise.resolve())
   };
+  send.first.mockImplementation(() => send);
   const empty = {
     count: vi.fn(() => Promise.resolve(0)),
     first: vi.fn()
@@ -968,9 +984,23 @@ function attachmentSession(options: Readonly<{
     first: vi.fn(() => unrelatedInputs[0]),
     last: vi.fn(() => unrelatedInputs.at(-1))
   };
+  const locatorSelectors: string[] = [];
   const page = {
     on: vi.fn(),
     locator: vi.fn((selector: string) => {
+      locatorSelectors.push(selector);
+      if (selector.includes("#icon_attachment")) {
+        return trigger;
+      }
+      if (selector.includes("#icon_image") || selector.includes("#icon_file")) {
+        modeNames.push(
+          selector.includes("#icon_image") ? "Фото или видео" : "Файл"
+        );
+        return modeItem;
+      }
+      if (selector.includes("#icon_send")) {
+        return send;
+      }
       if (selector === 'input[type="file"]') {
         return allInputs;
       }
@@ -987,9 +1017,6 @@ function attachmentSession(options: Readonly<{
         return dialogs;
       }
       if (role === "menuitem") {
-        if (typeof roleOptions?.name === "string") {
-          modeNames.push(roleOptions.name);
-        }
         return modeItem;
       }
       if (role === "button" && roleOptions?.name instanceof RegExp) {
@@ -1018,6 +1045,7 @@ function attachmentSession(options: Readonly<{
   return {
     internals,
     trigger,
+    locatorSelectors,
     modeNames,
     scopedInput,
     unrelatedInputs,
