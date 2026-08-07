@@ -702,13 +702,19 @@ export class MaxWebPageSession {
    * the only source that carries text, attachments and reactions intact.
    */
   async history(chatId: string): Promise<readonly Message[] | null> {
+    // Bisecting a fault where the probe finds the socket open moments before
+    // the same request path calls it closed: sample the transport after every
+    // step that precedes the read.
+    const trail: string[] = [];
     const adapter = await this.ensureAdapter();
+    trail.push(`adapter:${await this.wire.probe()}`);
     const chats = await this.listChats();
+    trail.push(`chats:${await this.wire.probe()}`);
     if (!chats.some((chat) => chat.id === chatId)) {
       return null;
     }
     try {
-      return await this.wireHistory(adapter, chatId);
+      return await this.wireHistory(adapter, chatId, trail);
     } catch (error: unknown) {
       const stage = describeWireFailure(error);
       // Snapshot before touching the page, otherwise the recovery below is all
@@ -722,6 +728,7 @@ export class MaxWebPageSession {
           process.stderr.write(`${JSON.stringify({
             event: "max_wire_history_failed",
             stage,
+            trail,
             before,
             afterReload: describeWireFailure(retryError),
             after: await this.describePageState()
@@ -735,6 +742,7 @@ export class MaxWebPageSession {
       process.stderr.write(`${JSON.stringify({
         event: "max_wire_history_failed",
         stage,
+        trail,
         before
       })}\n`);
       return this.renderedHistory(chatId);
@@ -770,9 +778,11 @@ export class MaxWebPageSession {
 
   private async wireHistory(
     adapter: MaxSession,
-    chatId: string
+    chatId: string,
+    trail: string[] = []
   ): Promise<readonly Message[]> {
     const context = await this.readChatWireContext(chatId);
+    trail.push(`readMarks:${await this.wire.probe()}`);
     const payload = await this.wire.request(49, {
       chatId: wireChatId(chatId),
       from: Date.now(),
