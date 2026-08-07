@@ -148,9 +148,22 @@ export class MaxWebPageSession {
         }
         try {
           const outcome = await this.wire.probe();
+          // A round trip over opcode 1 is the client's own keepalive, so it
+          // proves the request path end to end without disturbing anything.
+          let roundTrip = "skipped";
+          if (outcome === "open") {
+            const startedAt = Date.now();
+            try {
+              await this.wire.request(1, { interactive: false }, 8_000);
+              roundTrip = `ok:${String(Date.now() - startedAt)}ms`;
+            } catch (error: unknown) {
+              roundTrip = describeWireFailure(error);
+            }
+          }
           process.stderr.write(`${JSON.stringify({
             event: "max_wire_probe",
             outcome,
+            roundTrip,
             page: await this.describePageState()
           })}\n`);
         } catch {
