@@ -110,19 +110,41 @@ export class MessengerStore {
   }
 
   selectChat(chatId: string): void {
+    const dropped = this.forgetUnvisitedTransients(chatId);
     this.update({
       ...this.snapshot,
       selectedChatId: chatId,
       messages: [],
-      chats: this.snapshot.chats.map((chat) =>
-        chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
-      )
+      chats: this.snapshot.chats
+        .filter((chat) => !dropped.has(chat.id))
+        .map((chat) =>
+          chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
+        )
     });
   }
 
+  /**
+   * A chat opened from a forward is only borrowed: the viewer never joined it,
+   * so it belongs in the list exactly as long as they are looking at it. One
+   * they did join comes back through the real chat list and is not transient.
+   */
+  private forgetUnvisitedTransients(keptChatId?: string): ReadonlySet<string> {
+    const dropped = new Set<string>();
+    for (const chatId of this.transientChats.keys()) {
+      if (chatId !== keptChatId) {
+        dropped.add(chatId);
+      }
+    }
+    for (const chatId of dropped) {
+      this.transientChats.delete(chatId);
+    }
+    return dropped;
+  }
+
   clearSelection(): void {
+    const dropped = this.forgetUnvisitedTransients();
     this.update({
-      chats: this.snapshot.chats,
+      chats: this.snapshot.chats.filter((chat) => !dropped.has(chat.id)),
       messages: [],
       connection: this.snapshot.connection,
       authentication: this.snapshot.authentication

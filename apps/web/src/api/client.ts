@@ -180,6 +180,19 @@ export class ApiClient {
     );
   }
 
+  async markChatRead(
+    chatId: string,
+    messageId: string
+  ): Promise<void> {
+    await this.request(
+      `/api/chats/${encodeURIComponent(chatId)}/read`,
+      {
+        method: "POST",
+        body: JSON.stringify({ messageId })
+      }
+    );
+  }
+
   async resolveChat(
     chatId: string
   ): Promise<Readonly<{ chat: MessengerChat }>> {

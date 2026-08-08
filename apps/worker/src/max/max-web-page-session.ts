@@ -1094,6 +1094,35 @@ export class MaxWebPageSession {
   }
 
   /**
+   * Tells MAX the viewer has read up to this message. Without it a chat opened
+   * in the Mini App stays bold everywhere else, because the bridge would only
+   * ever have read other people's markers and never written its own.
+   */
+  async markRead(
+    chatId: string,
+    messageId: string
+  ): Promise<boolean> {
+    if (!await this.isReachableChat(chatId)) {
+      return false;
+    }
+    let message: number | bigint;
+    try {
+      message = wireChatId(messageId);
+    } catch {
+      return false;
+    }
+    const payload = await this.wire
+      .request(50, {
+        type: "READ_MESSAGE",
+        chatId: wireChatId(chatId),
+        messageId: message,
+        mark: Date.now()
+      }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    return payload !== undefined;
+  }
+
+  /**
    * Whether MAX will serve this chat to the signed-in account. A channel
    * reached through a forwarded message is not in the viewer's own list, and
    * MAX opens public ones all the same — so the answer belongs to MAX rather

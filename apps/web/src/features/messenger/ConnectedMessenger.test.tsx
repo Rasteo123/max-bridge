@@ -148,10 +148,13 @@ describe("ConnectedMessenger startup", () => {
     }));
 
     expect(await screen.findByText("Сообщение источника")).toBeVisible();
+    // Opening the source also tells MAX it has been read, so the chat does not
+    // stay bold in whatever else the account is signed in to.
     expect(fetcher.mock.calls.map(([request]) => requestPath(request))).toEqual([
       "/api/chats",
       "/api/chats/original/messages",
-      "/api/chats/-68429202642371/messages"
+      "/api/chats/-68429202642371/messages",
+      "/api/chats/-68429202642371/read"
     ]);
   });
 

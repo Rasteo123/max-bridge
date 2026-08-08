@@ -18,6 +18,7 @@ export const WORKER_OPERATIONS = [
   "settings.read",
   "messages.history",
   "messages.comments",
+  "messages.read",
   "message.send",
   "message.sendAttachment",
   "message.edit",

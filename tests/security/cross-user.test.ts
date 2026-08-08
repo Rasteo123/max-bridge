@@ -127,6 +127,7 @@ function isolatedServices(store: MemorySessionStore): AppServices {
     comments: () => Promise.resolve([]),
     describeContact: () => Promise.resolve(null),
     resolveChat: () => Promise.resolve(null),
+    markRead: () => Promise.resolve(true),
     joinChat: () => Promise.resolve(null),
     leaveChat: () => Promise.resolve(false),
     settings: () => Promise.resolve({

@@ -197,7 +197,23 @@ describe("silencing a chat for the Telegram bot", () => {
 });
 
 describe("folder transitions", () => {
-  it("slides the list in from the side the folder came from", () => {
+  function scroll(): Element | null {
+    return document.querySelector(".chat-list__scroll");
+  }
+
+  it("does not animate the folder it opened on", () => {
+    render(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="all"
+      />
+    );
+
+    expect(scroll()?.getAttribute("data-entering")).toBeNull();
+  });
+
+  it("slides in from the side the folder came from", () => {
     const { rerender } = render(
       <ChatList
         chats={[ownChat]}
@@ -205,8 +221,6 @@ describe("folder transitions", () => {
         folder="all"
       />
     );
-    expect(document.querySelector(".chat-list__scroll")
-      ?.getAttribute("data-enter")).toBe("right");
 
     rerender(
       <ChatList
@@ -215,8 +229,7 @@ describe("folder transitions", () => {
         folder="channels"
       />
     );
-    expect(document.querySelector(".chat-list__scroll")
-      ?.getAttribute("data-enter")).toBe("right");
+    expect(scroll()?.getAttribute("data-entering")).toBe("right");
 
     rerender(
       <ChatList
@@ -225,7 +238,50 @@ describe("folder transitions", () => {
         folder="all"
       />
     );
-    expect(document.querySelector(".chat-list__scroll")
-      ?.getAttribute("data-enter")).toBe("left");
+    expect(scroll()?.getAttribute("data-entering")).toBe("left");
+  });
+
+  it("keeps the same list element, so nothing is rebuilt to animate it", () => {
+    const { rerender } = render(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="all"
+      />
+    );
+    const before = scroll();
+
+    rerender(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="channels"
+      />
+    );
+
+    expect(scroll()).toBe(before);
+  });
+
+  it("stops animating once the animation is over", () => {
+    const { rerender } = render(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="all"
+      />
+    );
+    rerender(
+      <ChatList
+        chats={[ownChat]}
+        onSelectChat={() => undefined}
+        folder="channels"
+      />
+    );
+
+    const element = scroll();
+    expect(element).not.toBeNull();
+    fireEvent.animationEnd(element as Element);
+
+    expect(scroll()?.getAttribute("data-entering")).toBeNull();
   });
 });

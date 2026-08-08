@@ -41,6 +41,11 @@ export interface ChatGateway {
     userLookup: string,
     chatId: string
   ): Promise<ChatSummary | null>;
+  markRead(
+    userLookup: string,
+    chatId: string,
+    messageId: string
+  ): Promise<boolean>;
 }
 
 export type ChatRouteOptions = Readonly<{
@@ -133,6 +138,43 @@ export const registerChatRoutes: FastifyPluginCallback<
       .header("cache-control", "no-store")
       .send({ messages });
   });
+  app.post<{
+    Params: { id: string };
+    Body: { messageId: string };
+  }>("/api/chats/:id/read", {
+    schema: {
+      params: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id"],
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      },
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["messageId"],
+        properties: {
+          messageId: { type: "string", minLength: 1, maxLength: 512 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const principal = authorize(request, reply, options);
+    if (principal === null) {
+      return;
+    }
+    const read = await options.gateway.markRead(
+      principal.userLookup,
+      request.params.id,
+      request.body.messageId
+    );
+    await reply
+      .header("cache-control", "no-store")
+      .send({ read });
+  });
+
   app.get<{ Params: { id: string } }>("/api/chats/:id/info", {
     schema: {
       params: {

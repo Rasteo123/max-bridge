@@ -83,7 +83,7 @@ export function ChatList({
     ),
     [search.results, ownIds]
   );
-  const enterFrom = useFolderTransition(folder);
+  const folderTransition = useFolderTransition(folder);
   const folderStyle = {
     "--folder-offset": `${String(folderOffset)}px`
   } as CSSProperties;
@@ -136,11 +136,11 @@ export function ChatList({
         ))}
       </div>
       <div
-        key={folder}
         className="chat-list__scroll"
         data-folder={folder}
-        data-enter={enterFrom}
+        data-entering={folderTransition.entering}
         style={folderStyle}
+        onAnimationEnd={folderTransition.settle}
       >
         {visibleChats.length === 0 && (!searching || globalResults.length === 0)
           ? (
@@ -210,23 +210,38 @@ export function ChatList({
  * Which way the incoming folder should travel in from: the same left-to-right
  * motion the conversation uses when it gives the list back.
  */
-function useFolderTransition(folder: ChatFolderId): "left" | "right" {
-  // Derived while rendering rather than in an effect: the list is keyed by
-  // folder, so it mounts once with whatever direction is on the element, and
-  // an effect would arrive a frame too late to steer the animation.
+type FolderTransition = Readonly<{
+  entering: "left" | "right" | undefined;
+  settle(): void;
+}>;
+
+/**
+ * Which way an arriving folder should travel in from. The direction is derived
+ * while rendering — an effect would arrive a frame late and the animation
+ * would start the wrong way — and it is cleared once the animation ends so the
+ * next switch replays it without rebuilding the list.
+ */
+function useFolderTransition(folder: ChatFolderId): FolderTransition {
   const [seen, setSeen] = useState<Readonly<{
     folder: ChatFolderId;
-    enterFrom: "left" | "right";
-  }>>({ folder, enterFrom: "right" });
+    entering: "left" | "right" | undefined;
+  }>>({ folder, entering: undefined });
   if (seen.folder !== folder) {
     setSeen({
       folder,
-      enterFrom: folderIndexOf(folder) > folderIndexOf(seen.folder)
+      entering: folderIndexOf(folder) > folderIndexOf(seen.folder)
         ? "right"
         : "left"
     });
   }
-  return seen.enterFrom;
+  return {
+    entering: seen.entering,
+    settle: () => {
+      setSeen((previous) => previous.entering === undefined
+        ? previous
+        : { ...previous, entering: undefined });
+    }
+  };
 }
 
 /**

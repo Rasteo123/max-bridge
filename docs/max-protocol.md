@@ -44,7 +44,8 @@ msgpack с расширением ext type 1 = вложенный msgpack-инт
 | 66 | out | `{chatId, messageIds: [int], forMe: bool}` | удаление. **`forMe: false` = удалить у всех** |
 | 67 | out | `{chatId, messageId, text, elements: [], attachments: []}` | редактирование |
 | 75 | out | `{chatId, subscribe: bool}` | пусто — подписка на события чата |
-| 177 | out | `{userId, time}` | отметка о прочтении |
+| 50 | out | `{type: "READ_MESSAGE", chatId, messageId, mark: <epoch мс>}` | **отметка о прочтении**: `messageId` — последнее прочитанное сообщение. Клиент шлёт её при открытии чата |
+| 177 | out | `{userId, time}` | назначение не подтверждено |
 | 178 | out | `{chatId, messageId, reaction: {reactionType: "EMOJI", id: "❤️"}}` | `{reactionInfo}` — поставить реакцию |
 | 179 | out | `{chatId, messageId}` | снять свою реакцию |
 | 180 | out | `{chatId, messageIds: [int]}` | `{messagesReactions: {messageId: {...}}}` |

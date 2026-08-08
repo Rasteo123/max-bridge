@@ -218,6 +218,14 @@ export function ConnectedMessenger({
       ) {
         store.mergeHistory(messages);
       }
+      // Reading here has to reach MAX too, or the chat stays bold in every
+      // other client the account is signed in to.
+      const newest = messages.at(-1);
+      if (newest !== undefined) {
+        void client.markChatRead(chatId, newest.id).catch(() => {
+          // A missed marker only leaves the chat bold elsewhere.
+        });
+      }
       return true;
     } catch {
       // The live connection can still recover the selected conversation.

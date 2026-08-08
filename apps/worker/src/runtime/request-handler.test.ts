@@ -384,6 +384,7 @@ function fakeSession(): RuntimeMaxSession {
     searchChats: () => Promise.resolve([]),
     describeContact: () => Promise.resolve(null),
     resolveChat: () => Promise.resolve(null),
+    markRead: () => Promise.resolve(true),
     readSettings: () => Promise.resolve({
       profile: { title: "Профиль" },
       sessions: [],
