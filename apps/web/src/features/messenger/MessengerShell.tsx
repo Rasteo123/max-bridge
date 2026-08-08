@@ -274,6 +274,7 @@ export function MessengerShell({
             {...(onReactMessage === undefined ? {} : { onReactMessage })}
             {...(onOpenComments === undefined ? {} : { onOpenComments })}
             {...(onUnsubscribe === undefined ? {} : { onUnsubscribe })}
+            {...(onSubscribe === undefined ? {} : { onSubscribe })}
             {...(onOpenForwardedSource === undefined
               ? {}
               : { onOpenForwardedSource })}

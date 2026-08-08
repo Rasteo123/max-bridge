@@ -63,12 +63,36 @@ export class MessengerStore {
       timestamp: new Date(0).toISOString(),
       unreadCount: 0,
       muted: false,
-      kind: source.kind
+      kind: source.kind,
+      // Nothing forwarded is known to be joined until MAX says so.
+      joined: false
     };
     this.transientChats.set(chat.id, chat);
     this.update({
       ...this.snapshot,
       chats: [chat, ...this.snapshot.chats].slice(0, MAX_CHATS)
+    });
+  }
+
+  /**
+   * Replaces a placeholder built from a forward with what MAX actually knows
+   * about the chat. A chat the viewer has since joined stays where the real
+   * list put it and is left alone.
+   */
+  describeTransientChat(chat: MessengerChat): void {
+    if (!this.transientChats.has(chat.id)) {
+      return;
+    }
+    const merged: MessengerChat = {
+      ...chat,
+      timestamp: this.transientChats.get(chat.id)?.timestamp ?? chat.timestamp
+    };
+    this.transientChats.set(chat.id, merged);
+    this.update({
+      ...this.snapshot,
+      chats: this.snapshot.chats.map((entry) =>
+        entry.id === chat.id ? merged : entry
+      )
     });
   }
 

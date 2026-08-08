@@ -383,6 +383,7 @@ function fakeSession(): RuntimeMaxSession {
     }),
     searchChats: () => Promise.resolve([]),
     describeContact: () => Promise.resolve(null),
+    resolveChat: () => Promise.resolve(null),
     readSettings: () => Promise.resolve({
       profile: { title: "Профиль" },
       sessions: [],

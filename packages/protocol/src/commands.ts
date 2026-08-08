@@ -11,6 +11,7 @@ export const WORKER_OPERATIONS = [
   "login.status",
   "chats.list",
   "chats.search",
+  "chats.resolve",
   "chats.subscribe",
   "chats.unsubscribe",
   "contacts.describe",

@@ -180,6 +180,14 @@ export class ApiClient {
     );
   }
 
+  async resolveChat(
+    chatId: string
+  ): Promise<Readonly<{ chat: MessengerChat }>> {
+    return this.requestJson(
+      `/api/chats/${encodeURIComponent(chatId)}/info`
+    );
+  }
+
   async getContact(
     contactId: string
   ): Promise<Readonly<{ contact: MessengerChat }>> {

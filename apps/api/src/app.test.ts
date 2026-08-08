@@ -105,6 +105,27 @@ describe("hardened Fastify app", () => {
     expect(unauthenticated.statusCode).toBe(401);
   });
 
+  it("describes a chat reached from a forward only to a signed-in viewer",
+    async () => {
+      const unauthenticated = await app.inject({
+        method: "GET",
+        url: "/api/chats/-68429202642371/info",
+        headers: { host: "max-users.online" }
+      });
+      expect(unauthenticated.statusCode).toBe(401);
+
+      const unreachable = await app.inject({
+        method: "GET",
+        url: "/api/chats/-68429202642371/info",
+        headers: {
+          host: "max-users.online",
+          cookie: sessionCookie("user-a")
+        }
+      });
+      expect(unreachable.statusCode).toBe(404);
+      expect(unreachable.json()).toEqual({ code: "chat_not_found" });
+    });
+
   it("answers a contact profile only for a signed-in viewer", async () => {
     const unauthenticated = await app.inject({
       method: "GET",
@@ -310,6 +331,7 @@ function createServices(store: MemorySessionStore): AppServices {
       search: () => Promise.resolve([]),
       comments: () => Promise.resolve([]),
       describeContact: () => Promise.resolve(null),
+      resolveChat: () => Promise.resolve(null),
       joinChat: () => Promise.resolve(null),
       leaveChat: () => Promise.resolve(false),
       settings: () => Promise.resolve({

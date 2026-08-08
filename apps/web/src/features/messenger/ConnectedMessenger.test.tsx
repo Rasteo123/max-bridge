@@ -391,19 +391,23 @@ describe("ConnectedMessenger startup", () => {
 });
 
 /**
- * The bot's notification preferences are read once on mount. Answering them
- * here keeps each test's ordered stubs — and its call count — about chats and
- * messages, which is what they are checking.
+ * Two requests happen on the side: the bot's notification preferences on
+ * mount, and the description of a chat opened from a forward. Answering them
+ * here keeps each test's ordered stubs — and its call count — about the chats
+ * and messages it is actually checking.
  */
 function withNotifications(fetcher: typeof fetch): typeof fetch {
   return ((input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input instanceof Request ? input.url : input)
-      .includes("/api/notifications")) {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/api/notifications")) {
       return Promise.resolve(jsonResponse({
         enabled: true,
         mutedChatIds: [],
         previewChatIds: []
       }));
+    }
+    if (url.includes("/info")) {
+      return Promise.resolve(jsonResponse({ code: "chat_not_found" }, 404));
     }
     return fetcher(input, init);
   });

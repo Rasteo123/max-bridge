@@ -868,8 +868,7 @@ export class MaxWebPageSession {
    */
   async history(chatId: string): Promise<readonly Message[] | null> {
     const adapter = await this.ensureAdapter();
-    const chats = await this.listChats();
-    if (!chats.some((chat) => chat.id === chatId)) {
+    if (!await this.isReachableChat(chatId)) {
       return null;
     }
     try {
@@ -1095,6 +1094,50 @@ export class MaxWebPageSession {
   }
 
   /**
+   * Whether MAX will serve this chat to the signed-in account. A channel
+   * reached through a forwarded message is not in the viewer's own list, and
+   * MAX opens public ones all the same — so the answer belongs to MAX rather
+   * than to the chat list.
+   */
+  private async isReachableChat(chatId: string): Promise<boolean> {
+    const chats = await this.listChats();
+    if (chats.some((chat) => chat.id === chatId)) {
+      return true;
+    }
+    return await this.resolveChat(chatId) !== null;
+  }
+
+  /**
+   * Describes a chat by its identifier, whether or not the viewer has joined
+   * it. Opcode 48 answers with the full chat, which is what lets a channel
+   * opened from a forwarded message show its name, avatar and public address.
+   */
+  async resolveChat(chatId: string): Promise<ChatSummary | null> {
+    const adapter = await this.ensureAdapter();
+    let wireId: number | bigint;
+    try {
+      wireId = wireChatId(chatId);
+    } catch {
+      return null;
+    }
+    const payload = await this.wire
+      .request(48, { chatIds: [wireId] }, MAX_ACTION_WAIT_MS)
+      .catch(() => undefined);
+    const chats: unknown = asRecord(payload)?.["chats"];
+    const chat: unknown = Array.isArray(chats) ? chats[0] : undefined;
+    if (asRecord(chat) === undefined) {
+      return null;
+    }
+    const [summary] = adapter.searchChats({ result: [{ chat }] });
+    if (summary === undefined || summary.id !== chatId) {
+      return null;
+    }
+    const joined = (await this.listChats())
+      .some((entry) => entry.id === chatId);
+    return joined ? { ...summary, joined: true } : summary;
+  }
+
+  /**
    * Comments live in the same history opcode as messages; a `postId` scopes it
    * to the thread hanging off one channel post.
    */
@@ -1103,8 +1146,7 @@ export class MaxWebPageSession {
     postId: string
   ): Promise<readonly Message[] | null> {
     const adapter = await this.ensureAdapter();
-    const chats = await this.listChats();
-    if (!chats.some((chat) => chat.id === chatId)) {
+    if (!await this.isReachableChat(chatId)) {
       return null;
     }
     const post = wireChatId(postId);

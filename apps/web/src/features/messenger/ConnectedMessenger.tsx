@@ -332,6 +332,16 @@ export function ConnectedMessenger({
     );
     if (!sourceExists) {
       store.addTransientChat(source);
+      // The forward carries only a name; MAX knows the avatar, the public
+      // address and how many follow it, and the address is what makes the
+      // "Подписаться" button work once the channel is open.
+      void client.resolveChat(source.chatId)
+        .then(({ chat }) => {
+          store.describeTransientChat(chat);
+        })
+        .catch(() => {
+          // The placeholder still opens the conversation.
+        });
     }
     const opened = await selectChat(source.chatId);
     if (opened) {

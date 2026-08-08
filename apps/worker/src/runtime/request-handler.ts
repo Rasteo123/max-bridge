@@ -28,6 +28,7 @@ export interface RuntimeMaxSession {
   listChats(): Promise<readonly ChatSummary[]>;
   searchChats(query: string): Promise<readonly ChatSummary[]>;
   describeContact(contactId: string): Promise<ChatSummary | null>;
+  resolveChat(chatId: string): Promise<ChatSummary | null>;
   readSettings(): Promise<AccountSettings>;
   subscribeToChat(link: string): Promise<ChatSummary | null>;
   unsubscribeFromChat(chatId: string): Promise<boolean>;
@@ -203,6 +204,10 @@ export class WorkerRuntimeRequestHandler {
           });
         case "settings.read":
           return success(request, { settings: await session.readSettings() });
+        case "chats.resolve":
+          return success(request, {
+            chat: await session.resolveChat(readChatId(request.payload))
+          });
         case "contacts.describe":
           return success(request, {
             contact: await session.describeContact(

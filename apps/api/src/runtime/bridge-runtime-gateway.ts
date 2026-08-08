@@ -256,6 +256,22 @@ export class BridgeRuntimeGateway implements
     return response["unsubscribed"] === true;
   }
 
+  async resolveChat(
+    userLookup: string,
+    chatId: string
+  ): Promise<ChatSummary | null> {
+    await this.ensureSession(userLookup);
+    const response = record(await this.options.worker.request({
+      operation: "chats.resolve",
+      sessionHandle: sessionHandle(userLookup),
+      payload: { chatId }
+    }));
+    const chat = response["chat"];
+    return chat === null || chat === undefined
+      ? null
+      : parseChatSummary(chat);
+  }
+
   async describeContact(
     userLookup: string,
     contactId: string
