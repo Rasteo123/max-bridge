@@ -34,6 +34,7 @@ const publicErrorsImplementation: FastifyPluginCallback = (
         method: request.method,
         route: request.routeOptions.url ?? request.url,
         name: text(record["name"]),
+        code: text(record["code"]),
         message: text(record["message"]),
         stack: text(record["stack"])?.split("\n").slice(0, 8).join(" | ")
       }, "request failed");

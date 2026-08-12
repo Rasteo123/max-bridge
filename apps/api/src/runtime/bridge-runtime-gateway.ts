@@ -18,10 +18,11 @@ import {
   type UserState
 } from "@maxbridge/core";
 import type { MaxLoginResult } from "@maxbridge/max-adapter";
-import type {
-  WorkerClientRequest
-} from "../worker/worker-client.js";
 import type { WorkerEvent } from "@maxbridge/protocol";
+import {
+  WorkerRequestError,
+  type WorkerClientRequest
+} from "../worker/worker-client.js";
 
 import type { ChatGateway } from "../routes/chats.js";
 import type {
@@ -41,6 +42,9 @@ import type { LiveGateway } from "../routes/websocket.js";
 export interface RuntimeWorker {
   request(request: WorkerClientRequest): Promise<unknown>;
   subscribe(listener: (event: WorkerEvent) => void): () => void;
+  subscribeConnection?(
+    listener: (connected: boolean) => void
+  ): () => void;
 }
 
 export interface RuntimeUsers {
@@ -67,6 +71,18 @@ export class BridgeRuntimeGateway implements
   LiveGateway {
   private readonly opened = new Set<string>();
   private readonly opening = new Map<string, Promise<void>>();
+  private readonly sessionGeneration = new Map<string, number>();
+  private readonly loggingOut = new Set<string>();
+  private readonly closing = new Map<string, Promise<void>>();
+  private readonly sessionWrites = new Map<string, Set<Promise<void>>>();
+  private readonly pendingWorkerCloses = new Set<string>();
+  private readonly workerClosing = new Map<string, Promise<void>>();
+  private readonly revokedSessions = new Set<string>();
+  private readonly restoreRetryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly restoreRetryAttempts = new Map<string, number>();
   private readonly listeners = new Map<
     string,
     Set<(event: BridgeEvent) => void>
@@ -82,9 +98,16 @@ export class BridgeRuntimeGateway implements
   constructor(private readonly options: Readonly<{
     worker: RuntimeWorker;
     users: RuntimeUsers;
+    onSessionRecoveryError?(error: unknown): void;
   }>) {
     options.worker.subscribe((event) => {
       this.handleWorkerEvent(event);
+    });
+    options.worker.subscribeConnection?.((connected) => {
+      if (connected) {
+        this.retryPendingWorkerCloses();
+        this.restoreOpenedSessions();
+      }
     });
   }
 
@@ -94,7 +117,7 @@ export class BridgeRuntimeGateway implements
   ): Promise<MaxLoginResult> {
     await this.ensureSession(userLookup);
     this.beginAuthentication(userLookup);
-    return parseLoginResult(await this.options.worker.request({
+    return parseLoginResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.phone",
       sessionHandle: sessionHandle(userLookup),
       payload: { phone: new TextDecoder().decode(phone) }
@@ -106,8 +129,9 @@ export class BridgeRuntimeGateway implements
     code: Uint8Array
   ): Promise<MaxLoginResult> {
     await this.ensureSession(userLookup);
+    const generation = this.sessionGeneration.get(userLookup) ?? 0;
     this.beginAuthentication(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.code",
       sessionHandle: sessionHandle(userLookup),
       payload: { code: new TextDecoder().decode(code) }
@@ -126,16 +150,13 @@ export class BridgeRuntimeGateway implements
     }
     const storageState = Buffer.from(encoded, "base64");
     try {
-      await this.options.users.saveMaxSessionByLookup(
+      await this.persistAuthenticatedSession(
         userLookup,
-        storageState
+        storageState,
+        generation
       );
     } finally {
       zeroBuffer(storageState);
-    }
-    const state = this.options.users.findUserByLookup(userLookup)?.state;
-    if (state === "authenticating") {
-      this.options.users.transitionByLookup(userLookup, "active");
     }
     return result;
   }
@@ -143,7 +164,7 @@ export class BridgeRuntimeGateway implements
   async getQrPng(userLookup: string): Promise<Buffer> {
     await this.ensureSession(userLookup);
     this.beginAuthentication(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.qr",
       sessionHandle: sessionHandle(userLookup)
     }));
@@ -161,7 +182,7 @@ export class BridgeRuntimeGateway implements
   async getCaptchaPng(userLookup: string): Promise<Buffer> {
     await this.ensureSession(userLookup);
     this.beginAuthentication(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.captcha.frame",
       sessionHandle: sessionHandle(userLookup)
     }));
@@ -174,7 +195,7 @@ export class BridgeRuntimeGateway implements
   ): Promise<MaxLoginResult> {
     await this.ensureSession(userLookup);
     this.beginAuthentication(userLookup);
-    return parseLoginResult(await this.options.worker.request({
+    return parseLoginResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.captcha.pointer",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -183,31 +204,71 @@ export class BridgeRuntimeGateway implements
 
   async status(userLookup: string): Promise<MaxLoginResult> {
     await this.ensureSession(userLookup);
-    return parseLoginResult(await this.options.worker.request({
+    return parseLoginResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "login.status",
       sessionHandle: sessionHandle(userLookup)
     }));
   }
 
-  async logout(userLookup: string): Promise<void> {
-    const handle = sessionHandle(userLookup);
-    if (this.opened.has(userLookup)) {
-      await this.options.worker.request({
-        operation: "session.close",
-        sessionHandle: handle
-      });
+  logout(userLookup: string): Promise<void> {
+    const existing = this.closing.get(userLookup);
+    if (existing !== undefined) {
+      return existing;
     }
-    this.opened.delete(userLookup);
-    this.options.users.clearMaxSessionByLookup(userLookup);
-    const state = this.options.users.findUserByLookup(userLookup)?.state;
-    if (state === "active") {
-      this.options.users.transitionByLookup(userLookup, "reauth_required");
+    const operation = this.closeSession(userLookup);
+    const closing = operation.finally(() => {
+      if (this.closing.get(userLookup) === closing) {
+        this.closing.delete(userLookup);
+      }
+    });
+    this.closing.set(userLookup, closing);
+    return closing;
+  }
+
+  private async closeSession(userLookup: string): Promise<void> {
+    this.cancelSessionRestoreRetry(userLookup);
+    this.loggingOut.add(userLookup);
+    this.revokedSessions.add(userLookup);
+    this.sessionGeneration.set(
+      userLookup,
+      (this.sessionGeneration.get(userLookup) ?? 0) + 1
+    );
+    try {
+      const opening = this.opening.get(userLookup);
+      if (opening !== undefined) {
+        await opening.catch(() => undefined);
+      }
+      this.opened.delete(userLookup);
+      this.pendingWorkerCloses.add(userLookup);
+      await this.drainPendingWorkerClose(userLookup).catch(
+        (error: unknown) => {
+          this.options.onSessionRecoveryError?.(error);
+        }
+      );
+      const writes = [...(this.sessionWrites.get(userLookup) ?? [])];
+      if (writes.length > 0) {
+        await Promise.allSettled(writes);
+      }
+    } finally {
+      try {
+        this.options.users.clearMaxSessionByLookup(userLookup);
+        const state = this.options.users.findUserByLookup(userLookup)?.state;
+        if (state === "active") {
+          this.options.users.transitionByLookup(
+            userLookup,
+            "reauth_required"
+          );
+        }
+      } finally {
+        this.opened.delete(userLookup);
+        this.loggingOut.delete(userLookup);
+      }
     }
   }
 
   async list(userLookup: string): Promise<readonly ChatSummary[]> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "chats.list",
       sessionHandle: sessionHandle(userLookup)
     }));
@@ -220,7 +281,7 @@ export class BridgeRuntimeGateway implements
 
   async settings(userLookup: string): Promise<AccountSettings> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "settings.read",
       sessionHandle: sessionHandle(userLookup)
     }));
@@ -232,7 +293,7 @@ export class BridgeRuntimeGateway implements
     link: string
   ): Promise<ChatSummary | null> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "chats.subscribe",
       sessionHandle: sessionHandle(userLookup),
       payload: { link }
@@ -248,7 +309,7 @@ export class BridgeRuntimeGateway implements
     chatId: string
   ): Promise<boolean> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "chats.unsubscribe",
       sessionHandle: sessionHandle(userLookup),
       payload: { chatId }
@@ -262,7 +323,7 @@ export class BridgeRuntimeGateway implements
     messageId: string
   ): Promise<boolean> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "messages.read",
       sessionHandle: sessionHandle(userLookup),
       payload: { chatId, messageId }
@@ -275,7 +336,7 @@ export class BridgeRuntimeGateway implements
     chatId: string
   ): Promise<ChatSummary | null> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "chats.resolve",
       sessionHandle: sessionHandle(userLookup),
       payload: { chatId }
@@ -291,7 +352,7 @@ export class BridgeRuntimeGateway implements
     contactId: string
   ): Promise<ChatSummary | null> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "contacts.describe",
       sessionHandle: sessionHandle(userLookup),
       payload: { contactId }
@@ -308,7 +369,7 @@ export class BridgeRuntimeGateway implements
     postId: string
   ): Promise<readonly Message[] | null> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "messages.comments",
       sessionHandle: sessionHandle(userLookup),
       payload: { chatId, postId }
@@ -328,7 +389,7 @@ export class BridgeRuntimeGateway implements
     query: string
   ): Promise<readonly ChatSummary[]> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "chats.search",
       sessionHandle: sessionHandle(userLookup),
       payload: { query }
@@ -346,7 +407,7 @@ export class BridgeRuntimeGateway implements
     cursor?: string
   ): Promise<readonly Message[] | null> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "messages.history",
       sessionHandle: sessionHandle(userLookup),
       payload: {
@@ -374,7 +435,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.send",
       sessionHandle: sessionHandle(userLookup),
       payload: {
@@ -400,7 +461,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.send",
       sessionHandle: sessionHandle(userLookup),
       payload: {
@@ -426,7 +487,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.sendAttachment",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -443,7 +504,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.edit",
       sessionHandle: sessionHandle(userLookup),
       payload: {
@@ -466,7 +527,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.delete",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -483,7 +544,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.forward",
       sessionHandle: sessionHandle(userLookup),
       payload: {
@@ -505,7 +566,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "message.reaction.set",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -522,7 +583,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "chat.action",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -540,7 +601,7 @@ export class BridgeRuntimeGateway implements
     await this.ensureSession(userLookup);
     let response: Record<string, unknown>;
     try {
-      response = record(await this.options.worker.request({
+      response = record(await this.requestWithSessionRecovery(userLookup, {
         operation: "media.open",
         sessionHandle: sessionHandle(userLookup),
         payload: { handle }
@@ -582,7 +643,7 @@ export class BridgeRuntimeGateway implements
     chatId: string
   ): Promise<readonly StickerSummary[]> {
     await this.ensureSession(userLookup);
-    const response = record(await this.options.worker.request({
+    const response = record(await this.requestWithSessionRecovery(userLookup, {
       operation: "stickers.list",
       sessionHandle: sessionHandle(userLookup),
       payload: { chatId }
@@ -603,7 +664,7 @@ export class BridgeRuntimeGateway implements
     }>
   ): Promise<MessageRouteResult> {
     await this.ensureSession(userLookup);
-    return parseSendResult(await this.options.worker.request({
+    return parseSendResult(await this.requestWithSessionRecovery(userLookup, {
       operation: "sticker.send",
       sessionHandle: sessionHandle(userLookup),
       payload: input
@@ -648,19 +709,27 @@ export class BridgeRuntimeGateway implements
     };
   }
 
-  private ensureSession(userLookup: string): Promise<void> {
+  private async ensureSession(userLookup: string): Promise<void> {
+    if (this.loggingOut.has(userLookup)) {
+      throw new Error("Session lifecycle changed");
+    }
+    await this.drainPendingWorkerClose(userLookup);
+    if (this.loggingOut.has(userLookup)) {
+      throw new Error("Session lifecycle changed");
+    }
     if (this.opened.has(userLookup)) {
-      return Promise.resolve();
+      return;
     }
     const existing = this.opening.get(userLookup);
     if (existing !== undefined) {
-      return existing;
+      await existing;
+      return;
     }
     const opening = this.openSession(userLookup).finally(() => {
       this.opening.delete(userLookup);
     });
     this.opening.set(userLookup, opening);
-    return opening;
+    await opening;
   }
 
   private scheduleBackground(userLookup: string): void {
@@ -686,7 +755,98 @@ export class BridgeRuntimeGateway implements
     this.backgroundTimers.set(userLookup, timer);
   }
 
+  private restoreOpenedSessions(): void {
+    const sessions = [...this.opened].map((userLookup) => ({
+      userLookup,
+      generation: this.sessionGeneration.get(userLookup) ?? 0
+    }));
+    for (const { userLookup } of sessions) {
+      this.cancelSessionRestoreRetry(userLookup);
+      this.opened.delete(userLookup);
+    }
+    void Promise.all(sessions.map(async ({
+      userLookup,
+      generation
+    }) => {
+      const opening = this.opening.get(userLookup);
+      if (opening !== undefined) {
+        await opening.catch(() => undefined);
+      }
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+      ) {
+        return false;
+      }
+      try {
+        await this.ensureSession(userLookup);
+        this.restoreRetryAttempts.delete(userLookup);
+      } catch (error: unknown) {
+        if (
+          !this.loggingOut.has(userLookup)
+          && (this.sessionGeneration.get(userLookup) ?? 0) === generation
+        ) {
+          // Keep the session desired even though the worker-side copy is
+          // currently missing. A request can recover it immediately, while
+          // the timer restores background notifications without user action.
+          this.opened.add(userLookup);
+          this.options.onSessionRecoveryError?.(error);
+          this.scheduleSessionRestoreRetry(userLookup, generation);
+        }
+      }
+    }));
+  }
+
+  private scheduleSessionRestoreRetry(
+    userLookup: string,
+    generation: number
+  ): void {
+    if (this.restoreRetryTimers.has(userLookup)) {
+      return;
+    }
+    const attempt = (this.restoreRetryAttempts.get(userLookup) ?? 0) + 1;
+    this.restoreRetryAttempts.set(userLookup, attempt);
+    const delayMs = Math.min(30_000, 500 * (2 ** Math.min(attempt - 1, 6)));
+    const timer = setTimeout(() => {
+      this.restoreRetryTimers.delete(userLookup);
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+        || !this.opened.delete(userLookup)
+      ) {
+        return;
+      }
+      void this.ensureSession(userLookup).then(
+        () => {
+          this.restoreRetryAttempts.delete(userLookup);
+        },
+        (error: unknown) => {
+          if (
+            !this.loggingOut.has(userLookup)
+            && (this.sessionGeneration.get(userLookup) ?? 0) === generation
+          ) {
+            this.opened.add(userLookup);
+            this.options.onSessionRecoveryError?.(error);
+            this.scheduleSessionRestoreRetry(userLookup, generation);
+          }
+        }
+      );
+    }, delayMs);
+    timer.unref();
+    this.restoreRetryTimers.set(userLookup, timer);
+  }
+
+  private cancelSessionRestoreRetry(userLookup: string): void {
+    const timer = this.restoreRetryTimers.get(userLookup);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.restoreRetryTimers.delete(userLookup);
+    }
+    this.restoreRetryAttempts.delete(userLookup);
+  }
+
   private async openSession(userLookup: string): Promise<void> {
+    const generation = this.sessionGeneration.get(userLookup) ?? 0;
     const storageState = await this.options.users.loadMaxSessionByLookup(
       userLookup
     );
@@ -700,11 +860,155 @@ export class BridgeRuntimeGateway implements
           }
         })
       });
-      this.opened.add(userLookup);
+      if (
+        (this.sessionGeneration.get(userLookup) ?? 0) === generation
+        && !this.loggingOut.has(userLookup)
+      ) {
+        this.revokedSessions.delete(userLookup);
+        this.opened.add(userLookup);
+      }
     } finally {
       if (storageState !== null) {
         zeroBuffer(storageState);
       }
+    }
+  }
+
+  private async requestWithSessionRecovery(
+    userLookup: string,
+    request: WorkerClientRequest
+  ): Promise<unknown> {
+    const generation = this.sessionGeneration.get(userLookup) ?? 0;
+    if (this.loggingOut.has(userLookup) || !this.opened.has(userLookup)) {
+      throw new Error("Session lifecycle changed");
+    }
+    try {
+      const response = await this.options.worker.request(request);
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+      ) {
+        throw new Error("Session lifecycle changed");
+      }
+      return response;
+    } catch (error) {
+      if (
+        !(error instanceof WorkerRequestError)
+        || error.code !== "session_not_found"
+      ) {
+        throw error;
+      }
+      // The worker keeps sessions in memory, while the API caches which
+      // handles it has opened. An independent worker restart invalidates the
+      // worker-side session without clearing this API-side cache.
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+      ) {
+        throw new Error("Session lifecycle changed", { cause: error });
+      }
+      this.opened.delete(userLookup);
+      await this.ensureSession(userLookup);
+      if (
+        (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+        || this.loggingOut.has(userLookup)
+        || !this.opened.has(userLookup)
+      ) {
+        throw new Error("Session lifecycle changed", { cause: error });
+      }
+      const response = await this.options.worker.request(request);
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+        || !this.opened.has(userLookup)
+      ) {
+        throw new Error("Session lifecycle changed", { cause: error });
+      }
+      return response;
+    }
+  }
+
+  private persistAuthenticatedSession(
+    userLookup: string,
+    storageState: Uint8Array,
+    generation: number
+  ): Promise<void> {
+    if (
+      this.loggingOut.has(userLookup)
+      || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+    ) {
+      return Promise.reject(new Error("Session lifecycle changed"));
+    }
+    const writes = this.sessionWrites.get(userLookup) ?? new Set();
+    this.sessionWrites.set(userLookup, writes);
+    const operation = (async () => {
+      await this.options.users.saveMaxSessionByLookup(
+        userLookup,
+        storageState
+      );
+      if (
+        this.loggingOut.has(userLookup)
+        || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+      ) {
+        throw new Error("Session lifecycle changed");
+      }
+      const state = this.options.users.findUserByLookup(userLookup)?.state;
+      if (state === "authenticating") {
+        this.options.users.transitionByLookup(userLookup, "active");
+      }
+    })();
+    const tracked = operation.finally(() => {
+      writes.delete(tracked);
+      if (writes.size === 0) {
+        this.sessionWrites.delete(userLookup);
+      }
+    });
+    writes.add(tracked);
+    return tracked;
+  }
+
+  private drainPendingWorkerClose(userLookup: string): Promise<void> {
+    if (!this.pendingWorkerCloses.has(userLookup)) {
+      return Promise.resolve();
+    }
+    const existing = this.workerClosing.get(userLookup);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const operation = this.options.worker.request({
+      operation: "session.close",
+      sessionHandle: sessionHandle(userLookup)
+    }).then(
+      () => {
+        this.pendingWorkerCloses.delete(userLookup);
+      },
+      (error: unknown) => {
+        if (
+          error instanceof WorkerRequestError
+          && error.code === "session_not_found"
+        ) {
+          this.pendingWorkerCloses.delete(userLookup);
+          return;
+        }
+        throw error;
+      }
+    );
+    const tracked = operation.finally(() => {
+      if (this.workerClosing.get(userLookup) === tracked) {
+        this.workerClosing.delete(userLookup);
+      }
+    });
+    this.workerClosing.set(userLookup, tracked);
+    return tracked;
+  }
+
+  private retryPendingWorkerCloses(): void {
+    for (const userLookup of this.pendingWorkerCloses) {
+      void this.drainPendingWorkerClose(userLookup).catch(
+        (error: unknown) => {
+          this.options.onSessionRecoveryError?.(error);
+        }
+      );
     }
   }
 
@@ -720,7 +1024,10 @@ export class BridgeRuntimeGateway implements
       return;
     }
     const userLookup = userLookupFromHandle(event.sessionHandle);
-    if (userLookup === undefined) {
+    if (
+      userLookup === undefined
+      || this.revokedSessions.has(userLookup)
+    ) {
       return;
     }
     let parsed: BridgeEvent;

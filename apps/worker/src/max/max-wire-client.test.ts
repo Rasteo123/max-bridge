@@ -1,7 +1,10 @@
 import { createContext, runInContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import type { Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  MaxWireClient,
+  MaxWireError,
   MAX_SOCKET_ORIGIN,
   MAX_WIRE_INIT_SCRIPT,
   MAX_WIRE_SEND_KEY
@@ -15,6 +18,17 @@ type FakeSocket = {
   addEventListener(type: string, listener: (event: unknown) => void): void;
   send(data: ArrayBuffer): void;
 };
+
+function deferred(): {
+  promise: Promise<void>;
+  resolve(): void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 /**
  * Runs the init script the way the browser does — as an expression, against a
@@ -164,5 +178,85 @@ describe("MAX_WIRE_INIT_SCRIPT", () => {
     const hook = installHook();
 
     expect(hook.reinstall()).toBe("present");
+  });
+});
+
+describe("MaxWireClient", () => {
+  it("does not emit an unhandled rejection while transmit is still waiting", async () => {
+    const transmitWait = deferred();
+    let sendAttempts = 0;
+    const page = {
+      evaluate: () => {
+        sendAttempts += 1;
+        return Promise.resolve(sendAttempts === 1 ? "absent" : "sent");
+      },
+      waitForTimeout: () => transmitWait.promise
+    } as unknown as Page;
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const outcome = new MaxWireClient(page).request(83, undefined, 5).then(
+        (value) => ({ status: "fulfilled", value } as const),
+        (reason: unknown) => ({ status: "rejected", reason } as const)
+      );
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 30);
+      });
+      transmitWait.resolve();
+
+      const result = await outcome;
+      expect(result.status).toBe("rejected");
+      if (result.status !== "rejected") {
+        throw new Error("Expected request to reject");
+      }
+      expect(result.reason).toBeInstanceOf(MaxWireError);
+      if (!(result.reason instanceof MaxWireError)) {
+        throw new Error("Expected a MaxWireError");
+      }
+      expect(result.reason.reason).toBe("timeout");
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      transmitWait.resolve();
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
+  it("keeps the response timeout when transmit fails later", async () => {
+    let sendAttempts = 0;
+    let socketDeadlinePassed = false;
+    const now = vi.spyOn(Date, "now").mockImplementation(() =>
+      socketDeadlinePassed ? 16_000 : 0
+    );
+    const page = {
+      evaluate: () => {
+        sendAttempts += 1;
+        return Promise.resolve(sendAttempts === 1 ? "absent" : "closed");
+      },
+      waitForTimeout: () => new Promise<void>((resolve) => {
+        setTimeout(() => {
+          socketDeadlinePassed = true;
+          resolve();
+        }, 20);
+      })
+    } as unknown as Page;
+
+    try {
+      const result = await new MaxWireClient(page)
+        .request(83, undefined, 5)
+        .then(
+          () => null,
+          (reason: unknown) => reason
+        );
+
+      expect(result).toBeInstanceOf(MaxWireError);
+      expect((result as MaxWireError).reason).toBe("timeout");
+    } finally {
+      now.mockRestore();
+    }
   });
 });

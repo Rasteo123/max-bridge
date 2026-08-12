@@ -42,7 +42,9 @@ describe("WorkerClient", () => {
         payload: { healthy: true }
       }));
     const client = new WorkerClient({ socketPath, requestTimeoutMs: 500 });
+    expect(client.isConnected()).toBe(false);
     await client.connect();
+    expect(client.isConnected()).toBe(true);
 
     await expect(client.request({
       operation: "health.check",
@@ -50,6 +52,7 @@ describe("WorkerClient", () => {
     })).resolves.toEqual({ healthy: true });
 
     client.close();
+    expect(client.isConnected()).toBe(false);
     await closeServer(server);
   });
 
@@ -175,7 +178,12 @@ describe("WorkerClient reconnection", () => {
       reconnectDelayMs: 10,
       maxReconnectDelayMs: 20
     });
+    const connections: boolean[] = [];
+    client.subscribeConnection((connected) => {
+      connections.push(connected);
+    });
     await client.connect();
+    expect(connections).toEqual([true]);
 
     await expect(client.request({
       operation: "health.check",
@@ -184,6 +192,7 @@ describe("WorkerClient reconnection", () => {
 
     // A deploy takes the worker away and brings it back on the same socket.
     await closeServer(server);
+    await waitFor(() => Promise.resolve(connections.includes(false)));
     await rm(socketPath, { force: true });
     server = await startTestServer(socketPath, respond);
 
@@ -200,6 +209,7 @@ describe("WorkerClient reconnection", () => {
       }
     });
     expect(recovered).toEqual({ healthy: true });
+    expect(connections).toEqual([true, false, true]);
 
     client.close();
     await closeServer(server);

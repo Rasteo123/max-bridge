@@ -49,7 +49,11 @@ async function main(): Promise<void> {
     socketPath: config.workerSocket
   });
   await connectWorker(worker);
-  const runtime = new BridgeRuntimeGateway({ worker, users });
+  const runtime = new BridgeRuntimeGateway({
+    worker,
+    users,
+    onSessionRecoveryError: writeSessionRecoveryError
+  });
   const sessions = new MemorySessionStore();
   const bot = createTelegramBot({
     token: secrets.botToken,
@@ -75,7 +79,7 @@ async function main(): Promise<void> {
         save: (userLookup, preferences) =>
           users.saveNotificationPreferencesByLookup(userLookup, preferences)
       },
-      ready: () => true
+      ready: () => worker.isConnected()
     },
     allowedOrigins: new Set([config.publicOrigin]),
     allowedHosts: new Set([config.publicHost]),
@@ -137,6 +141,21 @@ async function main(): Promise<void> {
       });
     });
   }
+}
+
+function writeSessionRecoveryError(error: unknown): void {
+  const record = error !== null && typeof error === "object"
+    ? error as Record<string, unknown>
+    : {};
+  process.stderr.write(`${JSON.stringify({
+    event: "max_session_recovery_failed",
+    errorName: typeof record["name"] === "string"
+      ? record["name"]
+      : "Error",
+    errorCode: typeof record["code"] === "string"
+      ? record["code"]
+      : "unknown"
+  })}\n`);
 }
 
 async function connectWorker(worker: WorkerClient): Promise<void> {

@@ -157,17 +157,23 @@ export class MaxWireClient {
       ...(payload === undefined ? {} : { payload })
     });
 
+    let responseError: Error | undefined;
     const response = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(sequence);
-        reject(new MaxWireError(
+        responseError = new MaxWireError(
           `MAX opcode ${String(opcode)} timed out`,
           "timeout"
-        ));
+        );
+        reject(responseError);
       }, timeoutMs);
       timer.unref();
       this.pending.set(sequence, { opcode, resolve, reject, timer });
     });
+    // Transmit can wait longer than the response deadline. Mark the response
+    // rejection handled now; returning the original promise below still
+    // propagates the same error to the request caller.
+    void response.catch(() => undefined);
 
     try {
       await this.transmit(frame);
@@ -176,6 +182,9 @@ export class MaxWireClient {
       if (request !== undefined) {
         this.pending.delete(sequence);
         clearTimeout(request.timer);
+      }
+      if (responseError !== undefined) {
+        throw responseError;
       }
       throw error;
     }

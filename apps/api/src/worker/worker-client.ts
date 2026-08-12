@@ -66,6 +66,10 @@ export class WorkerClient {
   private readonly initialReconnectDelayMs: number;
   private readonly maxReconnectDelayMs: number;
   private readonly listeners = new Set<(event: WorkerEvent) => void>();
+  private readonly connectionListeners = new Set<
+    (connected: boolean) => void
+  >();
+  private connected = false;
 
   constructor(private readonly options: WorkerClientOptions) {
     // Worker operations may include a 15-second MAX UI state transition.
@@ -110,7 +114,11 @@ export class WorkerClient {
       this.handleDisconnect();
     });
     this.socket = socket;
+    this.connected = true;
     this.reconnectDelayMs = this.initialReconnectDelayMs;
+    for (const listener of this.connectionListeners) {
+      listener(true);
+    }
   }
 
   async request(request: WorkerClientRequest): Promise<unknown> {
@@ -151,6 +159,21 @@ export class WorkerClient {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  subscribeConnection(
+    listener: (connected: boolean) => void
+  ): () => void {
+    this.connectionListeners.add(listener);
+    return () => {
+      this.connectionListeners.delete(listener);
+    };
+  }
+
+  isConnected(): boolean {
+    return this.connected
+      && this.socket !== undefined
+      && !this.socket.destroyed;
   }
 
   /** Stops reconnecting: the process is shutting down. */
@@ -198,6 +221,12 @@ export class WorkerClient {
 
   private handleDisconnect(): void {
     this.socket = undefined;
+    if (this.connected) {
+      this.connected = false;
+      for (const listener of this.connectionListeners) {
+        listener(false);
+      }
+    }
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
       pending.reject(new WorkerUnavailableError());
