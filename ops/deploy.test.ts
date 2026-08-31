@@ -56,10 +56,15 @@ describe("hardened deployment artifacts", () => {
     expect(text).toContain("MemoryMax=512M");
   });
 
-  it("keeps the three Chromium workers within the server budget", async () => {
+  it("kills an oversized worker instead of throttling it into a stall", async () => {
     const text = await readFile(workerUnit, "utf8");
-    expect(text).toContain("MemoryHigh=2200M");
-    expect(text).toContain("MemoryMax=2600M");
+    // MemoryHigh throttles reclaim but never kills, so the cgroup can stall
+    // below MemoryMax indefinitely: the worker once sat at 95% memory
+    // pressure for three days, still "active (running)", never restarted.
+    expect(text).toContain("MemoryHigh=infinity");
+    expect(text).toContain("MemoryMax=2200M");
+    expect(text).toContain("OOMPolicy=kill");
+    expect(text).toContain("Restart=always");
     expect(text).toContain("TasksMax=1024");
     expect(text).toContain("PLAYWRIGHT_BROWSERS_PATH=");
   });

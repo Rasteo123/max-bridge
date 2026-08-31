@@ -14,8 +14,16 @@ WorkingDirectory=/opt/maxbridge/current
 Environment=NODE_ENV=production
 Environment=MAXBRIDGE_WORKER_SOCKET=/run/maxbridge/worker.sock
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/maxbridge/browsers
+# Without a cap V8 sizes its heap for the whole 4G host and never applies GC
+# back-pressure before the cgroup limit is reached.
+Environment=NODE_OPTIONS=--max-old-space-size=1280
 ExecStart=/usr/bin/node /opt/maxbridge/current/apps/worker/dist/entrypoint.js
-Restart=on-failure
+# A wedged worker must die and come back, not stall forever. MemoryHigh only
+# throttles reclaim, so the cgroup can sit below MemoryMax indefinitely: in
+# August 2026 the worker ground at ~95% memory pressure for three days, still
+# reported "active (running)", and Restart=on-failure never fired because
+# nothing ever exited. Let the hard limit OOM-kill instead, and always restart.
+Restart=always
 RestartSec=5s
 TimeoutStopSec=45
 NoNewPrivileges=true
@@ -36,8 +44,9 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/var/lib/maxbridge /run/maxbridge
 UMask=0077
-MemoryHigh=2200M
-MemoryMax=2600M
+MemoryHigh=infinity
+MemoryMax=2200M
+OOMPolicy=kill
 TasksMax=1024
 
 [Install]
