@@ -18,7 +18,13 @@ export class NotificationDeduplicator {
     messageId: string
   ): boolean {
     const cursor = this.cursors.get(userLookup) ?? -1;
-    if (sequence <= cursor) {
+    // The sequence counter lives in the worker process and restarts at zero
+    // with it, so a value *below* the cursor marks a new worker epoch rather
+    // than a replay. Rejecting those silenced every notification until the
+    // counter climbed past a cursor the API had kept from the previous run.
+    // Only an exact repeat of the last accepted sequence is a duplicate; the
+    // messageId check below still catches genuinely repeated messages.
+    if (sequence === cursor) {
       return false;
     }
     let ids = this.recentIds.get(userLookup);

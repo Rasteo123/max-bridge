@@ -55,6 +55,16 @@ describe("NotificationRouter", () => {
     expect(JSON.stringify(restored.snapshotCursors()))
       .not.toContain("message-1");
   });
+
+  it("keeps delivering after the worker restarts its sequence counter", () => {
+    const deduplicator = new NotificationDeduplicator();
+    expect(deduplicator.accept("user-1", 5_000, "message-old")).toBe(true);
+
+    // The counter lives in the worker process and starts over with it, so a
+    // sequence below the cursor means a new epoch, not a replay. Dropping
+    // these silenced every notification until the counter caught up again.
+    expect(deduplicator.accept("user-1", 1, "message-new")).toBe(true);
+  });
 });
 
 function createRouter(settings: NotificationSettings) {
