@@ -55,6 +55,31 @@ describe("bounded in-memory MAX session", () => {
     expect(session.reconnectCursor).toBe("4001");
   });
 
+  it("adapts an older page without disturbing the open chat", () => {
+    const session = new MaxSession({ viewerId: fixture.viewerId });
+    session.replaceChats(fixture.chatList);
+    session.openChat("1001");
+    session.replaceOpenHistory(fixture.history);
+    const openBefore = session.openMessages;
+
+    const page = session.wireHistoryPage({
+      messages: [{
+        id: 2001n,
+        time: Date.parse("2026-08-01T00:00:00.000Z"),
+        type: "USER",
+        sender: 41_798_245,
+        text: "older",
+        attaches: [],
+        reactionInfo: {}
+      }]
+    }, "1001");
+
+    expect(page.map((message) => message.text)).toEqual(["older"]);
+    // Live events merge into the newest window, so paging backwards must not
+    // move the selection or replace what the open chat is holding.
+    expect(session.openMessages).toEqual(openBefore);
+  });
+
   it("clears all runtime media and message references on close", () => {
     const session = new MaxSession({ viewerId: fixture.viewerId });
     session.replaceChats(fixture.chatList);

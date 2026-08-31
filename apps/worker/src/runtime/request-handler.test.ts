@@ -58,6 +58,33 @@ describe("WorkerRuntimeRequestHandler", () => {
     });
   });
 
+  it("passes the history cursor through to the session", async () => {
+    const history = vi.fn<RuntimeMaxSession["history"]>(
+      () => Promise.resolve([])
+    );
+    const runtime = new WorkerRuntimeRequestHandler({
+      factory: {
+        open: () => Promise.resolve({ ...fakeSession(), history }),
+        close: () => Promise.resolve()
+      },
+      healthy: () => true
+    });
+    await runtime.handle(request("session.open", {
+      storageStateBase64: Buffer.from('{"cookies":[],"origins":[]}')
+        .toString("base64")
+    }));
+
+    await runtime.handle(request("messages.history", {
+      chatId: "1",
+      cursor: "2026-08-04T08:01:25.766Z"
+    }));
+
+    // The payload already tolerated a cursor but only ever read chatId, so
+    // every page request answered with the same newest messages.
+    expect(history).toHaveBeenCalledWith("1", "2026-08-04T08:01:25.766Z");
+    await runtime.close();
+  });
+
   it("never reflects private login or message payloads in failures", async () => {
     const runtime = new WorkerRuntimeRequestHandler({
       factory: {

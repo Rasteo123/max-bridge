@@ -67,6 +67,64 @@ describe("ConnectedMessenger startup", () => {
     expect(screen.queryByText("MAX временно недоступен")).toBeNull();
   });
 
+  it("pages back using the oldest loaded message as the cursor", async () => {
+    vi.stubGlobal("matchMedia", matchMediaStub);
+    const chats = {
+      chats: [{
+        id: "0",
+        title: "Избранное",
+        preview: "",
+        timestamp: "2026-07-26T20:00:00.000Z",
+        unreadCount: 0,
+        muted: false,
+        kind: "saved"
+      }]
+    };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(chats))
+      .mockResolvedValueOnce(jsonResponse({
+        messages: [
+          {
+            id: "5",
+            direction: "incoming",
+            sentAt: "2026-08-05T09:00:00.000Z",
+            text: "старое"
+          },
+          {
+            id: "6",
+            direction: "incoming",
+            sentAt: "2026-08-07T09:00:00.000Z",
+            text: "новое"
+          }
+        ]
+      }))
+      .mockResolvedValue(jsonResponse({ messages: [] }));
+
+    render(
+      <ConnectedMessenger
+        client={new ApiClient(withNotifications(fetcher))}
+        theme="dark"
+        onThemeChange={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    );
+    expect((await screen.findAllByText("Избранное"))[0]).toBeVisible();
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    const list = screen.getByTestId("conversation")
+      .querySelector(".conversation__messages") as HTMLElement;
+    fireEvent.scroll(list);
+
+    // The cursor is the oldest message already on screen, so MAX is asked for
+    // what sits before it rather than for the newest page again.
+    await waitFor(() => {
+      expect(fetcher.mock.calls.map(([request]) => requestPath(request)))
+        .toContain("/api/chats/0/messages?cursor=2026-08-05T09%3A00%3A00.000Z");
+    });
+  });
+
   it("wires activation to one current chat and selected-history refresh", async () => {
     vi.stubGlobal("matchMedia", matchMediaStub);
     const chats = {

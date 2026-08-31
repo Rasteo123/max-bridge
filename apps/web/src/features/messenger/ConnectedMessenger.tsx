@@ -66,6 +66,8 @@ export function ConnectedMessenger({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const loadingOlder = useRef(false);
+  const exhausted = useRef(new Set<string>());
   const [actionError, setActionError] = useState<string>();
   const [attachmentState, setAttachmentState] =
     useState<AttachmentSendState>({ state: "idle" });
@@ -542,6 +544,39 @@ export function ConnectedMessenger({
     await refreshHistory(chatId);
   }
 
+  /**
+   * Fetches the page that sits before what is already on screen. MAX answers
+   * "the N messages before this moment", so the oldest loaded message is the
+   * cursor. A chat is marked exhausted once a page fails to move that oldest
+   * message any further back — which covers both reaching the start of the
+   * conversation and filling the store's bounded window.
+   */
+  async function loadOlder(chatId: string): Promise<void> {
+    if (loadingOlder.current || exhausted.current.has(chatId)) {
+      return;
+    }
+    const oldest = store.getSnapshot().messages[0];
+    if (oldest === undefined) {
+      return;
+    }
+    loadingOlder.current = true;
+    try {
+      const history = await client.getHistory(chatId, oldest.sentAt);
+      const older = toMessengerMessages(history.messages);
+      if (store.getSnapshot().selectedChatId !== chatId) {
+        return;
+      }
+      store.mergeHistory(older);
+      if (store.getSnapshot().messages[0]?.id === oldest.id) {
+        exhausted.current.add(chatId);
+      }
+    } catch {
+      // A failed page must not wedge the chat; the next scroll may retry.
+    } finally {
+      loadingOlder.current = false;
+    }
+  }
+
   async function refreshHistory(chatId: string, replace = false) {
     const history = await client.getHistory(chatId);
     const messages = toMessengerMessages(history.messages);
@@ -573,6 +608,7 @@ export function ConnectedMessenger({
     }
     await client.logoutMax();
     historyCache.current.clear();
+    exhausted.current.clear();
     onLoggedOut();
   }
 
@@ -624,6 +660,12 @@ export function ConnectedMessenger({
           : { initialChatId: snapshot.selectedChatId })}
         initialPane="list"
         historyLoading={historyLoading}
+        onLoadOlder={() => {
+          const chatId = snapshot.selectedChatId;
+          if (chatId !== undefined) {
+            void loadOlder(chatId);
+          }
+        }}
         onSelectChat={(chatId) => {
           void selectChat(chatId);
         }}

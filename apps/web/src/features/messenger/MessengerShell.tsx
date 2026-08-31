@@ -64,6 +64,7 @@ type MessengerShellProps = Readonly<{
   botMutedChatIds?: ReadonlySet<string>;
   onToggleBotNotifications?(chatId: string, muted: boolean): void;
   onChatAction?(chatId: string, action: MessengerChatAction): void;
+  onLoadOlder?(): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
   historyLoading?: boolean;
@@ -93,6 +94,7 @@ export function MessengerShell({
   botMutedChatIds,
   onToggleBotNotifications,
   onChatAction,
+  onLoadOlder,
   onLoadStickers,
   onSendSticker,
   historyLoading = false
@@ -254,6 +256,7 @@ export function MessengerShell({
             {...(selectedChat === undefined ? {} : { chat: selectedChat })}
             messages={messages}
             historyLoading={historyLoading}
+            {...(onLoadOlder === undefined ? {} : { onLoadOlder })}
             wide={wide}
             active={active}
             onOpenChats={openChats}

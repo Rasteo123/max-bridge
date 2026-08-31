@@ -14,7 +14,10 @@ export type MessengerSnapshot = Readonly<{
 }>;
 
 const MAX_CHATS = 250;
-const MAX_CURRENT_MESSAGES = 400;
+// The window a conversation keeps in memory. Merging keeps the newest, so
+// this is also how far back paging can reach before older pages would be
+// dropped as fast as they arrive; the caller stops asking at that point.
+const MAX_CURRENT_MESSAGES = 1_000;
 
 export class MessengerStore {
   private listeners = new Set<() => void>();

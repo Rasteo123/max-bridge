@@ -137,6 +137,36 @@ export class MaxSession {
       .slice(-this.maxOpenMessages);
   }
 
+  /**
+   * Adapts one older page without touching the open chat. The selected buffer
+   * is where live events merge and where the newest window lives, so paging
+   * backwards has to stay a read-only view of the wire payload.
+   */
+  wireHistoryPage(
+    payload: unknown,
+    chatId: string,
+    options: Readonly<{
+      readMarks?: readonly number[];
+      senderNames?: ReadonlyMap<string, string>;
+      commentCounts?: ReadonlyMap<string, number>;
+    }> = {}
+  ): readonly Message[] {
+    return [...adaptWireHistory(payload, {
+      chatId,
+      viewerId: this.viewerId,
+      media: this.media,
+      ...(options.readMarks === undefined
+        ? {}
+        : { readMarks: options.readMarks }),
+      ...(options.senderNames === undefined
+        ? {}
+        : { senderNames: options.senderNames }),
+      ...(options.commentCounts === undefined
+        ? {}
+        : { commentCounts: options.commentCounts })
+    })].sort((left, right) => left.sentAt.localeCompare(right.sentAt));
+  }
+
   ingestLive(payload: unknown): readonly BridgeEvent[] {
     const events = this.live.adapt(payload);
     for (const event of events) {

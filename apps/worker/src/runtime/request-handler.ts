@@ -33,7 +33,10 @@ export interface RuntimeMaxSession {
   readSettings(): Promise<AccountSettings>;
   subscribeToChat(link: string): Promise<ChatSummary | null>;
   unsubscribeFromChat(chatId: string): Promise<boolean>;
-  history(chatId: string): Promise<readonly Message[] | null>;
+  history(
+    chatId: string,
+    cursor?: string
+  ): Promise<readonly Message[] | null>;
   comments(
     chatId: string,
     postId: string
@@ -219,10 +222,12 @@ export class WorkerRuntimeRequestHandler {
           return success(request, {
             chats: await session.searchChats(readSearchQuery(request.payload))
           });
-        case "messages.history":
+        case "messages.history": {
+          const input = readHistoryRequest(request.payload);
           return success(request, {
-            messages: await session.history(readChatId(request.payload))
+            messages: await session.history(input.chatId, input.cursor)
           });
+        }
         case "messages.read": {
           const input = readMarkRead(request.payload);
           return success(request, {
@@ -502,6 +507,31 @@ function readCaptchaPointer(value: unknown): CaptchaPointerInput {
     throw new TypeError("Invalid worker payload");
   }
   return { phase, x, y };
+}
+
+/**
+ * The payload always tolerated a cursor but nothing ever read it, so every
+ * page request answered with the same newest messages.
+ */
+function readHistoryRequest(value: unknown): Readonly<{
+  chatId: string;
+  cursor?: string;
+}> {
+  const input = exact(value, ["chatId", "cursor"]);
+  const chatId = readChatId({ chatId: input["chatId"] });
+  const cursor = input["cursor"];
+  if (cursor === undefined) {
+    return { chatId };
+  }
+  if (
+    typeof cursor !== "string"
+    || cursor.length < 1
+    || cursor.length > 512
+    || hasControlCharacter(cursor)
+  ) {
+    throw new TypeError("Invalid worker payload");
+  }
+  return { chatId, cursor };
 }
 
 function readChatId(value: unknown): string {

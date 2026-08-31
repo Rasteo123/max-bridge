@@ -38,6 +38,7 @@ import {
   MaxMediaError,
   MaxMediaResolver
 } from "./max-media-resolver.js";
+import { historyWindowStart } from "./history-cursor.js";
 import { RuntimeMediaStore } from "../media/runtime-media-store.js";
 import {
   MAX_SOCKET_ORIGIN,
@@ -51,6 +52,10 @@ const MAX_WEB_URL = "https://web.max.ru/";
 const MAX_NODE_MODULE_PATTERN = "/_app/immutable/nodes/0.";
 const MAX_HISTORY_WAIT_MS = 10_000;
 const MAX_HISTORY_PAGE_SIZE = 100;
+// How much of a chat one request carries. Deliberately smaller than the batch
+// ceiling above: a chat opens on a short page and grows as the reader scrolls,
+// which also cuts the media fetched on open by the same factor.
+const MAX_HISTORY_PAGE = 30;
 const MAX_HISTORY_POLL_MS = 150;
 const MAX_HISTORY_MIN_SETTLE_MS = 1_200;
 const MAX_HISTORY_SINGLE_MESSAGE_SETTLE_MS = 4_000;
@@ -866,13 +871,16 @@ export class MaxWebPageSession {
    * messages in a shape the bridge cannot reliably interpret, so opcode 49 is
    * the only source that carries text, attachments and reactions intact.
    */
-  async history(chatId: string): Promise<readonly Message[] | null> {
+  async history(
+    chatId: string,
+    cursor?: string
+  ): Promise<readonly Message[] | null> {
     const adapter = await this.ensureAdapter();
     if (!await this.isReachableChat(chatId)) {
       return null;
     }
     try {
-      return await this.wireHistory(adapter, chatId);
+      return await this.wireHistory(adapter, chatId, cursor);
     } catch (error: unknown) {
       const stage = describeWireFailure(error);
       // Snapshot before touching the page, otherwise the recovery below is all
@@ -881,7 +889,7 @@ export class MaxWebPageSession {
       if (error instanceof MaxWireError && error.reason === "unavailable") {
         try {
           await this.restartMaxApp();
-          return await this.wireHistory(adapter, chatId);
+          return await this.wireHistory(adapter, chatId, cursor);
         } catch (retryError: unknown) {
           process.stderr.write(`${JSON.stringify({
             event: "max_wire_history_failed",
@@ -891,7 +899,9 @@ export class MaxWebPageSession {
             afterReload: describeWireFailure(retryError),
             after: await this.describePageState()
           })}\n`);
-          return this.renderedHistory(chatId);
+          return cursor === undefined
+            ? this.renderedHistory(chatId)
+            : [];
         }
       }
       // The protocol path is the only one that reads messages correctly, but a
@@ -902,7 +912,9 @@ export class MaxWebPageSession {
         stage,
         before
       })}\n`);
-      return this.renderedHistory(chatId);
+      return cursor === undefined
+        ? this.renderedHistory(chatId)
+        : [];
     }
   }
 
@@ -935,22 +947,29 @@ export class MaxWebPageSession {
 
   private async wireHistory(
     adapter: MaxSession,
-    chatId: string
+    chatId: string,
+    cursor?: string
   ): Promise<readonly Message[]> {
     const context = await this.readChatWireContext(chatId);
     const payload = await this.wire.request(49, {
       chatId: wireChatId(chatId),
-      from: Date.now(),
+      from: historyWindowStart(cursor, Date.now()),
       forward: 0,
-      backward: MAX_HISTORY_PAGE_SIZE,
+      backward: MAX_HISTORY_PAGE,
       getMessages: true
     });
     const commentCounts = await this.readCommentCounts(chatId, payload);
-    adapter.openChat(chatId);
-    adapter.replaceOpenWireHistory(payload, {
+    const options = {
       readMarks: context.readMarks,
       ...(commentCounts === undefined ? {} : { commentCounts })
-    });
+    };
+    // Only the newest page owns the open buffer. That buffer is where live
+    // events merge, so an older page stays a read-only view of the payload.
+    if (cursor !== undefined) {
+      return adapter.wireHistoryPage(payload, chatId, options);
+    }
+    adapter.openChat(chatId);
+    adapter.replaceOpenWireHistory(payload, options);
     return adapter.openMessages;
   }
 

@@ -52,11 +52,16 @@ type ConversationProps = Readonly<{
   onUnsubscribe?(chat: MessengerChat): void;
   onSubscribe?(chat: MessengerChat): void;
   onOpenForwardedSource?(source: MessengerForwardedSource): void;
+  onLoadOlder?(): void;
   onLoadStickers?(): Promise<readonly MessengerSticker[]>;
   onSendSticker?(stickerId: string): Promise<void> | void;
 }>;
 
 const BOTTOM_PROXIMITY_PX = 80;
+// How close to the top of the loaded history counts as asking for more. The
+// caller is responsible for ignoring a repeat while a page is already in
+// flight; a burst of scroll events near the top is normal.
+const TOP_PROXIMITY_PX = 200;
 
 type ComposerContext = Readonly<{
   kind: "reply" | "edit";
@@ -88,7 +93,8 @@ export function Conversation({
   onSubscribe,
   onOpenForwardedSource,
   onLoadStickers,
-  onSendSticker
+  onSendSticker,
+  onLoadOlder
 }: ConversationProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const closeSearch = useCallback(() => {
@@ -152,12 +158,17 @@ export function Conversation({
   const listRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const lastChatId = useRef(chat?.id);
+  const lastOldestId = useRef<string | undefined>(undefined);
+  const lastScrollHeight = useRef(0);
 
   function trackScrollPosition(): void {
     const list = listRef.current;
     if (list !== null) {
       const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
       pinnedToBottom.current = distance <= BOTTOM_PROXIMITY_PX;
+      if (list.scrollTop <= TOP_PROXIMITY_PX) {
+        onLoadOlder?.();
+      }
     }
   }
 
@@ -173,10 +184,23 @@ export function Conversation({
     if (switchedChat) {
       pinnedToBottom.current = true;
     }
+    const oldestId = messages[0]?.id;
+    // A page arriving above the reader grows the list upwards. Left alone the
+    // browser keeps scrollTop and the view jumps to the top of the new page,
+    // so the same content is nudged back under the reader by the height it
+    // gained.
+    const grewAtTop = !switchedChat
+      && lastOldestId.current !== undefined
+      && oldestId !== lastOldestId.current
+      && list.scrollHeight > lastScrollHeight.current;
     if (switchedChat || pinnedToBottom.current) {
       list.scrollTop = list.scrollHeight;
+    } else if (grewAtTop) {
+      list.scrollTop += list.scrollHeight - lastScrollHeight.current;
     }
-  }, [chat?.id, rows]);
+    lastOldestId.current = oldestId;
+    lastScrollHeight.current = list.scrollHeight;
+  }, [chat?.id, messages, rows]);
 
   return (
     <>
