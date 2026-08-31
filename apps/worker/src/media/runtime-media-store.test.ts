@@ -2,7 +2,9 @@ import {
   mkdtemp,
   readFile,
   rm,
-  stat
+  stat,
+  utimes,
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +36,24 @@ afterEach(async () => {
 });
 
 describe("runtime-only media store", () => {
+  it("removes files a previous process left behind", async () => {
+    // Eviction runs off an in-process setTimeout, so every file outlives the
+    // worker that wrote it. Nothing reconciled the directory at startup, and
+    // 381 MB of orphans filled /run until media stopped being cached at all.
+    const orphan = join(root, "orphan.bin");
+    await writeFile(orphan, "stale");
+    const staleAt = new Date(Date.now() - 120_000);
+    await utimes(orphan, staleAt, staleAt);
+    const live = join(root, "live.bin");
+    await writeFile(live, "fresh");
+
+    const removed = await store.sweepOrphans();
+
+    expect(removed).toBe(1);
+    await expect(stat(orphan)).rejects.toThrow();
+    await expect(stat(live)).resolves.toBeDefined();
+  });
+
   it("uses /run/maxbridge/media in production", () => {
     expect(RUNTIME_MEDIA_ROOT).toBe("/run/maxbridge/media");
     expect(() => new RuntimeMediaStore({

@@ -1,3 +1,4 @@
+import { RuntimeMediaStore } from "./media/runtime-media-store.js";
 import { BrowserPool } from "./pool/browser-pool.js";
 import {
   PlaywrightBrowserFactory
@@ -35,7 +36,22 @@ const server = new WorkerProtocolServer({
   handler: runtime.handle
 });
 
+// Media eviction runs off per-file timers that die with the process, so a
+// restart strands everything the previous worker had cached. Reconcile the
+// directory on the way up, then keep checking: a file stranded moments before
+// the restart only becomes sweepable once it is older than the TTL.
+const mediaSweeper = new RuntimeMediaStore();
+
+async function sweepStrandedMedia(): Promise<void> {
+  await mediaSweeper.sweepOrphans().catch(() => undefined);
+}
+
 async function main(): Promise<void> {
+  await sweepStrandedMedia();
+  const sweepTimer = setInterval(() => {
+    void sweepStrandedMedia();
+  }, 5 * 60_000);
+  sweepTimer.unref();
   await pool.start();
   await server.start();
   process.once("SIGTERM", () => {

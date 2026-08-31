@@ -1,10 +1,12 @@
 import {
   mkdir,
   open,
+  readdir,
+  stat,
   unlink,
   type FileHandle
 } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
 
@@ -165,6 +167,40 @@ export class RuntimeMediaStore {
       }
       this.release(owner);
     }
+  }
+
+  /**
+   * Deletes cache files older than the TTL. Eviction otherwise runs only off
+   * an in-process timer, so every file outlives the worker that wrote it and
+   * nothing ever reconciles the directory again: 52 stranded files once filled
+   * /run to 100%, after which media stopped being cached at all and every
+   * attachment was re-downloaded in full. A live entry is younger than the TTL
+   * by construction, so anything older is an orphan even while a sibling store
+   * in this process is mid-write.
+   */
+  async sweepOrphans(): Promise<number> {
+    const cutoff = Date.now() - this.ttlMs;
+    let names: readonly string[];
+    try {
+      names = await readdir(this.root);
+    } catch {
+      return 0;
+    }
+    let removed = 0;
+    await Promise.all(names.map(async (name) => {
+      const path = join(this.root, name);
+      try {
+        const info = await stat(path);
+        if (!info.isFile() || info.mtimeMs > cutoff) {
+          return;
+        }
+        await unlink(path);
+        removed += 1;
+      } catch {
+        // A file that vanished under the sweep needs no sweeping.
+      }
+    }));
+    return removed;
   }
 
   async expire(id: string): Promise<void> {
