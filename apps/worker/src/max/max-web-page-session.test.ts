@@ -11,6 +11,75 @@ afterEach(() => {
 describe("MaxWebPageSession chat snapshots", () => {
   const now = Date.parse("2026-07-27T10:00:00.000Z");
 
+  it("recognizes the current singleton viewer as authenticated", async () => {
+    const session = listChatsSession([], singletonViewerIdentity(123n));
+
+    await expect(session.status()).resolves.toEqual({
+      state: "authenticated"
+    });
+  });
+
+  it.each([123n, 123, "123"])(
+    "restores chats using the viewer contact ID %s without reading its singleton ID",
+    async (contactId) => {
+      const session = listChatsSession([
+        directChatPageModel({
+          lastMessage: {
+            id: "modern-message",
+            senderId: "123",
+            status: "READ",
+            time: 1_721_843_200_000,
+            text: "Sent"
+          }
+        })
+      ], singletonViewerIdentity(contactId));
+
+      await expect(session.listChats()).resolves.toEqual([
+        expect.objectContaining({
+          id: "chat-1",
+          lastMessageDirection: "outgoing",
+          deliveryStatus: "read"
+        })
+      ]);
+    }
+  );
+
+  it("reads history from the current singleton viewer", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        messages: [{
+          id: "modern-history-message",
+          senderId: "123",
+          status: "READ",
+          time: 1_721_843_200_000,
+          text: "History"
+        }]
+      })
+    ], singletonViewerIdentity(123n));
+    const internals = session as unknown as SessionInternals;
+
+    await expect(internals.readMessages("chat-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "modern-history-message",
+        sender: "123",
+        status: "READ"
+      })
+    ]);
+  });
+
+  it("excludes the singleton viewer's own read marker", async () => {
+    const session = listChatsSession([
+      directChatPageModel({
+        participants: { "123": 999, "456": 100 }
+      })
+    ], singletonViewerIdentity(123n));
+    const internals = session as unknown as SessionInternals;
+
+    await expect(internals.readChatWireContext("chat-1")).resolves.toEqual({
+      readMarks: [100]
+    });
+  });
+
   it("returns direct-chat presence and outgoing read acknowledgements", async () => {
     const session = listChatsSession([
       directChatPageModel({
@@ -739,6 +808,9 @@ type SessionInternals = {
     routerExport: string;
   }>;
   readMessages: (chatId: string) => Promise<readonly unknown[]>;
+  readChatWireContext: (
+    chatId: string
+  ) => Promise<Readonly<{ readMarks: readonly number[] }>>;
   openChatForActions: (chatId: string) => Promise<boolean>;
   openChat: (
     bindings: { moduleUrl: string; routerExport: string },
@@ -798,15 +870,15 @@ function message(id: string) {
 }
 
 function listChatsSession(
-  chats: readonly Record<string, unknown>[]
+  chats: readonly Record<string, unknown>[],
+  viewerIdentity: Readonly<Record<string, unknown>> = { id: "viewer-1" }
 ): MaxWebPageSession {
   const pageSession = {
-    viewer: {
-      id: "viewer-1",
+    viewer: Object.defineProperties({
       folders: {
         all: { chats }
       }
-    }
+    }, Object.getOwnPropertyDescriptors(viewerIdentity))
   };
   const evaluate = vi.fn((
     callback: (argument: unknown) => unknown,
@@ -841,14 +913,35 @@ function listChatsSession(
       restoreGlobalProperty(accessorSymbol, accessorDescriptor);
     }
   });
+  const hiddenLocator = {
+    first: () => hiddenLocator,
+    last: () => hiddenLocator,
+    or: () => hiddenLocator,
+    filter: () => hiddenLocator,
+    locator: () => hiddenLocator,
+    isVisible: () => Promise.resolve(false)
+  };
   const page = {
     on: vi.fn(),
-    evaluate
+    evaluate,
+    locator: () => hiddenLocator,
+    getByRole: () => hiddenLocator
   };
   return new MaxWebPageSession({
     page: page as unknown as Page,
     context: {} as BrowserContext
   });
+}
+
+function singletonViewerIdentity(
+  contactId: string | number | bigint
+): Readonly<Record<string, unknown>> {
+  return {
+    contactId,
+    get id(): never {
+      throw new Error("singleton model has no id");
+    }
+  };
 }
 
 function forwardingSession(

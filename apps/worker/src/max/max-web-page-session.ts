@@ -399,6 +399,7 @@ export class MaxWebPageSession {
         }
         const accessor = accessorValue as () => {
           viewer?: {
+            contactId?: unknown;
             id?: unknown;
             folders?: {
               all?: { chats?: unknown };
@@ -409,7 +410,9 @@ export class MaxWebPageSession {
         const session = accessor();
         const chats = session.viewer?.folders?.all?.chats;
         const values = iterableValues(chats);
-        const viewerId = opaque(session.viewer?.id);
+        const viewerId = opaque(
+          session.viewer?.contactId ?? session.viewer?.id
+        );
         const avatarByTitle = new Map<string, string>();
         for (const row of document.querySelectorAll("button.cell")) {
           const title = row.querySelector("h3")?.textContent.trim();
@@ -1325,12 +1328,15 @@ export class MaxWebPageSession {
       }
       const accessor = accessorValue as () => {
         viewer?: {
+          contactId?: unknown;
           id?: unknown;
           folders?: { all?: { chats?: unknown } };
         };
       };
       const session = accessor();
-      const viewerId = scalarText(session.viewer?.id);
+      const viewerId = scalarText(
+        session.viewer?.contactId ?? session.viewer?.id
+      );
       const source = session.viewer?.folders?.all?.chats;
       const entries = source !== null
         && typeof source === "object"
@@ -2144,10 +2150,12 @@ export class MaxWebPageSession {
         if (typeof accessorValue !== "function") {
           return false;
         }
-        const accessor = accessorValue as () =>
-          { viewer?: { id?: unknown } } | undefined;
+        const accessor = accessorValue as () => {
+          viewer?: { contactId?: unknown; id?: unknown };
+        } | undefined;
         const session = accessor();
-        return session?.viewer?.id !== undefined;
+        const id = session?.viewer?.contactId ?? session?.viewer?.id;
+        return id !== undefined;
       }, MAX_SESSION_ACCESSOR_KEY);
     } catch {
       return false;
@@ -2177,10 +2185,13 @@ export class MaxWebPageSession {
       if (typeof accessorValue !== "function") {
         return "0";
       }
-      const accessor = accessorValue as () =>
-        { viewer?: { id?: unknown } } | undefined;
+      const accessor = accessorValue as () => {
+        viewer?: { contactId?: unknown; id?: unknown };
+      } | undefined;
       const session = accessor();
-      const id = session?.viewer?.id;
+      // MAX now exposes the account's contact ID on a singleton viewer;
+      // accessing that model's own id throws instead of returning an ID.
+      const id = session?.viewer?.contactId ?? session?.viewer?.id;
       return typeof id === "bigint" || typeof id === "number"
         ? String(id)
         : typeof id === "string" ? id : "0";
@@ -2204,12 +2215,15 @@ export class MaxWebPageSession {
       }
       const accessor = accessorValue as () => {
         viewer?: {
+          contactId?: unknown;
           id?: unknown;
           folders?: { all?: { chats?: unknown } };
         };
       };
       const session = accessor();
-      const viewerId = safeOpaque(session.viewer?.id);
+      const viewerId = safeOpaque(
+        session.viewer?.contactId ?? session.viewer?.id
+      );
       const source = session.viewer?.folders?.all?.chats;
       const entries = source !== null
         && typeof source === "object"
