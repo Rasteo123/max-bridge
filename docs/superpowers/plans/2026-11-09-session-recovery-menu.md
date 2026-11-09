@@ -47,8 +47,8 @@
 ### Task 3: Integration and delivery (primary agent)
 
 - [x] Review combined changes; run `npm run verify` and relevant Playwright tests.
-- [ ] Commit source, publish branch, build and install a versioned server release with rollback available.
-- [ ] Verify health and the actual worker's authenticated chat-list result without exposing private content.
+- [x] Commit source, publish branch, build and install a versioned server release with rollback available.
+- [x] Verify health and the actual worker's authenticated chat-list result without exposing private content.
 
 ## Verification and review
 
@@ -57,3 +57,7 @@
 - Review found short-height/expanded menus could place actions offscreen. Added a failing browser regression, viewport height limit, menu scrolling and expansion reposition; regression passes.
 - Full verify: lint, types, build, 756 passing tests; 2 existing opt-in tests skipped. Browser suite: 15/15 pass.
 - Existing responsive browser tests referenced a removed header button; they now exercise the current return swipe.
+
+## Delivery
+
+Installed release `20261109T065320Z-71255dc902a0`; previous release `20261001T153210Z-87eee24752bc` retained. Restarted only the API. Production smoke test injected one read failure in a diagnostic gateway wrapper, performed one real affected-session close/reopen, and returned 14 validated chats. All three services active and health ready; served assets match the new build. Source branch: `fix/max-session-recovery-message-menu`; draft PR: https://github.com/Rasteo123/max-bridge/pull/1.
