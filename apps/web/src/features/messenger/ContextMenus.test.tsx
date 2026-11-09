@@ -287,6 +287,98 @@ describe("message context menu", () => {
     expect(onForward).toHaveBeenCalledWith(message);
   });
 
+  it("keeps the menu open when an incoming message scrolls the conversation", () => {
+    const props = {
+      chat: chat(),
+      wide: false,
+      onOpenChats: vi.fn(),
+      onSend: vi.fn()
+    };
+    const view = render(
+      <Conversation {...props} messages={[incomingMessage()]} />
+    );
+    const list = document.querySelector(".conversation__messages") as HTMLElement;
+    Object.defineProperty(list, "scrollHeight", {
+      configurable: true,
+      value: 2_000
+    });
+    Object.defineProperty(list, "clientHeight", {
+      configurable: true,
+      value: 500
+    });
+    list.scrollTop = 1_500;
+    fireEvent.scroll(list);
+    openMessageMenu("Входящее сообщение");
+
+    view.rerender(
+      <Conversation
+        {...props}
+        messages={[incomingMessage(), outgoingMessage()]}
+      />
+    );
+    expect(list.scrollTop).toBe(2_000);
+    // jsdom does not emit the scroll event caused by assigning scrollTop.
+    fireEvent.scroll(list);
+
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ответить" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByText("Ответ на сообщение")).toBeVisible();
+  });
+
+  it("keeps the menu open while scrolling the expanded reactions", () => {
+    const onReact = vi.fn();
+    render(
+      <MessageBubble message={incomingMessage()} onReact={onReact} />
+    );
+    openMessageMenu("Входящее сообщение");
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Показать все реакции"
+    }));
+
+    fireEvent.scroll(screen.getByLabelText("Реакции"));
+
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitemcheckbox", {
+      name: "Реакция 🫡"
+    }));
+    expect(onReact).toHaveBeenCalledWith("message-in", "🫡");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the menu open through a viewport resize and still dismisses with Escape", () => {
+    render(<MessageBubble message={incomingMessage()} />);
+    openMessageMenu("Входящее сообщение");
+
+    fireEvent.resize(window);
+
+    expect(screen.getByRole("menu")).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("dismisses the menu when switching to another conversation", () => {
+    const props = {
+      wide: false,
+      onOpenChats: vi.fn(),
+      onSend: vi.fn()
+    };
+    const view = render(
+      <Conversation {...props} chat={chat()} messages={[incomingMessage()]} />
+    );
+    openMessageMenu("Входящее сообщение");
+
+    view.rerender(
+      <Conversation
+        {...props}
+        chat={{ ...chat(), id: "chat-2", title: "Другой собеседник" }}
+        messages={[{ ...incomingMessage(), id: "other-message" }]}
+      />
+    );
+
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("closes on an outside press and clamps to the viewport", () => {
     render(<MessageBubble message={incomingMessage()} />);
     const bubble = screen.getByText("Входящее сообщение").closest("article");

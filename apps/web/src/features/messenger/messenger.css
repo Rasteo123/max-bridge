@@ -1692,7 +1692,10 @@
   position: fixed;
   z-index: 1000;
   width: min(286px, calc(100vw - 16px));
-  overflow: hidden;
+  max-height: calc(100dvh - 16px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 17px;
   background: color-mix(in srgb, var(--surface) 97%, transparent);

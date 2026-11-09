@@ -5,12 +5,15 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
+    "jsx": "react-jsx",
     "types": [
       "node",
-      "@playwright/test"
+      "@playwright/test",
+      "vite/client"
     ]
   },
   "include": [
-    "*.ts"
+    "**/*.ts",
+    "**/*.tsx"
   ]
 }

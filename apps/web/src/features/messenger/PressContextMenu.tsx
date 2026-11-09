@@ -66,25 +66,32 @@ export function PressContextMenu({
   const visibleReactions = reactionsExpanded ? allReactions : reactions;
 
   useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (menu === null) {
-      return;
+    function updatePosition() {
+      const menu = menuRef.current;
+      if (menu === null) {
+        return;
+      }
+      const bounds = menu.getBoundingClientRect();
+      const maxX = Math.max(
+        VIEWPORT_MARGIN,
+        window.innerWidth - bounds.width - VIEWPORT_MARGIN
+      );
+      const maxY = Math.max(
+        VIEWPORT_MARGIN,
+        window.innerHeight - bounds.height - VIEWPORT_MARGIN
+      );
+      setPosition({
+        x: clamp(point.x, VIEWPORT_MARGIN, maxX),
+        y: clamp(point.y, VIEWPORT_MARGIN, maxY)
+      });
+      setMeasured(true);
     }
-    const bounds = menu.getBoundingClientRect();
-    const maxX = Math.max(
-      VIEWPORT_MARGIN,
-      window.innerWidth - bounds.width - VIEWPORT_MARGIN
-    );
-    const maxY = Math.max(
-      VIEWPORT_MARGIN,
-      window.innerHeight - bounds.height - VIEWPORT_MARGIN
-    );
-    setPosition({
-      x: clamp(point.x, VIEWPORT_MARGIN, maxX),
-      y: clamp(point.y, VIEWPORT_MARGIN, maxY)
-    });
-    setMeasured(true);
-  }, [point]);
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [point, reactionsExpanded]);
 
   useEffect(() => {
     function closeOnEscape(event: globalThis.KeyboardEvent) {
@@ -93,16 +100,11 @@ export function PressContextMenu({
         onClose();
       }
     }
-    function closeOnViewportChange() {
-      onClose();
-    }
     document.addEventListener("keydown", closeOnEscape);
-    document.addEventListener("scroll", closeOnViewportChange, true);
-    window.addEventListener("resize", closeOnViewportChange);
+    // Incoming messages and focus changes can scroll the conversation without
+    // a dismissal gesture. The expanded reaction grid also scrolls internally.
     return () => {
       document.removeEventListener("keydown", closeOnEscape);
-      document.removeEventListener("scroll", closeOnViewportChange, true);
-      window.removeEventListener("resize", closeOnViewportChange);
     };
   }, [onClose]);
 

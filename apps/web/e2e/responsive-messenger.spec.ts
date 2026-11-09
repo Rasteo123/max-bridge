@@ -31,9 +31,7 @@ for (const viewport of viewports) {
       await expectBothPanesInsideShell(page);
     } else {
       await expectFullWidthConversation(page);
-      await page.getByRole("button", {
-        name: "Открыть список чатов"
-      }).click();
+      await drag(page, 8, 300, 180);
       await expectFullWidthList(page);
     }
   });

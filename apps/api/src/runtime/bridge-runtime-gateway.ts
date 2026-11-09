@@ -62,6 +62,7 @@ export interface RuntimeUsers {
 }
 
 const RUNTIME_MEDIA_ROOT = "/run/maxbridge/media";
+const MAX_SESSION_RECOVERY_COOLDOWN_MS = 60_000;
 
 export class BridgeRuntimeGateway implements
   ChatGateway,
@@ -71,6 +72,11 @@ export class BridgeRuntimeGateway implements
   LiveGateway {
   private readonly opened = new Set<string>();
   private readonly opening = new Map<string, Promise<void>>();
+  private readonly sessionRecoveries = new Map<string, Readonly<{
+    generation: number;
+    startedAt: number;
+    promise: Promise<void>;
+  }>>();
   private readonly sessionGeneration = new Map<string, number>();
   private readonly loggingOut = new Set<string>();
   private readonly closing = new Map<string, Promise<void>>();
@@ -227,6 +233,7 @@ export class BridgeRuntimeGateway implements
 
   private async closeSession(userLookup: string): Promise<void> {
     this.cancelSessionRestoreRetry(userLookup);
+    this.sessionRecoveries.delete(userLookup);
     this.loggingOut.add(userLookup);
     this.revokedSessions.add(userLookup);
     this.sessionGeneration.set(
@@ -845,12 +852,26 @@ export class BridgeRuntimeGateway implements
     this.restoreRetryAttempts.delete(userLookup);
   }
 
-  private async openSession(userLookup: string): Promise<void> {
+  private async openSession(
+    userLookup: string,
+    replaceExisting = false
+  ): Promise<void> {
     const generation = this.sessionGeneration.get(userLookup) ?? 0;
     const storageState = await this.options.users.loadMaxSessionByLookup(
       userLookup
     );
     try {
+      if (replaceExisting) {
+        if (storageState === null) {
+          throw new Error("Saved MAX session is unavailable");
+        }
+        this.assertSessionGeneration(userLookup, generation);
+        await this.options.worker.request({
+          operation: "session.close",
+          sessionHandle: sessionHandle(userLookup)
+        });
+        this.assertSessionGeneration(userLookup, generation);
+      }
       await this.options.worker.request({
         operation: "session.open",
         sessionHandle: sessionHandle(userLookup),
@@ -874,6 +895,45 @@ export class BridgeRuntimeGateway implements
     }
   }
 
+  private assertSessionGeneration(userLookup: string, generation: number): void {
+    if (
+      this.loggingOut.has(userLookup)
+      || (this.sessionGeneration.get(userLookup) ?? 0) !== generation
+    ) {
+      throw new Error("Session lifecycle changed");
+    }
+  }
+
+  private recoverFailedSession(userLookup: string): Promise<void> {
+    const generation = this.sessionGeneration.get(userLookup) ?? 0;
+    const previous = this.sessionRecoveries.get(userLookup);
+    if (
+      previous?.generation === generation
+      && Date.now() - previous.startedAt < MAX_SESSION_RECOVERY_COOLDOWN_MS
+    ) {
+      return previous.promise;
+    }
+    const existing = this.opening.get(userLookup);
+    if (existing !== undefined) {
+      return existing;
+    }
+    // Block new operations behind the same opening promise. Recreate only the
+    // affected account's browser context, keeping its encrypted saved login.
+    this.opened.delete(userLookup);
+    const opening = this.openSession(userLookup, true).finally(() => {
+      if (this.opening.get(userLookup) === opening) {
+        this.opening.delete(userLookup);
+      }
+    });
+    this.opening.set(userLookup, opening);
+    this.sessionRecoveries.set(userLookup, {
+      generation,
+      startedAt: Date.now(),
+      promise: opening
+    });
+    return opening;
+  }
+
   private async requestWithSessionRecovery(
     userLookup: string,
     request: WorkerClientRequest
@@ -892,10 +952,13 @@ export class BridgeRuntimeGateway implements
       }
       return response;
     } catch (error) {
-      if (
-        !(error instanceof WorkerRequestError)
-        || error.code !== "session_not_found"
-      ) {
+      if (!(error instanceof WorkerRequestError)) {
+        throw error;
+      }
+      const failedChatRead = error.code === "worker_failure"
+        && request.operation === "chats.list"
+        && this.options.users.findUserByLookup(userLookup)?.state === "active";
+      if (error.code !== "session_not_found" && !failedChatRead) {
         throw error;
       }
       // The worker keeps sessions in memory, while the API caches which
@@ -907,8 +970,12 @@ export class BridgeRuntimeGateway implements
       ) {
         throw new Error("Session lifecycle changed", { cause: error });
       }
-      this.opened.delete(userLookup);
-      await this.ensureSession(userLookup);
+      if (failedChatRead) {
+        await this.recoverFailedSession(userLookup);
+      } else {
+        this.opened.delete(userLookup);
+        await this.ensureSession(userLookup);
+      }
       if (
         (this.sessionGeneration.get(userLookup) ?? 0) !== generation
         || this.loggingOut.has(userLookup)
