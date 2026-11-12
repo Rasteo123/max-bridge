@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 import cookie from "@fastify/cookie";
 import staticFiles from "@fastify/static";
@@ -152,7 +152,13 @@ export async function buildApp(
       root: resolve(options.webRoot),
       prefix: "/",
       decorateReply: false,
-      cacheControl: false
+      cacheControl: false,
+      setHeaders(reply, filePath) {
+        if (basename(filePath) === "index.html") {
+          // A cached entry page can point to assets removed by the next release.
+          reply.header("cache-control", "no-store");
+        }
+      }
     });
   }
 

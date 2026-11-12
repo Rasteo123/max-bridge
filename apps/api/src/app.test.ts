@@ -1,4 +1,7 @@
 import type { IncomingMessage } from "node:http";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -34,6 +37,36 @@ afterEach(async () => {
 });
 
 describe("hardened Fastify app", () => {
+  it("prevents the mini app entry page from being reused after a release", async () => {
+    const webRoot = await mkdtemp(join(tmpdir(), "maxbridge-web-"));
+    try {
+      await writeFile(join(webRoot, "index.html"), "<!doctype html><title>Max</title>");
+      const webApp = await buildApp({
+        services,
+        allowedOrigins: new Set(["https://max-users.online"]),
+        allowedHosts: new Set(["max-users.online"]),
+        logger: false,
+        webRoot
+      });
+      try {
+        for (const url of ["/", "/index.html", "/?launch=1"]) {
+          const response = await webApp.inject({
+            method: "GET",
+            url,
+            headers: { host: "max-users.online" }
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(response.headers["cache-control"]).toBe("no-store");
+        }
+      } finally {
+        await webApp.close();
+      }
+    } finally {
+      await rm(webRoot, { recursive: true, force: true });
+    }
+  });
+
   it("defaults to loopback and exposes secret-free health", async () => {
     expect(DEFAULT_API_HOST).toBe("127.0.0.1");
 
